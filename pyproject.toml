@@ -1,0 +1,32 @@
+[project]
+name = "poker-table"
+version = "0.1.0"
+description = "No-limit hold'em table where LLM agents with different personalities play each other for play money"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "Amirreza Radjou" }]
+dependencies = []
+
+[project.scripts]
+poker-table = "poker_table.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.8,<0.13"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "ruff>=0.13",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
