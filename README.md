@@ -1,7 +1,9 @@
 # poker-table
 
 A no-limit Texas hold'em table where LLM agents with different personalities play
-each other for play money — and you can pull up a chair.
+each other for play money — and you can pull up a chair. Later, the same engine turns
+around and coaches *you*: **poker-coach** analyses your own hand histories and explains
+your recurring leaks.
 
 ## What it is
 
@@ -50,6 +52,29 @@ hand history + reasoning trace + stats ──► leaderboard, replay viewer
 - Exploitability stats; how each agent adapts (or doesn't) to opponents.
 - Illegal-action rate (schema violations), decision latency, cost per hand.
 
+## Phase 2 — poker-coach: find your recurring leaks
+
+The chess-coach idea applied to poker. Once the table exists, point the same machinery at
+*your* hands — from poker-table itself or from hand-history exports of real sites — and
+get explanations of the mistakes you keep making, not just a per-hand verdict.
+
+- **Import** hand histories (poker-table's own format plus common site exports).
+- **Ground truth from solvers and math, not from the model**: preflop ranges from
+  standard charts, equity and pot-odds calculations for every decision, and a postflop
+  solver (an open-source one, or a simplified abstraction) for the spots that matter.
+  Every decision gets a tagged fact: *called a 3-bet out of position with a hand outside
+  the calling range*, *c-bet 88% on wet boards*, *folded getting 5:1 with 9 outs*.
+- **Pattern mining across hands**: cluster the facts by street, position, stack depth,
+  board texture and opponent type until the recurring leaks fall out.
+- **Explanations that cite hands**: Claude narrates the clusters in plain language,
+  quoting hand IDs and streets, and never invents a leak the facts don't support.
+- **Drills**: the coach rebuilds your worst spots as quizzes against the engine and
+  brings back the ones you keep failing (spaced repetition).
+- **Weekly leak report**: what got better, what didn't, the one thing to work on.
+
+What it measures: leak frequency over time per tag, quiz accuracy per leak, and — the
+honest one — bankroll trend on the table after each report.
+
 ## Planned stack
 
 Go engine and server, WebSocket web UI for human seats, SQLite for hand histories and
@@ -61,7 +86,12 @@ stats. Model backends behind one interface.
   side-pot edge cases.
 - **v1** — LLM seats with structured actions; leaderboard; reasoning traces.
 - **v2** — human seat in the browser; personality library; opponent-modelling stats.
-- **v3** — tournaments (sit-and-go), commentary track, published league results.
+- **v3** — tournaments (sit-and-go), commentary track (via `commentator`), published
+  league results.
+- **v4 (poker-coach)** — hand-history import, equity/pot-odds facts, preflop range
+  tagging, first leak report citing hands.
+- **v5 (poker-coach)** — postflop solver integration, drills with spaced repetition,
+  weekly leak reports.
 
 ## Status
 
