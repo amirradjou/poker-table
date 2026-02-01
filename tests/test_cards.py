@@ -58,3 +58,16 @@ def test_deck_does_not_touch_global_random(monkeypatch: pytest.MonkeyPatch) -> N
     random.seed(123)
     Deck(seed=99).deal(52)
     assert random.random() == before
+
+
+def test_stacked_deck_deals_the_given_cards_first_then_the_rest() -> None:
+    top = parse_cards("As Kd 2c")
+    deck = Deck.stacked(top)
+    assert deck.deal(3) == top
+    remaining = deck.deal(49)
+    assert len(set(remaining) | set(top)) == 52
+
+
+def test_stacked_deck_rejects_duplicates() -> None:
+    with pytest.raises(ValueError):
+        Deck.stacked(parse_cards("As As"))
