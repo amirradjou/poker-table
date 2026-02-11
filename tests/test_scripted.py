@@ -93,7 +93,7 @@ def test_tag_calls_a_draw_when_priced_in() -> None:
 
 def test_rock_variant_is_tighter_and_more_passive() -> None:
     rock = TightAggressive("rock", tightness=2, aggression=0.0)
-    hand = hand_with({0: "3c 8d", 1: "Ac Jd", 2: "7s 2h"})  # AJo scores 8: TAG opens from SB
+    hand = hand_with({0: "3c 8d", 1: "Kc Jd", 2: "7s 2h"})  # KJo scores 7: TAG opens from SB
     hand.apply(Action.fold())
     assert TightAggressive().act(make_view(hand, 1)).action.type is ActionType.RAISE
     assert rock.act(make_view(hand, 1)).action == Action.fold()
