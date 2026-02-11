@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Protocol
+from dataclasses import dataclass, field
+from typing import Any, Protocol
 
 from poker_table.cards import Card, cards_str
 from poker_table.engine import Action, Event, EventKind, Hand, LegalActions, Street
@@ -65,6 +65,7 @@ class SeatView:
     legal: LegalActions
     players: tuple[PlayerView, ...]
     events: tuple[Event, ...]
+    talk: tuple[tuple[str, str], ...] = ()  # (seat name, what they said) so far this hand
 
     @property
     def to_call(self) -> int:
@@ -118,6 +119,9 @@ class SeatView:
             lines.append("Action so far:")
             for e in actions:
                 lines.append("  " + describe_event(e, self.players))
+        if self.talk:
+            lines.append("Table talk:")
+            lines += [f'  {who}: "{text}"' for who, text in self.talk]
         lines.append(f"Legal: {self.legal.describe()}")
         return "\n".join(lines)
 
@@ -143,6 +147,7 @@ class Decision:
     action: Action
     reasoning: str = ""
     table_talk: str = ""
+    meta: dict[str, Any] = field(default_factory=dict)  # model, tokens, cost — for the record
 
 
 class Agent(Protocol):
@@ -151,7 +156,7 @@ class Agent(Protocol):
     def act(self, view: SeatView) -> Decision: ...
 
 
-def make_view(hand: Hand, seat_index: int) -> SeatView:
+def make_view(hand: Hand, seat_index: int, *, talk: tuple[tuple[str, str], ...] = ()) -> SeatView:
     """Build the view for ``seat_index``; hole-card events of other seats are dropped."""
     seat = hand.seats[seat_index]
     if seat.hole is None:
@@ -191,6 +196,7 @@ def make_view(hand: Hand, seat_index: int) -> SeatView:
         legal=hand.legal_actions() if hand.actor is seat else _no_actions(hand),
         players=players,
         events=events,
+        talk=talk,
     )
 
 

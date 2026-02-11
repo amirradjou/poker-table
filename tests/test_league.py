@@ -72,3 +72,16 @@ def test_registry_builds_named_and_numbered_agents() -> None:
         make_agent("wizard")
     with pytest.raises(ValueError, match="duplicate"):
         make_agent("tag:tag", taken=["tag"])
+
+
+def test_registry_builds_llm_seats_without_touching_the_network() -> None:
+    from poker_table.agents import LLMAgent
+
+    agents = make_agents(["llm:nerd", "bob:llm:maniac@claude-sonnet-5", "llm:nerd"])
+    assert [a.name for a in agents] == ["nerd", "bob", "nerd2"]
+    assert all(isinstance(a, LLMAgent) for a in agents)
+    assert agents[0].model == "claude-opus-5" and agents[1].model == "claude-sonnet-5"
+    assert agents[1].personality.key == "maniac"
+    with pytest.raises(ValueError, match="unknown personality"):
+        make_agent("llm:wizard")
+    assert "llm:storyteller" in available_kinds()

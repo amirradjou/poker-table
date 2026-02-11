@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 
 from poker_table.agents.base import Agent
+from poker_table.agents.llm import DEFAULT_MODEL, LLMAgent
+from poker_table.agents.personalities import PERSONALITIES
 from poker_table.agents.scripted import CallingStation, Maniac, RandomAgent, TightAggressive
 
 Factory = Callable[[str, int], Agent]
@@ -19,27 +21,43 @@ SCRIPTED: dict[str, Factory] = {
 
 
 def available_kinds() -> list[str]:
-    return sorted(SCRIPTED)
+    return sorted(SCRIPTED) + [f"llm:{p}" for p in sorted(PERSONALITIES)]
+
+
+def _build(kind: str, name: str, seed: int) -> Agent:
+    if kind in SCRIPTED:
+        return SCRIPTED[kind](name, seed)
+    if kind.startswith("llm:"):
+        personality, _, model = kind[4:].partition("@")
+        return LLMAgent(name, personality, model=model or DEFAULT_MODEL)
+    raise ValueError(f"unknown agent kind {kind!r}; choose from {', '.join(available_kinds())}")
+
+
+def _default_name(kind: str) -> str:
+    return kind[4:].partition("@")[0] if kind.startswith("llm:") else kind
 
 
 def make_agent(spec: str, *, seed: int = 0, taken: Sequence[str] = ()) -> Agent:
-    """``spec`` is ``kind`` or ``name:kind``. Unnamed agents get the kind as their name,
-    numbered when the same kind sits down twice."""
-    name, sep, kind = spec.partition(":")
-    if not sep:
-        kind, name = spec, spec
-    kind = kind.strip().lower()
-    name = name.strip()
-    if kind not in SCRIPTED:
-        raise ValueError(f"unknown agent kind {kind!r}; choose from {', '.join(available_kinds())}")
-    if not sep:
-        base, counter = name, 2
+    """Build one agent from a spec.
+
+    Specs: ``tag`` · ``alice:tag`` · ``llm:nerd`` · ``bob:llm:maniac@claude-sonnet-5``.
+    Unnamed agents are named after their kind, numbered when it repeats.
+    """
+    parts = [p.strip() for p in spec.split(":")]
+    named = len(parts) > 1 and (parts[1].lower() in SCRIPTED or parts[1].lower() == "llm")
+    name = parts[0] if named else ""
+    kind = ":".join(parts[1:] if named else parts).lower()
+    if not kind:
+        raise ValueError(f"empty agent kind in {spec!r}")
+    if not named:
+        base = _default_name(kind)
+        name, counter = base, 2
         while name in taken:
             name = f"{base}{counter}"
             counter += 1
     elif name in taken:
         raise ValueError(f"duplicate seat name {name!r}")
-    return SCRIPTED[kind](name, seed)
+    return _build(kind, name, seed)
 
 
 def make_agents(specs: Sequence[str], *, seed: int = 0) -> list[Agent]:
