@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 
 from poker_table.agents.base import Agent
+from poker_table.agents.human import HumanAgent
 from poker_table.agents.llm import DEFAULT_MODEL, LLMAgent
 from poker_table.agents.personalities import PERSONALITIES
 from poker_table.agents.scripted import CallingStation, Maniac, RandomAgent, TightAggressive
@@ -17,6 +18,7 @@ SCRIPTED: dict[str, Factory] = {
     "tag": lambda name, seed: TightAggressive(name, seed=seed),
     "rock": lambda name, seed: TightAggressive(name, tightness=2, aggression=0.3, seed=seed),
     "maniac": lambda name, seed: Maniac(name, seed=seed),
+    "human": lambda name, seed: HumanAgent(name),
 }
 
 
