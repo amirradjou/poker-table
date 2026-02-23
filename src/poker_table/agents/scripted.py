@@ -158,7 +158,7 @@ class TightAggressive:
         outs = (9 if flush else 0) + (8 if straight else 0)
         to_come = 2 if view.street is Street.FLOP else 1
         equity = outs_equity(outs, to_come)
-        why = f"{made.name.lower()} on {view.street.value}"
+        why = f"{made.name.lower().replace('_', ' ')} on {view.street.value}"
         aggressive = self._rng.random() < self.aggression
 
         if made is MadeHand.STRONG:

@@ -60,6 +60,12 @@ def build_parser() -> argparse.ArgumentParser:
     replay.add_argument("--hand", help="hand id to show (default: all)")
     replay.add_argument("--last", type=int, help="only the last N hands")
     replay.add_argument("-r", "--reasoning", action="store_true", help="include private reasoning")
+
+    serve = sub.add_parser("serve", help="open the replay viewer and leaderboard in a browser")
+    serve.add_argument("file", type=Path, help="JSONL file (may still be growing)")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8765)
+    serve.add_argument("--open", action="store_true", help="open the browser")
     return parser
 
 
@@ -132,6 +138,22 @@ def cmd_replay(args: argparse.Namespace, out) -> int:
     return 0
 
 
+def cmd_serve(args: argparse.Namespace, out) -> int:
+    import uvicorn
+
+    from poker_table.web.app import create_app
+
+    app = create_app(args.file)
+    url = f"http://{args.host}:{args.port}/"
+    print(f"poker-table viewer on {url} (Ctrl-C to stop)", file=out)
+    if args.open:
+        import webbrowser
+
+        webbrowser.open(url)
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None, out=None) -> int:
     args = build_parser().parse_args(argv)
     out = out or sys.stdout
@@ -143,6 +165,8 @@ def main(argv: Sequence[str] | None = None, out=None) -> int:
                 return cmd_stats(args, out)
             case "replay":
                 return cmd_replay(args, out)
+            case "serve":
+                return cmd_serve(args, out)
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
