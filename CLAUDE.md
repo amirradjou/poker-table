@@ -18,6 +18,8 @@ a hand history with each seat's private reasoning attached.
 | Watch hands live | `uv run poker-table play -n 5 --seats tag,maniac --show` |
 | Leaderboard from a file | `uv run poker-table stats hands.jsonl` |
 | Replay with reasoning | `uv run poker-table replay hands.jsonl --hand 7 -r` |
+| Browser viewer | `uv run poker-table serve hands.jsonl --open` |
+| Sit down yourself | `uv run poker-table play -n 10 --seats me:human,tag,maniac` |
 | Test | `uv run pytest` |
 | Lint + format | `uv run ruff check . && uv run ruff format .` |
 
@@ -38,7 +40,11 @@ a hand history with each seat's private reasoning attached.
 - `history.py` — `HandHistory` (JSON/JSONL, `render(reasoning=True)`).
 - `stats.py` — VPIP/PFR/3-bet/F3B/AF/WTSD/W$SD/bluff/illegal/bb-100 + `format_table`.
 - `league.py` — `run_league()`: N hands, rotating button, seeded, top-up or carry stacks.
-- `cli.py` — `play`, `stats`, `replay`.
+- `agents/human.py` — terminal seat (`--seats me:human,...`), kind `human`.
+- `web/app.py` + `web/static/index.html` — `poker-table serve FILE`: FastAPI JSON API over a
+  JSONL file (`/api/hands`, `/api/hands/{id}` with decision traces joined to action steps,
+  `/api/stats`) and a single-file vanilla-JS replay viewer (paper-on-felt look, Source Sans 3).
+- `cli.py` — `play`, `stats`, `replay`, `serve`.
 - `tests/` mirror the modules; `test_engine_betting.py` has a 400-hand random fuzz.
 
 ## Conventions
@@ -52,20 +58,21 @@ a hand history with each seat's private reasoning attached.
 
 ## Status / how to continue (as of 2026-09-17)
 Done on branch `feat/engine` (PR #1): engine, evaluator, side pots, scripted bots, LLM seats
-(structured output, personalities, cost accounting, auto-fold gate), table talk, hand
-histories, stats, league, CLI. 195 tests green. **Not done yet, in this order:**
+(structured output, personalities, cost accounting, auto-fold gate), table talk, human terminal
+seat, hand histories, stats, league, CLI, browser replay viewer. 206 tests green. HQ registered. **Not done yet, in this order:**
 
 1. **Live smoke test of the LLM seat** — no API key on this machine yet. Run
    `ANTHROPIC_API_KEY=... uv run poker-table play -n 2 --seats llm:nerd,tag --show` and check
    the request shape (`output_config.format` json_schema + `effort`) is accepted; fix
    `agents/llm.py::_call` if the API rejects anything. Load the `claude-api` skill before
    touching that file.
-2. **Human seat in the terminal** (`agents/human.py`): prompts on stdin with `view.describe()`,
-   parses `f/c/k/b 12/r 12`; register as kind `human`. Then a `poker-table sit` command.
-3. **Web UI** (later): FastAPI + websocket streaming `SeatView`s and hand histories; humans sit
-   through the browser; replay viewer.
-4. **Register in HQ**: add `poker-table` to `~/Projects/hq/projects.yaml` (track `hobby`,
-   local `~/Projects/Fun/poker-table`) and write `roadmaps/poker-table.md`.
+2. **Live table in the browser**: `serve --live` runs a league in a background thread and
+   pushes finished hands over SSE/websocket (the viewer already re-reads the JSONL; a push is
+   enough); then a browser `HumanAgent` that waits on a websocket for the action.
+3. **Per-model comparison**: same personality on opus-5 / sonnet-5 / haiku-4-5, report bb/100
+   vs $/hand; commit the JSONL + leaderboard under `docs/` as the first published result.
+4. **Web viewer polish** if wanted: bankroll-over-time chart on the leaderboard tab
+   (load the `dataviz` skill first), seat filter, "hide cards until showdown" default.
 5. Phase 2 poker-coach: see README.
 
 ## Gotchas / decisions
@@ -75,5 +82,8 @@ histories, stats, league, CLI. 195 tests green. **Not done yet, in this order:**
   possible; a raise smaller than the last full raise does not reopen the action (`Seat.acted`).
 - Scripted bots hold their own `random.Random(seed)`: two `run_league` calls with the *same
   agent objects* diverge — build fresh agents for reproducibility tests.
+- The web viewer is one HTML file with inline CSS/JS on purpose (no build step); the browser
+  caches it aggressively during development — reload with a query string (`/?v=2`).
+- `pkill -f "poker-table serve"` kills the shell that runs it too; use `pgrep`/`kill` by PID.
 - Stats: a BB check is not VPIP; 3-bet opportunity = acting with exactly one raise in front and
   not being the opener; bluff = postflop bet/raise with no pair and no draw (uses shown cards).
