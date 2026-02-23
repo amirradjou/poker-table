@@ -6,12 +6,14 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from poker_table.engine import EventKind
 from poker_table.history import HandHistory, read_jsonl
 from poker_table.stats import compute_stats, leaderboard
+from poker_table.web.live import LiveSession
 
 STATIC = Path(__file__).parent / "static"
 
@@ -76,10 +78,16 @@ def steps_for(history: HandHistory) -> list[dict[str, Any]]:
     return steps
 
 
-def create_app(path: Path | str) -> FastAPI:
+class ActRequest(BaseModel):
+    action: str
+    table_talk: str = ""
+
+
+def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
     store = HandStore(Path(path))
     app = FastAPI(title="poker-table", docs_url=None, redoc_url=None)
     app.state.store = store
+    app.state.live = live
 
     @app.get("/")
     def index() -> FileResponse:
@@ -102,6 +110,35 @@ def create_app(path: Path | str) -> FastAPI:
         if history is None:
             raise HTTPException(404, f"no hand {hand_id!r}")
         return history.to_dict() | {"steps": steps_for(history)}
+
+    @app.get("/api/live")
+    def live_status() -> dict[str, Any]:
+        if live is None:
+            return {"live": False}
+        return live.status()
+
+    @app.get("/api/events")
+    def events() -> StreamingResponse:
+        if live is None:
+            raise HTTPException(404, "not a live session")
+        return StreamingResponse(
+            live.sse(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.post("/api/act")
+    def act(body: ActRequest) -> dict[str, Any]:
+        human = live.human if live is not None else None
+        if human is None:
+            raise HTTPException(404, "no human seat at this table")
+        try:
+            action = human.submit(body.action, body.table_talk)
+        except LookupError as exc:
+            raise HTTPException(409, str(exc)) from None
+        except ValueError as exc:
+            raise HTTPException(400, f"bad action: {exc}") from None
+        return {"ok": True, "action": str(action)}
 
     @app.get("/api/stats")
     def stats() -> dict[str, Any]:
