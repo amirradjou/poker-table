@@ -186,6 +186,8 @@ def live_view_payload(view: SeatView) -> dict[str, Any]:
         "talk": [list(t) for t in view.talk],
         "pot": view.pot,
         "to_call": view.to_call,
+        "current_bet": view.current_bet,
+        "street_bet": view.street_bet,
         "legal": {
             "can_check": legal.can_check,
             "call_amount": legal.call_amount,

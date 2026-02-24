@@ -155,6 +155,28 @@
   @media (prefers-reduced-motion: no-preference) {
     .seat, .log li { transition: background-color .2s, border-color .2s, opacity .2s; }
   }
+  header .live { display: inline-flex; align-items: center; gap: 8px; }
+  header .live::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--gold); }
+  header .live.over::before { background: rgba(255,255,255,.4); }
+  header .live.turn::before { animation: pulse 1s infinite alternate; }
+  @keyframes pulse { from { opacity: .3; } to { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { header .live.turn::before { animation: none; } }
+
+  .action-bar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+    margin: 0 auto 18px; max-width: 760px; background: #fff4cf; border: 2px solid var(--gold);
+    border-radius: 8px; padding: 12px 14px;
+  }
+  .action-bar .lead { width: 100%; font-weight: 700; }
+  .action-bar .lead span { font-weight: 400; color: var(--ink-soft); }
+  .action-bar button.primary { background: var(--felt); color: var(--white); border-color: var(--felt); }
+  .action-bar button.primary:hover { background: var(--felt-deep); }
+  .action-bar .size { display: inline-flex; align-items: center; gap: 6px; }
+  .action-bar input[type=number] { font: inherit; width: 90px; padding: 5px 8px; border: 1px solid #c9bfa6; border-radius: 6px; }
+  .action-bar input[type=text] { font: inherit; flex: 1 1 200px; padding: 5px 8px; border: 1px solid #c9bfa6; border-radius: 6px; }
+  .action-bar .quick { display: inline-flex; gap: 4px; }
+  .action-bar .quick button { padding: 3px 8px; font-size: 14px; }
+  .action-bar .talk-list { width: 100%; color: var(--ink-soft); font-style: italic; }
   .hidden { display: none !important; }
 </style>
 </head>
@@ -162,7 +184,9 @@
 <header>
   <h1>poker-table</h1>
   <span class="file" id="file">loading…</span>
+  <span class="live hidden" id="live"></span>
   <nav>
+    <button id="follow" class="hidden" aria-pressed="true" title="Jump to each new hand as it finishes">Follow</button>
     <button id="tab-hands" aria-pressed="true">Hands</button>
     <button id="tab-board" aria-pressed="false">Leaderboard</button>
   </nav>
@@ -185,11 +209,24 @@
           <div class="board" id="board"></div>
         </div>
       </div>
+      <form class="action-bar hidden" id="action-bar">
+        <div class="lead">Your turn <span id="action-legal"></span></div>
+        <button type="button" id="act-fold">Fold</button>
+        <button type="button" class="primary" id="act-check">Check</button>
+        <div class="size hidden" id="act-size">
+          <button type="button" class="primary" id="act-raise">Raise to</button>
+          <input type="number" id="act-amount" min="0" step="1" aria-label="Amount">
+          <span class="quick" id="act-quick"></span>
+        </div>
+        <input type="text" id="act-talk" placeholder="Say something to the table (optional)" maxlength="140">
+        <div class="talk-list hidden" id="act-talk-list"></div>
+      </form>
       <div class="controls">
         <button id="first" title="Start (Home)">⏮</button>
         <button id="prev" title="Back (←)">◀</button>
         <button id="next" title="Forward (→)">▶</button>
         <button id="last" title="End (End)">⏭</button>
+        <button id="auto" aria-pressed="false" title="Play the hand step by step (Space)">Auto</button>
         <input type="range" id="scrub" min="0" value="0" aria-label="Step">
         <button id="toggle-think" aria-pressed="true">Show thinking</button>
         <button id="toggle-cards" aria-pressed="true">Show all cards</button>
@@ -227,6 +264,7 @@ const PERCENT = new Set(["vpip", "pfr", "3bet", "f3b", "wtsd", "w$sd", "bluff", 
 
 let listOffset = 0, listTotal = 0;
 let hand = null, step = 0, showThink = true, showCards = true;
+let live = null, follow = true, autoTimer = null, turn = null;
 
 function cardEl(text, small) {
   const el = document.createElement("span");
@@ -267,9 +305,13 @@ async function loadList(reset) {
   $("more").classList.toggle("hidden", listOffset >= listTotal);
 }
 
-async function openHand(id) {
+async function openHand(id, { autoplay = false } = {}) {
+  stopAuto();
   hand = await api(`/api/hands/${id}`);
+  hand.live = false;
   step = 0;
+  $("action-bar").classList.add("hidden");
+  $("summary").classList.remove("hidden");
   for (const b of $("hand-list").querySelectorAll("button[data-id]")) b.setAttribute("aria-current", b.dataset.id === id);
   $("empty").classList.add("hidden");
   $("replay").classList.remove("hidden");
@@ -280,6 +322,7 @@ async function openHand(id) {
   buildSummary();
   render();
   history.replaceState(null, "", `#${id}`);
+  if (autoplay) startAuto();
 }
 
 // Table state after the first `n` steps: stacks, bets, folds, board, pot.
@@ -307,13 +350,14 @@ function stateAt(n) {
   // Who acts next: the seat of the next action step, if any.
   const nxt = hand.steps.slice(n).find(e => e.kind === "action");
   if (nxt) acting = nxt.seat;
+  if (hand.live && n >= hand.steps.length) acting = hand.seat;
   return { seats, board, pot, street, acting, showdown, done: n >= hand.steps.length };
 }
 
 function render() {
   const st = stateAt(step);
   $("scrub").value = step;
-  $("street").textContent = st.done ? "hand over" : st.street;
+  $("street").textContent = hand.live ? hand.street : st.done ? "hand over" : st.street;
   // board
   const board = $("board"); board.innerHTML = "";
   st.board.forEach(c => board.appendChild(cardEl(c)));
@@ -434,6 +478,128 @@ async function showBoard() {
   $("board-table").innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
 }
 
+function startAuto() {
+  if (!hand || autoTimer) return;
+  if (step >= hand.steps.length) step = 0;
+  $("auto").setAttribute("aria-pressed", "true");
+  autoTimer = setInterval(() => {
+    if (step >= hand.steps.length) { stopAuto(); return; }
+    go(step + 1);
+  }, 650);
+}
+function stopAuto() {
+  if (autoTimer) clearInterval(autoTimer);
+  autoTimer = null;
+  $("auto").setAttribute("aria-pressed", "false");
+}
+
+// ---- live sessions ----
+function liveText(st) {
+  if (st.error) return `live session failed: ${st.error}`;
+  if (st.finished) return `session over, ${st.hands_played} hands`;
+  if (st.turn) return "waiting for you";
+  return `live: hand ${st.hands_played + 1} of ${st.hands_total}`;
+}
+function setLive(st) {
+  live = st;
+  const el = $("live");
+  el.classList.remove("hidden");
+  el.textContent = liveText(st);
+  el.classList.toggle("over", !!st.finished);
+  el.classList.toggle("turn", !!st.turn);
+  $("follow").classList.remove("hidden");
+}
+async function connectLive() {
+  const st = await api("/api/live");
+  if (!st.live) return;
+  setLive(st);
+  if (st.turn) showTurn(st.turn);
+  const es = new EventSource("/api/events");
+  es.onmessage = async (msg) => {
+    const ev = JSON.parse(msg.data);
+    if (ev.type === "hand") {
+      await loadSession();
+      await loadList(true);
+      const now = await api("/api/live");  // the next hand may already be waiting for us
+      setLive(now);
+      if (now.turn) showTurn(now.turn);
+      else if (follow) openHand(ev.hand_id, { autoplay: true });
+    } else if (ev.type === "turn") {
+      const now = await api("/api/live");
+      setLive(now);
+      if (now.turn) showTurn(now.turn);
+    } else if (ev.type === "done") {
+      setLive({ ...live, finished: true, running: false, error: ev.error, hands_played: ev.hands, turn: null });
+      es.close();
+    }
+  };
+}
+
+// Show the pending decision: the table as the human sees it, plus the action bar.
+function showTurn(t) {
+  stopAuto();
+  turn = t;
+  hand = { ...t, live: true };
+  step = t.steps.length;
+  $("empty").classList.add("hidden");
+  $("replay").classList.remove("hidden");
+  $("hand-title").textContent = `Hand #${t.hand_id}`;
+  $("hand-sub").textContent = `your turn on the ${t.street}`;
+  $("scrub").max = t.steps.length;
+  $("summary").classList.add("hidden");
+  buildLog();
+  render();
+  const L = t.legal;
+  $("action-legal").textContent = `— ${L.describe}`;
+  $("act-check").textContent = L.can_check ? "Check" : `Call ${L.call_amount}`;
+  const canRaise = L.max_raise_to > 0;
+  $("act-size").classList.toggle("hidden", !canRaise);
+  if (canRaise) {
+    $("act-raise").textContent = L.is_bet ? "Bet" : "Raise to";
+    const amt = $("act-amount");
+    amt.min = L.min_raise_to; amt.max = L.max_raise_to; amt.value = L.min_raise_to;
+    // "raise to" sizes: what the pot will hold once I call, added on top of the current bet
+    const potAfterCall = t.pot + L.call_amount;
+    const sizes = [
+      ["min", L.min_raise_to],
+      ["½ pot", t.current_bet + Math.round(potAfterCall / 2)],
+      ["pot", t.current_bet + potAfterCall],
+      ["all-in", L.max_raise_to],
+    ];
+    $("act-quick").innerHTML = "";
+    for (const [label, value] of sizes) {
+      const v = Math.max(L.min_raise_to, Math.min(L.max_raise_to, value));
+      const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.title = `${v}`;
+      b.onclick = () => { amt.value = v; };
+      $("act-quick").appendChild(b);
+    }
+  }
+  $("act-talk").value = "";
+  const talks = $("act-talk-list");
+  talks.classList.toggle("hidden", !t.talk.length);
+  talks.textContent = t.talk.map(([who, text]) => `${who}: “${text}”`).join("   ");
+  $("action-bar").classList.remove("hidden");
+  $("action-bar").scrollIntoView({ block: "nearest" });
+}
+
+async function sendAction(text) {
+  if (!turn) return;
+  const body = { action: text, table_talk: $("act-talk").value.trim() };
+  const r = await fetch("/api/act", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) { $("action-legal").textContent = `— ${(await r.json()).detail}`; return; }
+  turn = null;
+  $("action-bar").classList.add("hidden");
+  $("hand-sub").textContent = "waiting for the other seats";
+  setLive({ ...live, turn: null });
+}
+
+$("act-fold").onclick = () => sendAction("fold");
+$("act-check").onclick = () => sendAction(turn && turn.legal.can_check ? "check" : "call");
+$("act-raise").onclick = () => sendAction(`${turn.legal.is_bet ? "bet" : "raise"} ${$("act-amount").value}`);
+$("action-bar").onsubmit = (e) => { e.preventDefault(); if (turn && turn.legal.max_raise_to > 0) $("act-raise").click(); else $("act-check").click(); };
+$("follow").onclick = (e) => { follow = !follow; e.target.setAttribute("aria-pressed", follow); };
+$("auto").onclick = () => (autoTimer ? stopAuto() : startAuto());
+
 function setTab(which) {
   const hands = which === "hands";
   $("tab-hands").setAttribute("aria-pressed", hands);
@@ -445,6 +611,7 @@ function setTab(which) {
 }
 
 function go(n) { if (!hand) return; step = Math.max(0, Math.min(hand.steps.length, n)); render(); }
+for (const id of ["first", "prev", "next", "last", "scrub"]) $(id).addEventListener("pointerdown", stopAuto);
 
 $("first").onclick = () => go(0);
 $("prev").onclick = () => go(step - 1);
@@ -458,7 +625,8 @@ $("tab-board").onclick = () => setTab("board");
 $("more").onclick = () => loadList(false);
 document.addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT") return;
-  if (e.key === "ArrowRight") go(step + 1);
+  if (e.key === " ") { e.preventDefault(); $("auto").click(); }
+  else if (e.key === "ArrowRight") go(step + 1);
   else if (e.key === "ArrowLeft") go(step - 1);
   else if (e.key === "Home") go(0);
   else if (e.key === "End") go(Infinity);
@@ -469,6 +637,7 @@ document.addEventListener("keydown", (e) => {
   await loadList(true);
   const wanted = location.hash.slice(1);
   if (wanted) openHand(wanted).catch(() => {});
+  connectLive().catch(() => {});
 })();
 </script>
 </body>
