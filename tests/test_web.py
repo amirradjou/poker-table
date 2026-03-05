@@ -67,3 +67,21 @@ def test_missing_file_serves_an_empty_session(tmp_path: Path) -> None:
     assert client.get("/api/session").json() == {"file": "nope.jsonl", "hands": 0}
     assert client.get("/api/hands").json() == {"total": 0, "hands": []}
     assert client.get("/api/stats").json() == {"hands": 0, "rows": []}
+
+
+def test_bankroll_series_are_cumulative_and_aligned(hands_file: Path) -> None:
+    client = TestClient(create_app(hands_file))
+    data = client.get("/api/bankroll").json()
+    assert data["hands"] == [str(i) for i in range(1, 13)]
+    assert data["big_blind"] == 2
+    assert sorted(s["name"] for s in data["series"]) == ["maniac", "station", "tag"]
+    for s in data["series"]:
+        assert len(s["values"]) == 12
+    # zero-sum at every hand
+    for i in range(12):
+        assert sum(s["values"][i] for s in data["series"]) == 0
+    finals = {s["name"]: s["values"][-1] for s in data["series"]}
+    stats = {r["name"]: r["net"] for r in client.get("/api/stats").json()["rows"]}
+    assert finals == stats
+    empty = TestClient(create_app(hands_file.parent / "none.jsonl")).get("/api/bankroll").json()
+    assert empty == {"hands": [], "big_blind": 0, "series": []}
