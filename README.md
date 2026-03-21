@@ -5,6 +5,37 @@ each other for play money — and you can pull up a chair. Later, the same engin
 around and coaches *you*: **poker-coach** analyses your own hand histories and explains
 your recurring leaks.
 
+## Status
+
+Engine, evaluator, side pots, scripted bots, LLM seats with personalities, table talk, a human
+seat, hand histories, stats, league, CLI and a browser replay viewer are in (Python 3.12,
+`uv`), including live tables in the browser. See `CLAUDE.md` for what is next.
+
+![Replay viewer: a table diagram with each seat's cards, the board, and the action log with
+private reasoning](docs/viewer.png)
+
+```sh
+uv sync
+# scripted bots only — no API key needed
+uv run poker-table play -n 500 --seats tag,rock,maniac,station,random -o hands.jsonl
+uv run poker-table replay hands.jsonl --hand 7 -r     # one hand with every seat's reasoning
+uv run poker-table stats hands.jsonl                  # VPIP, PFR, 3-bet, AF, WTSD, W$SD, bluff %
+uv run poker-table serve hands.jsonl --open           # replay viewer + leaderboard in the browser
+uv run poker-table play -n 20 --seats me:human,tag,maniac   # pull up a chair (terminal)
+
+# watch bots play live in the browser, or sit down yourself
+uv run poker-table serve live.jsonl --live -n 200 --seats tag,maniac,llm:nerd --open
+uv run poker-table serve live.jsonl --live -n 20 --seats me:human,tag,maniac --open
+
+# LLM seats (needs ANTHROPIC_API_KEY): kind is llm:<personality>[@model]
+uv run poker-table play -n 20 --seats llm:nerd,llm:maniac,tag,station --show -o llm.jsonl
+uv run poker-table play -n 20 --seats "ada:llm:storyteller@claude-sonnet-5,rock" --show
+```
+
+Seat kinds: `random`, `station`, `tag`, `rock`, `maniac`, and `llm:maniac`, `llm:rock`,
+`llm:nerd`, `llm:storyteller` (default model `claude-opus-5`). Every LLM decision records the
+model, tokens and an estimated cost; the leaderboard shows `$/hand` per seat.
+
 ## What it is
 
 - A correct hold'em engine: blinds, betting rounds, side pots, showdown, hand ranking.
