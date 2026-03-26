@@ -121,7 +121,7 @@ CHARTS: dict[str, dict[str, str]] = {
     },
     # Facing one open raise: 3-bet for value (+ a few suited-ace bluffs), or call.
     "three_bet": {
-        "*": "QQ+, AKs, AKo, A5s, A4s",
+        "*": "JJ+, AQs+, AKo, A5s, A4s",
     },
     "call": {
         # In position (CO, BTN vs an earlier open) you can call wider than from the blinds.

@@ -61,6 +61,13 @@ def build_parser() -> argparse.ArgumentParser:
     replay.add_argument("--last", type=int, help="only the last N hands")
     replay.add_argument("-r", "--reasoning", action="store_true", help="include private reasoning")
 
+    coach = sub.add_parser("coach", help="find one player's recurring leaks in a JSONL file")
+    coach.add_argument("file", type=Path)
+    coach.add_argument("-p", "--player", required=True, help="seat name to coach")
+    coach.add_argument("--samples", type=int, default=300, help="equity samples per decision")
+    coach.add_argument("--top", type=int, default=5, help="leaks to show")
+    coach.add_argument("--json", type=Path, help="also write the full report (with facts) here")
+
     serve = sub.add_parser("serve", help="open the replay viewer and leaderboard in a browser")
     serve.add_argument("file", type=Path, help="JSONL file (may still be growing)")
     serve.add_argument("--host", default="127.0.0.1")
@@ -148,6 +155,25 @@ def cmd_replay(args: argparse.Namespace, out) -> int:
     return 0
 
 
+def cmd_coach(args: argparse.Namespace, out) -> int:
+    import json
+
+    from poker_table.coach.facts import tag_hands
+    from poker_table.coach.report import build_report
+
+    histories = list(read_jsonl(args.file))
+    if not any(p.name == args.player for h in histories for p in h.players):
+        names = sorted({p.name for h in histories for p in h.players})
+        raise ValueError(f"no seat named {args.player!r} in {args.file}; seats: {', '.join(names)}")
+    facts = tag_hands(histories, args.player, samples=args.samples)
+    report = build_report(histories, args.player, facts)
+    print(report.render(top=args.top), file=out)
+    if args.json is not None:
+        args.json.write_text(json.dumps(report.to_dict(), indent=1))
+        print(f"\nfull report written to {args.json}", file=out)
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace, out) -> int:
     import uvicorn
 
@@ -198,6 +224,8 @@ def main(argv: Sequence[str] | None = None, out=None) -> int:
                 return cmd_replay(args, out)
             case "serve":
                 return cmd_serve(args, out)
+            case "coach":
+                return cmd_coach(args, out)
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

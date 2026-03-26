@@ -183,17 +183,19 @@ def _preflop_fact(view: SeatView, action: Action, line: _PreflopLine) -> Fact:
         if kind is ActionType.CHECK:
             return _base(view, action, "check_option", None, f"{cls} checks the option")
         if kind is ActionType.CALL:
-            return _base(view, action, "limp", False, f"{cls} limps from {pos}")
+            return _base(view, action, "limp", False, f"{cls} limps in from the {pos}")
         in_chart = cls in open_range(pos)
         if aggressive:
             why = "in" if in_chart else "outside"
-            return _base(view, action, "open", in_chart, f"{cls} opens from {pos}, {why} the chart")
+            return _base(
+                view, action, "open", in_chart, f"{cls} opens from the {pos}, {why} the chart"
+            )
         return _base(
             view,
             action,
             "fold_first_in",
             not in_chart,
-            f"{cls} folds from {pos}" + (", a hand the chart opens" if in_chart else ""),
+            f"{cls} folds from the {pos}" + (", a hand the chart opens" if in_chart else ""),
         )
 
     if line.raises == 1 and view.seat != line.opener:
@@ -204,7 +206,7 @@ def _preflop_fact(view: SeatView, action: Action, line: _PreflopLine) -> Fact:
                 action,
                 "call_open",
                 ok,
-                f"{cls} calls a {opener_pos} open from {pos}"
+                f"{cls} in the {pos} calls a {opener_pos} open"
                 + ("" if ok else ", outside the calling range"),
             )
         if aggressive:
@@ -214,7 +216,7 @@ def _preflop_fact(view: SeatView, action: Action, line: _PreflopLine) -> Fact:
                 action,
                 "three_bet",
                 ok,
-                f"{cls} 3-bets a {opener_pos} open from {pos}"
+                f"{cls} in the {pos} 3-bets a {opener_pos} open"
                 + ("" if ok else ", outside the 3-bet chart"),
             )
         ok = cls not in defend_range(pos)
@@ -223,7 +225,7 @@ def _preflop_fact(view: SeatView, action: Action, line: _PreflopLine) -> Fact:
             action,
             "fold_vs_open",
             ok,
-            f"{cls} folds to a {opener_pos} open from {pos}"
+            f"{cls} in the {pos} folds to a {opener_pos} open"
             + ("" if ok else ", a hand that should continue"),
         )
 
@@ -238,7 +240,7 @@ def _preflop_fact(view: SeatView, action: Action, line: _PreflopLine) -> Fact:
         action,
         "vs_three_bet",
         ok,
-        f"{cls} {verb} facing a 3-bet from {pos}"
+        f"{cls} {verb} in the {pos} facing a 3-bet"
         + ("" if ok else (", too loose" if continued else ", too tight")),
     )
 
