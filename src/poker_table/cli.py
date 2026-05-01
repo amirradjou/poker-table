@@ -67,6 +67,12 @@ def build_parser() -> argparse.ArgumentParser:
     coach.add_argument("--samples", type=int, default=300, help="equity samples per decision")
     coach.add_argument("--top", type=int, default=5, help="leaks to show")
     coach.add_argument("--json", type=Path, help="also write the full report (with facts) here")
+    coach.add_argument(
+        "--narrate",
+        action="store_true",
+        help="ask Claude to explain the leaks in plain language (needs ANTHROPIC_API_KEY)",
+    )
+    coach.add_argument("--model", default=None, help="model for --narrate (default claude-opus-5)")
 
     serve = sub.add_parser("serve", help="open the replay viewer and leaderboard in a browser")
     serve.add_argument("file", type=Path, help="JSONL file (may still be growing)")
@@ -168,6 +174,15 @@ def cmd_coach(args: argparse.Namespace, out) -> int:
     facts = tag_hands(histories, args.player, samples=args.samples)
     report = build_report(histories, args.player, facts)
     print(report.render(top=args.top), file=out)
+    if args.narrate:
+        from poker_table.agents.llm import DEFAULT_MODEL
+        from poker_table.coach.narrate import narrate
+
+        narration = narrate(report, model=args.model or DEFAULT_MODEL, top=args.top)
+        print("\nCoach's notes", file=out)
+        print(narration.render() or "(the model returned nothing usable)", file=out)
+        suffix = f", {narration.dropped} unsupported note(s) dropped" if narration.dropped else ""
+        print(f"[{narration.model}, ${narration.cost_usd:.4f}{suffix}]", file=out)
     if args.json is not None:
         args.json.write_text(json.dumps(report.to_dict(), indent=1))
         print(f"\nfull report written to {args.json}", file=out)
