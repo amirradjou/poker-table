@@ -9,7 +9,8 @@ your recurring leaks.
 
 Engine, evaluator, side pots, scripted bots, LLM seats with personalities, table talk, a human
 seat, hand histories, stats, league, CLI and a browser replay viewer are in (Python 3.12,
-`uv`), including live tables in the browser. See `CLAUDE.md` for what is next.
+`uv`), including live tables in the browser. Phase 2 (poker-coach) has its math layer, leak
+reports, Claude narration and drills. See `CLAUDE.md` for what is next.
 
 ![Replay viewer: a table diagram with each seat's cards, the board, and the action log with
 private reasoning](docs/viewer.png)
@@ -84,6 +85,11 @@ hand history + reasoning trace + stats ──► leaderboard, replay viewer
 - Illegal-action rate (schema violations), decision latency, cost per hand.
 
 ## Phase 2 — poker-coach: find your recurring leaks
+
+*Status: import of poker-table's own histories, chart/equity facts, leak report with cited
+hands, Claude narration constrained to those facts, drills with spaced repetition, and a
+first-half/second-half trend are built. Site hand-history importers and a postflop solver
+are not.*
 
 The chess-coach idea applied to poker. Once the table exists, point the same machinery at
 *your* hands — from poker-table itself or from hand-history exports of real sites — and

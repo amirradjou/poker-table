@@ -20,6 +20,8 @@ a hand history with each seat's private reasoning attached.
 | Replay with reasoning | `uv run poker-table replay hands.jsonl --hand 7 -r` |
 | Browser viewer | `uv run poker-table serve hands.jsonl --open` |
 | Live table / play in browser | `uv run poker-table serve live.jsonl --live -n 20 --seats me:human,tag,maniac --open` |
+| Leak report | `uv run poker-table coach live.jsonl --player me [--narrate]` |
+| Drill flagged spots | `uv run poker-table drill live.jsonl --player me -n 10` |
 | Sit down yourself | `uv run poker-table play -n 10 --seats me:human,tag,maniac` |
 | Test | `uv run pytest` |
 | Lint + format | `uv run ruff check . && uv run ruff format .` |
@@ -49,7 +51,20 @@ a hand history with each seat's private reasoning attached.
 - `web/live.py` — `serve --live`: `LiveSession` runs a league on a thread, appends to the JSONL
   and publishes SSE (`/api/events`); `WebHumanAgent` blocks in `act()` until `POST /api/act`;
   `/api/live` returns the pending turn as the viewer's hand shape (own cards only).
-- `cli.py` — `play`, `stats`, `replay`, `serve`.
+- `coach/ranges.py` — 169 hand classes, range notation (`22+, A2s+, T9s-65s`), reference
+  6-max charts in one dict (`CHARTS`), sampling combos from a range.
+- `coach/equity.py` — Monte Carlo equity vs random hands or ranges (cached, seeded), exact
+  heads-up river enumeration, `pot_odds`, `board_texture` (dry / wet / paired).
+- `coach/facts.py` — `replay()` rebuilds a history on the engine (stacked deck + actions);
+  `tag_hand()` grades every decision of one player: preflop vs charts, postflop calls/folds vs
+  equity and price, c-bets/bets/checks as observations. `ok=False` = leak, `None` = observation.
+- `coach/report.py` — `build_report()`: leaks ranked by frequency with cited example hands,
+  by-position/street splits, observations, first-half vs second-half trend; `render()`/`to_dict()`.
+- `coach/narrate.py` — Claude notes per leak (structured output); notes citing leaks or hands
+  not in the report are dropped. Injectable client; tests use a fake.
+- `coach/drills.py` — flagged spots as quizzes on the real view, graded by `accepted_actions()`,
+  Leitner boxes in `<file>.<player>.drills.json`.
+- `cli.py` — `play`, `stats`, `replay`, `serve`, `coach`, `drill`.
 - `tests/` mirror the modules; `test_engine_betting.py` has a 400-hand random fuzz.
 
 ## Conventions
@@ -61,11 +76,12 @@ a hand history with each seat's private reasoning attached.
 - Amounts in `Action.bet/raise_to` are street totals ("raise to"), never increments.
 - Add behaviour to `Hand` with a test first (stacked deck + explicit actions), then wire agents.
 
-## Status / how to continue (as of 2026-09-17)
-Done on branch `feat/engine` (PR #1): engine, evaluator, side pots, scripted bots, LLM seats
-(structured output, personalities, cost accounting, auto-fold gate), table talk, human terminal
-seat, hand histories, stats, league, CLI, browser replay viewer with a bankroll chart, live
-sessions with a browser human seat. 212 tests green. HQ registered. **Not done yet, in this order:**
+## Status / how to continue (as of 2026-09-18)
+Merged (PR #1): engine, evaluator, side pots, scripted bots, LLM seats (structured output,
+personalities, cost accounting, auto-fold gate), table talk, human terminal seat, hand
+histories, stats, league, CLI, browser replay viewer with a bankroll chart, live sessions with
+a browser human seat. Branch `feat/coach` (PR #2): poker-coach math layer, facts, leak report,
+narration, drills, trend. 253 tests green. HQ registered. **Not done yet, in this order:**
 
 1. **Live smoke test of the LLM seat** — no API key on this machine yet. Run
    `ANTHROPIC_API_KEY=... uv run poker-table play -n 2 --seats llm:nerd,tag --show` and check
@@ -74,9 +90,13 @@ sessions with a browser human seat. 212 tests green. HQ registered. **Not done y
    touching that file.
 2. **Per-model comparison**: same personality on opus-5 / sonnet-5 / haiku-4-5, report bb/100
    vs $/hand; commit the JSONL + leaderboard under `docs/` as the first published result.
-3. **Web viewer polish** if wanted: seat filter on the chart, "hide cards until showdown" as the
-   default for replays, per-street stats. Load the `dataviz` skill before touching the chart.
-4. Phase 2 poker-coach: see README.
+3. **Coach in the browser**: a "Coach" tab in the viewer calling a `/api/coach?player=` endpoint
+   (report JSON already exists), each leak linking to its example hands in the replay.
+4. **Hand-history importers** for common site exports (PokerStars/GG text) into `HandHistory`;
+   the coach then works on real hands. Start with a parser + fixtures under `tests/fixtures/`.
+5. **Postflop strength beyond preflop ranges**: narrow opponent ranges by their postflop
+   actions (fold-to-cbet, bet sizing) before computing equity; or plug in an open-source solver.
+6. Web viewer polish if wanted: seat filter on the chart, hide cards until showdown by default.
 
 ## Gotchas / decisions
 - `uv` lives in `~/.local/bin`, which is not on PATH in non-login shells.
@@ -92,5 +112,8 @@ sessions with a browser human seat. 212 tests green. HQ registered. **Not done y
   returns once the session is finished and its queue is drained, so tests run it after `join()`.
 - The live human turn is rendered by reusing the replay renderer: `live_view_payload()` reports
   *starting* stacks (current + contributed) so `stateAt()` can replay the public events.
+- Coach thresholds live at the top of `coach/facts.py` (`CALL_MARGIN`, `FOLD_MARGIN`, `STRONG`)
+  and the charts in `coach/ranges.py::CHARTS`; the TAG bot disagrees with the charts in places
+  (Chen thresholds vs range charts), which the coach report on `tag` shows — that is expected.
 - Stats: a BB check is not VPIP; 3-bet opportunity = acting with exactly one raise in front and
   not being the opener; bluff = postflop bet/raise with no pair and no draw (uses shown cards).
