@@ -35,6 +35,7 @@ class Report:
     big_blind: int
     leaks: list[Leak]
     observations: list[str]
+    trend: list[str] = field(default_factory=list)  # first half vs second half of the session
     facts: list[Fact] = field(default_factory=list)
 
     @property
@@ -66,6 +67,7 @@ class Report:
                 for leak in self.leaks
             ],
             "observations": self.observations,
+            "trend": self.trend,
             "facts": [f.to_dict() for f in self.facts],
         }
 
@@ -93,6 +95,10 @@ class Report:
             lines.append("")
             lines.append("Observations")
             lines += [f"- {o}" for o in self.observations]
+        if self.trend:
+            lines.append("")
+            lines.append("Trend (first half of the session vs second half)")
+            lines += [f"- {t}" for t in self.trend]
         return "\n".join(lines)
 
 
@@ -138,8 +144,32 @@ def build_report(
         big_blind=big_blind,
         leaks=leaks,
         observations=_observations(facts),
+        trend=_trend(histories, facts, leaks),
         facts=facts if keep_facts else [],
     )
+
+
+_MIN_HANDS_FOR_TREND = 40
+
+
+def _trend(histories: Sequence[HandHistory], facts: list[Fact], leaks: list[Leak]) -> list[str]:
+    """Leak rates in the first half of the session against the second — did it get better?"""
+    if len(histories) < _MIN_HANDS_FOR_TREND or not leaks:
+        return []
+    ids = [h.hand_id for h in histories]
+    first = set(ids[: len(ids) // 2])
+    out: list[str] = []
+    for leak in leaks:
+        of_tag = [f for f in facts if f.tag == leak.tag and f.ok is not None]
+        a = [f for f in of_tag if f.hand_id in first]
+        b = [f for f in of_tag if f.hand_id not in first]
+        if len(a) < 3 or len(b) < 3:
+            continue
+        ra = sum(f.ok is False for f in a) / len(a)
+        rb = sum(f.ok is False for f in b) / len(b)
+        verdict = "better" if rb < ra - 0.05 else "worse" if rb > ra + 0.05 else "no change"
+        out.append(f"{leak.title}: {ra:.0%} → {rb:.0%} ({verdict})")
+    return out
 
 
 def _split(facts: list[Fact], attr: str) -> dict[str, tuple[int, int]]:
