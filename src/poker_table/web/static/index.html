@@ -188,6 +188,36 @@
   .viz-root .viz-table th, .viz-root .viz-table td { padding: 3px 10px; text-align: right; border-bottom: 1px solid var(--grid); }
   .viz-root .viz-table th:first-child, .viz-root .viz-table td:first-child { text-align: left; }
 
+  section.coach-view { grid-column: 1 / -1; padding: 18px 20px 40px; }
+  section.coach-view > * { max-width: 1000px; }
+  section.coach-view h2 { color: var(--white); font-weight: 400; font-size: 18px; margin: 0 0 12px; }
+  .seat-picker { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .seat-picker button[aria-pressed="true"] { background: var(--gold); border-color: var(--gold); color: var(--ink); }
+  .coach { background: var(--paper); border-radius: 8px; padding: 14px 18px; }
+  .coach .lead { display: flex; gap: 18px; flex-wrap: wrap; align-items: baseline; margin-bottom: 10px; }
+  .coach .lead strong { font-size: 19px; }
+  .coach .lead .plus { color: var(--felt); font-weight: 700; }
+  .coach .lead .minus { color: var(--red); font-weight: 700; }
+  .coach .lead button { margin-left: auto; }
+  .coach ol.leaks { list-style: none; margin: 0; padding: 0; counter-reset: leak; }
+  .coach ol.leaks > li { padding: 12px 0; border-top: 1px solid #ddd4bf; counter-increment: leak; }
+  .coach ol.leaks > li > h3 { margin: 0 0 4px; font-size: 17px; }
+  .coach ol.leaks > li > h3::before { content: counter(leak) ". "; color: var(--ink-soft); }
+  .coach .rate { color: var(--ink-soft); font-weight: 400; }
+  .coach .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+  .coach .chips span { background: var(--paper-2); border-radius: 12px; padding: 1px 10px; font-size: 14px; }
+  .coach ul.examples { margin: 0; padding-left: 0; list-style: none; }
+  .coach ul.examples li { padding: 3px 0; }
+  .coach ul.examples a { color: var(--felt); font-weight: 700; text-decoration: none; margin-right: 6px; }
+  .coach ul.examples a:hover { text-decoration: underline; }
+  .coach ul.examples .where { color: var(--ink-soft); margin-right: 6px; }
+  .coach .note { margin-top: 8px; padding: 10px 12px; background: #fff4cf; border-left: 3px solid var(--gold); border-radius: 0 6px 6px 0; }
+  .coach .note .do { font-weight: 700; margin-top: 4px; }
+  .coach h4 { margin: 16px 0 6px; font-size: 16px; }
+  .coach ul.plain { margin: 0; padding-left: 18px; }
+  .coach .focus { margin-top: 14px; padding: 10px 12px; background: #fff4cf; border-radius: 6px; font-weight: 700; }
+  .coach .empty-note { color: var(--ink-soft); }
+
   header .live { display: inline-flex; align-items: center; gap: 8px; }
   header .live::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--gold); }
   header .live.over::before { background: rgba(255,255,255,.4); }
@@ -222,6 +252,7 @@
     <button id="follow" class="hidden" aria-pressed="true" title="Jump to each new hand as it finishes">Follow</button>
     <button id="tab-hands" aria-pressed="true">Hands</button>
     <button id="tab-board" aria-pressed="false">Leaderboard</button>
+    <button id="tab-coach" aria-pressed="false">Coach</button>
   </nav>
 </header>
 
@@ -268,6 +299,12 @@
       <div class="log" id="log"><ol id="log-list"></ol></div>
       <div class="summary" id="summary"></div>
     </div>
+  </section>
+
+  <section class="coach-view hidden" id="coach-view">
+    <h2>Recurring leaks, by the charts and the math</h2>
+    <div class="seat-picker" id="seat-picker"></div>
+    <div class="coach" id="coach"><span class="empty-note">Pick a seat.</span></div>
   </section>
 
   <section class="board-view hidden" id="board-view">
@@ -728,13 +765,74 @@ $("follow").onclick = (e) => { follow = !follow; e.target.setAttribute("aria-pre
 $("auto").onclick = () => (autoTimer ? stopAuto() : startAuto());
 
 function setTab(which) {
+  for (const name of ["hands", "board", "coach"]) $(`tab-${name}`).setAttribute("aria-pressed", name === which);
   const hands = which === "hands";
-  $("tab-hands").setAttribute("aria-pressed", hands);
-  $("tab-board").setAttribute("aria-pressed", !hands);
   $("list").classList.toggle("hidden", !hands);
   $("hand-view").classList.toggle("hidden", !hands);
-  $("board-view").classList.toggle("hidden", hands);
-  if (!hands) showBoard();
+  $("board-view").classList.toggle("hidden", which !== "board");
+  $("coach-view").classList.toggle("hidden", which !== "coach");
+  if (which === "board") showBoard();
+  if (which === "coach") showCoach();
+}
+
+// ---- coach tab ----
+let coachPlayer = null, coachNotes = null;
+async function showCoach() {
+  const s = await api("/api/session");
+  const picker = $("seat-picker"); picker.innerHTML = "";
+  for (const name of s.players) {
+    const b = document.createElement("button");
+    b.textContent = name; b.setAttribute("aria-pressed", name === coachPlayer);
+    b.onclick = () => { coachPlayer = name; coachNotes = null; showCoach(); };
+    picker.appendChild(b);
+  }
+  if (!coachPlayer && s.players.length) coachPlayer = s.players[0];
+  if (!coachPlayer) { $("coach").innerHTML = '<span class="empty-note">No hands yet.</span>'; return; }
+  for (const b of picker.children) b.setAttribute("aria-pressed", b.textContent === coachPlayer);
+  $("coach").innerHTML = '<span class="empty-note">Replaying every hand and running the numbers…</span>';
+  const r = await api(`/api/coach?player=${encodeURIComponent(coachPlayer)}`);
+  renderCoach(r);
+}
+
+function renderCoach(r) {
+  const root = $("coach");
+  const netCls = r.net > 0 ? "plus" : r.net < 0 ? "minus" : "";
+  let html = `<div class="lead"><strong>${esc(r.player)}</strong><span>${r.hands} hands, ${r.decisions} decisions</span>` +
+    `<span class="${netCls}">${r.net > 0 ? "+" : ""}${r.net} chips (${r.bb_per_100 > 0 ? "+" : ""}${r.bb_per_100} bb/100)</span>` +
+    `<button id="ask-claude" type="button">Ask Claude to explain</button></div>`;
+  if (!r.leaks.length) html += '<p class="empty-note">No leaks found by the charts and the math. Play more hands.</p>';
+  html += '<ol class="leaks">';
+  for (const leak of r.leaks) {
+    const chips = Object.entries(leak.by_position).filter(([, [n]]) => n).map(([pos, [n, d]]) => `<span>${pos} ${n}/${d}</span>`).join("");
+    const examples = leak.examples.slice(0, 6).map(e =>
+      `<li><a href="#${e.hand_id}" data-hand="${e.hand_id}" data-step="${e.step}">#${e.hand_id}</a><span class="where">${e.street} ${e.position}</span>${esc(e.detail)}</li>`).join("");
+    const note = coachNotes && coachNotes.notes.find(n => n.tag === leak.tag);
+    const noteHtml = note ? `<div class="note">${esc(note.note)}<div class="do">Do this: ${esc(note.one_thing)}</div></div>` : "";
+    html += `<li><h3>${esc(leak.title)} <span class="rate">— ${leak.leaks} of ${leak.opportunities} (${Math.round(leak.rate * 100)}%)</span></h3>` +
+      `<div class="chips">${chips}</div><ul class="examples">${examples}</ul>${noteHtml}</li>`;
+  }
+  html += "</ol>";
+  if (r.observations.length) html += "<h4>Observations</h4><ul class=\"plain\">" + r.observations.map(o => `<li>${esc(o)}</li>`).join("") + "</ul>";
+  if (r.trend.length) html += "<h4>Trend, first half of the session vs second</h4><ul class=\"plain\">" + r.trend.map(o => `<li>${esc(o)}</li>`).join("") + "</ul>";
+  if (coachNotes && coachNotes.focus) html += `<div class="focus">The one thing to work on: ${esc(coachNotes.focus)}</div>`;
+  if (coachNotes) html += `<p class="empty-note">${esc(coachNotes.model)}, $${coachNotes.cost_usd}${coachNotes.dropped ? `, ${coachNotes.dropped} unsupported note(s) dropped` : ""}</p>`;
+  root.innerHTML = html;
+  for (const a of root.querySelectorAll("a[data-hand]")) {
+    a.onclick = async (e) => {
+      e.preventDefault();
+      setTab("hands");
+      await openHand(a.dataset.hand);
+      go(+a.dataset.step);
+    };
+  }
+  const ask = $("ask-claude");
+  ask.onclick = async () => {
+    ask.disabled = true; ask.textContent = "Asking…";
+    const resp = await fetch("/api/coach/narrate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ player: r.player }) });
+    if (!resp.ok) { ask.disabled = false; ask.textContent = "Ask Claude to explain"; alert(`Could not ask Claude: ${(await resp.json()).detail}`); return; }
+    coachNotes = await resp.json();
+    renderCoach(r);
+  };
 }
 
 function go(n) { if (!hand) return; step = Math.max(0, Math.min(hand.steps.length, n)); render(); }
@@ -749,6 +847,7 @@ $("toggle-think").onclick = (e) => { showThink = !showThink; e.target.setAttribu
 $("toggle-cards").onclick = (e) => { showCards = !showCards; e.target.setAttribute("aria-pressed", showCards); render(); };
 $("tab-hands").onclick = () => setTab("hands");
 $("tab-board").onclick = () => setTab("board");
+$("tab-coach").onclick = () => setTab("coach");
 $("more").onclick = () => loadList(false);
 document.addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT") return;
