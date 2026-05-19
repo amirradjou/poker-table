@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from poker_table.agents.base import SeatView, make_view
-from poker_table.cards import Card, Deck
+from poker_table.cards import FULL_DECK, Card, Deck
 from poker_table.coach.equity import board_texture, equity, pot_odds
 from poker_table.coach.ranges import (
     call_range,
@@ -81,8 +81,16 @@ def replay(history: HandHistory) -> Iterator[tuple[SeatView, Action]]:
     n = len(history.players)
     order = [(history.button + 1 + i) % n for i in range(n)]
     holes = {p.seat: [Card.parse(c) for c in p.hole] for p in history.players}
+    board = [Card.parse(c) for c in history.board]
+    # Imported hands only know the cards that were shown; give the others any unused cards.
+    known = {c for cards in holes.values() for c in cards} | set(board)
+    spare = iter(c for c in FULL_DECK if c not in known)
+    for seat, cards in holes.items():
+        while len(cards) < 2:
+            cards.append(next(spare))
+        holes[seat] = cards
     stacked = [holes[i][0] for i in order] + [holes[i][1] for i in order]
-    stacked += [Card.parse(c) for c in history.board]
+    stacked += board
     hand = Hand(
         [Player(p.name, p.stack) for p in history.players],
         button=history.button,

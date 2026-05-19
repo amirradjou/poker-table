@@ -453,7 +453,8 @@ function render() {
     el.style.left = x + "%"; el.style.top = y + "%";
     const reveal = showCards || st.showdown || (st.done && s.won);
     const cards = document.createElement("div"); cards.className = "cards";
-    if (!s.folded || showCards) s.hole.forEach(c => cards.appendChild(cardEl(reveal ? c : null, true)));
+    const hole = s.hole.length ? s.hole : [null, null];  // imported hands may not know them
+    if (!s.folded || showCards) hole.forEach(c => cards.appendChild(cardEl(reveal ? c : null, true)));
     el.innerHTML = `<div class="name">${s.name}</div><div class="pos">${s.position}</div>`;
     el.appendChild(cards);
     const stack = document.createElement("div"); stack.className = "stack";
