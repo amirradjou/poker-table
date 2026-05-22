@@ -103,3 +103,35 @@ def test_blind_mismatch_is_skipped_not_crashed() -> None:
     )
     result = import_text(broken)
     assert result.hands == [] and "blinds do not match" in result.skipped[0][1]
+
+
+def test_cli_import_then_coach(tmp_path: Path) -> None:
+    import io
+
+    from poker_table.cli import main
+
+    out = tmp_path / "real.jsonl"
+    buf = io.StringIO()
+    code = main(
+        [
+            "import",
+            str(FIXTURES / "pokerstars_cash.txt"),
+            str(FIXTURES / "pokerstars_tournament.txt"),
+            "-o",
+            str(out),
+        ],
+        out=buf,
+    )
+    assert code == 0
+    text = buf.getvalue()
+    assert "pokerstars_cash.txt: 2 hands, 1 skipped" in text
+    assert "skipped #245000000003: unsupported post: the ante" in text
+    assert "3 hands written" in text and "--player hero" in text
+    buf = io.StringIO()
+    assert main(["coach", str(out), "--player", "hero", "--samples", "40"], out=buf) == 0
+    assert "Coach report for hero — 3 hands" in buf.getvalue()
+    buf = io.StringIO()
+    assert main(["stats", str(out)], out=buf) == 0 and "hero" in buf.getvalue()
+    buf = io.StringIO()
+    assert main(["replay", str(out), "--hand", "245000000002"], out=buf) == 0
+    assert "hero: shows [7s 2h] (two pair, sevens and twos)" in buf.getvalue()
