@@ -20,6 +20,7 @@ a hand history with each seat's private reasoning attached.
 | Replay with reasoning | `uv run poker-table replay hands.jsonl --hand 7 -r` |
 | Browser viewer | `uv run poker-table serve hands.jsonl --open` |
 | Live table / play in browser | `uv run poker-table serve live.jsonl --live -n 20 --seats me:human,tag,maniac --open` |
+| Import site hands | `uv run poker-table import HH*.txt -o real.jsonl` |
 | Leak report | `uv run poker-table coach live.jsonl --player me [--narrate]` |
 | Drill flagged spots | `uv run poker-table drill live.jsonl --player me -n 10` |
 | Sit down yourself | `uv run poker-table play -n 10 --seats me:human,tag,maniac` |
@@ -53,18 +54,25 @@ a hand history with each seat's private reasoning attached.
   `/api/live` returns the pending turn as the viewer's hand shape (own cards only).
 - `coach/ranges.py` — 169 hand classes, range notation (`22+, A2s+, T9s-65s`), reference
   6-max charts in one dict (`CHARTS`), sampling combos from a range.
-- `coach/equity.py` — Monte Carlo equity vs random hands or ranges (cached, seeded), exact
-  heads-up river enumeration, `pot_odds`, `board_texture` (dry / wet / paired).
-- `coach/facts.py` — `replay()` rebuilds a history on the engine (stacked deck + actions);
-  `tag_hand()` grades every decision of one player: preflop vs charts, postflop calls/folds vs
-  equity and price, c-bets/bets/checks as observations. `ok=False` = leak, `None` = observation.
+- `coach/equity.py` — Monte Carlo equity vs random hands, class ranges or explicit combos
+  (cached, seeded), exact heads-up river enumeration, `pot_odds`, `board_texture`,
+  `narrow_range()` (combos consistent with a bet/call on the board + a deterministic air share).
+- `coach/facts.py` — `replay()` rebuilds a history on the engine (stacked deck + actions; unknown
+  hole cards get filler); `tag_hand()` grades every decision of one player: preflop vs charts,
+  postflop calls/folds vs equity (opponent ranges from the preflop line, narrowed street by
+  street by their actions) and price, c-bets/bets/checks as observations. `ok=False` = leak.
 - `coach/report.py` — `build_report()`: leaks ranked by frequency with cited example hands,
   by-position/street splits, observations, first-half vs second-half trend; `render()`/`to_dict()`.
 - `coach/narrate.py` — Claude notes per leak (structured output); notes citing leaks or hands
   not in the report are dropped. Injectable client; tests use a fake.
 - `coach/drills.py` — flagged spots as quizzes on the real view, graded by `accepted_actions()`,
   Leitner boxes in `<file>.<player>.drills.json`.
-- `cli.py` — `play`, `stats`, `replay`, `serve`, `coach`, `drill`.
+- `coach/importers/pokerstars.py` — PokerStars text (cash + tournament) → `HandHistory`; cents
+  as chips when blinds have decimals; skips antes/straddles/missed blinds with a reason.
+  Fixtures in `tests/fixtures/`. `importers/__init__.py::detect_format` is where a new site goes.
+- `web/app.py` also serves `/api/coach?player=` (report cached until more hands) with the replay
+  step of every example, and `/api/coach/narrate`.
+- `cli.py` — `play`, `stats`, `replay`, `serve`, `import`, `coach`, `drill`.
 - `tests/` mirror the modules; `test_engine_betting.py` has a 400-hand random fuzz.
 
 ## Conventions
@@ -77,11 +85,10 @@ a hand history with each seat's private reasoning attached.
 - Add behaviour to `Hand` with a test first (stacked deck + explicit actions), then wire agents.
 
 ## Status / how to continue (as of 2026-09-18)
-Merged (PR #1): engine, evaluator, side pots, scripted bots, LLM seats (structured output,
-personalities, cost accounting, auto-fold gate), table talk, human terminal seat, hand
-histories, stats, league, CLI, browser replay viewer with a bankroll chart, live sessions with
-a browser human seat. Branch `feat/coach` (PR #2): poker-coach math layer, facts, leak report,
-narration, drills, trend. 253 tests green. HQ registered. **Not done yet, in this order:**
+Merged: PR #1 (engine, bots, LLM seats, human seats, histories, stats, league, CLI, viewer,
+live tables) and PR #2 (poker-coach: ranges, equity, facts, report, narration, drills, trend).
+Branch `feat/coach-tab` (PR #3): Coach tab in the viewer, PokerStars importer + `import`
+command, postflop range narrowing. 264 tests green. HQ registered. **Not done yet, in this order:**
 
 1. **Live smoke test of the LLM seat** — no API key on this machine yet. Run
    `ANTHROPIC_API_KEY=... uv run poker-table play -n 2 --seats llm:nerd,tag --show` and check
@@ -90,12 +97,15 @@ narration, drills, trend. 253 tests green. HQ registered. **Not done yet, in thi
    touching that file.
 2. **Per-model comparison**: same personality on opus-5 / sonnet-5 / haiku-4-5, report bb/100
    vs $/hand; commit the JSONL + leaderboard under `docs/` as the first published result.
-3. **Coach in the browser**: a "Coach" tab in the viewer calling a `/api/coach?player=` endpoint
-   (report JSON already exists), each leak linking to its example hands in the replay.
-4. **Hand-history importers** for common site exports (PokerStars/GG text) into `HandHistory`;
-   the coach then works on real hands. Start with a parser + fixtures under `tests/fixtures/`.
-5. **Postflop strength beyond preflop ranges**: narrow opponent ranges by their postflop
-   actions (fold-to-cbet, bet sizing) before computing equity; or plug in an open-source solver.
+3. **More importers**: GGPoker and 888 text formats (same shape as PokerStars with different
+   headers) — add a parser next to `importers/pokerstars.py`, a fixture, and a `detect_format`
+   branch. Antes/straddles would need engine support (`Hand` has none) — skip unless asked.
+4. **Weekly leak report over time**: `coach --since DATE` is not possible yet because imported
+   hands carry no timestamp — add `played_at` to `HandHistory` (importer parses the header date;
+   the league stamps `datetime.now()`), then trend by week instead of first/second half.
+5. **Faster narrowing** if reports on very loose players feel slow: `narrow_range` classifies
+   every combo (~25 ms per hand worst case); a rank-count lookup instead of `evaluate()` would
+   cut it 5-10x.
 6. Web viewer polish if wanted: seat filter on the chart, hide cards until showdown by default.
 
 ## Gotchas / decisions
@@ -112,7 +122,11 @@ narration, drills, trend. 253 tests green. HQ registered. **Not done yet, in thi
   returns once the session is finished and its queue is drained, so tests run it after `join()`.
 - The live human turn is rendered by reusing the replay renderer: `live_view_payload()` reports
   *starting* stacks (current + contributed) so `stateAt()` can replay the public events.
-- Coach thresholds live at the top of `coach/facts.py` (`CALL_MARGIN`, `FOLD_MARGIN`, `STRONG`)
+- Imported hands: nets are rake-adjusted (they do not sum to zero), `seed=0`, no decision
+  traces; `replay()` fills unknown villain cards with filler, so villain showdown results in a
+  replay can differ from the real ones — the coach only reads the hero's views.
+- Coach thresholds live at the top of `coach/facts.py` (`CALL_MARGIN`, `FOLD_MARGIN`, `STRONG`,
+  `BLUFF_SHARE`, `FLOAT_SHARE`)
   and the charts in `coach/ranges.py::CHARTS`; the TAG bot disagrees with the charts in places
   (Chen thresholds vs range charts), which the coach report on `tag` shows — that is expected.
 - Stats: a BB check is not VPIP; 3-bet opportunity = acting with exactly one raise in front and

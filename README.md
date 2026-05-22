@@ -86,10 +86,10 @@ hand history + reasoning trace + stats ──► leaderboard, replay viewer
 
 ## Phase 2 — poker-coach: find your recurring leaks
 
-*Status: import of poker-table's own histories, chart/equity facts, leak report with cited
-hands, Claude narration constrained to those facts, drills with spaced repetition, and a
-first-half/second-half trend are built. Site hand-history importers and a postflop solver
-are not.*
+*Status: chart/equity facts (opponents' ranges narrowed by their postflop actions), leak
+report with cited hands, Claude narration constrained to those facts, drills with spaced
+repetition, first-half/second-half trend, a Coach tab in the viewer, and a PokerStars text
+importer are built. Other sites' formats and a postflop solver are not.*
 
 The chess-coach idea applied to poker. Once the table exists, point the same machinery at
 *your* hands — from poker-table itself or from hand-history exports of real sites — and
