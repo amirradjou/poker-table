@@ -13,8 +13,9 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from poker_table.agents.base import SeatView, make_view
+from poker_table.agents.strength import MadeHand
 from poker_table.cards import FULL_DECK, Card, Deck
-from poker_table.coach.equity import board_texture, equity, pot_odds
+from poker_table.coach.equity import Range, board_texture, equity, narrow_range, pot_odds
 from poker_table.coach.ranges import (
     call_range,
     defend_range,
@@ -27,6 +28,8 @@ from poker_table.engine import Action, ActionType, Hand, Player, Street
 from poker_table.history import HandHistory, parse_action
 
 ANY = expand("*")
+BLUFF_SHARE = 0.25  # share of air an opponent keeps in their range after betting or raising
+FLOAT_SHARE = 0.15  # share of air kept after calling
 VS_THREE_BET = expand("88+, ATs+, KQs, AJo+, KQo")  # continue after opening and getting 3-bet
 COLD_VS_THREE_BET = expand("QQ+, AKs, AKo")  # continue facing a 3-bet you did not open into
 CALL_MARGIN = 0.03  # equity may sit this far under the price (implied odds) before we complain
@@ -112,15 +115,21 @@ def replay(history: HandHistory) -> Iterator[tuple[SeatView, Action]]:
 # ----- tagging ----------------------------------------------------------------------------
 
 
-class _PreflopLine:
-    """Who raised, who called, so each opponent gets a range for the equity estimate."""
+class _Line:
+    """Each opponent's range: from the preflop line, then narrowed by what they do postflop."""
 
     def __init__(self) -> None:
         self.raises = 0
         self.opener: int | None = None
-        self.ranges: dict[int, frozenset[str]] = {}
+        self.ranges: dict[int, Range] = {}
 
     def note(self, view: SeatView, action: Action) -> None:
+        if view.street is Street.PREFLOP:
+            self._note_preflop(view, action)
+        else:
+            self._note_postflop(view, action)
+
+    def _note_preflop(self, view: SeatView, action: Action) -> None:
         seat, position = view.seat, view.position
         if action.type in (ActionType.BET, ActionType.RAISE):
             if self.raises == 0:
@@ -134,25 +143,38 @@ class _PreflopLine:
         elif action.type is ActionType.CHECK:
             self.ranges.setdefault(seat, ANY)
 
+    def _note_postflop(self, view: SeatView, action: Action) -> None:
+        """A bet or raise keeps made hands and draws (plus some bluffs); a call keeps a bit more."""
+        if action.type in (ActionType.BET, ActionType.RAISE):
+            floor, air = MadeHand.WEAK_PAIR, BLUFF_SHARE
+        elif action.type is ActionType.CALL:
+            floor, air = MadeHand.WEAK_PAIR, FLOAT_SHARE
+        else:
+            return
+        dead = set(view.board)  # the hero's cards are removed when the equity is sampled
+        self.ranges[view.seat] = narrow_range(
+            self.ranges.get(view.seat), list(view.board), dead, keep_at_least=floor, keep_air=air
+        )
+
 
 def tag_hand(history: HandHistory, player: str, *, samples: int = 300) -> list[Fact]:
     seat_of = {p.name: p.seat for p in history.players}
     if player not in seat_of:
         return []
     me = seat_of[player]
-    line = _PreflopLine()
+    line = _Line()
     facts: list[Fact] = []
     cbet_done = False
     for view, action in replay(history):
-        if view.street is Street.PREFLOP:
-            if view.seat == me:
+        if view.seat == me:
+            if view.street is Street.PREFLOP:
                 facts.append(_preflop_fact(view, action, line))
-            line.note(view, action)
-            continue
-        if view.seat != me:
-            continue
-        fact, cbet_done = _postflop_fact(view, action, line, cbet_done, samples)
-        facts.append(fact)
+            else:
+                fact, cbet_done = _postflop_fact(view, action, line, cbet_done, samples)
+                facts.append(fact)
+            if action.type is ActionType.FOLD:
+                break  # nothing after our fold can change our facts
+        line.note(view, action)
     return facts
 
 
@@ -180,7 +202,7 @@ def _base(view: SeatView, action: Action, tag: str, ok: bool | None, detail: str
     )
 
 
-def _preflop_fact(view: SeatView, action: Action, line: _PreflopLine) -> Fact:
+def _preflop_fact(view: SeatView, action: Action, line: _Line) -> Fact:
     cls = hand_class(view.hole)
     pos = view.position
     kind = action.type
@@ -253,14 +275,14 @@ def _preflop_fact(view: SeatView, action: Action, line: _PreflopLine) -> Fact:
     )
 
 
-def _opponent_ranges(view: SeatView, line: _PreflopLine) -> list[frozenset[str]]:
+def _opponent_ranges(view: SeatView, line: _Line) -> list[Range]:
     return [
         line.ranges.get(p.seat, ANY) for p in view.players if not p.folded and p.seat != view.seat
     ]
 
 
 def _postflop_fact(
-    view: SeatView, action: Action, line: _PreflopLine, cbet_done: bool, samples: int
+    view: SeatView, action: Action, line: _Line, cbet_done: bool, samples: int
 ) -> tuple[Fact, bool]:
     kind = action.type
     board = list(view.board)
