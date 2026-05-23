@@ -145,7 +145,7 @@ def _add_hand(stats: dict[str, PlayerStats], history: HandHistory) -> None:
 
     board = board_cards(history)
     holes: dict[int, tuple[Card, Card]] = {
-        p.seat: hole_cards(history, p.seat) for p in history.players
+        p.seat: hole_cards(history, p.seat) for p in history.players if len(p.hole) == 2
     }
     raises = 0  # preflop raises so far
     opener: int | None = None
@@ -181,7 +181,7 @@ def _add_hand(stats: dict[str, PlayerStats], history: HandHistory) -> None:
         else:
             if aggressive:
                 s.postflop_bets_raises += 1
-                if _is_air(holes[seat], board[: street_len[e.street]]):
+                if seat in holes and _is_air(holes[seat], board[: street_len[e.street]]):
                     s.bluffs += 1
             elif action.type is ActionType.CALL:
                 s.postflop_calls += 1
