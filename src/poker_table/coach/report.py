@@ -97,7 +97,7 @@ class Report:
             lines += [f"- {o}" for o in self.observations]
         if self.trend:
             lines.append("")
-            lines.append("Trend (first half of the session vs second half)")
+            lines.append("Trend")
             lines += [f"- {t}" for t in self.trend]
         return "\n".join(lines)
 
@@ -150,26 +150,57 @@ def build_report(
 
 
 _MIN_HANDS_FOR_TREND = 40
+_MIN_FACTS_PER_BUCKET = 3
 
 
 def _trend(histories: Sequence[HandHistory], facts: list[Fact], leaks: list[Leak]) -> list[str]:
-    """Leak rates in the first half of the session against the second — did it get better?"""
+    """Each leak's rate over time: by ISO week when the hands span several, else halves."""
     if len(histories) < _MIN_HANDS_FOR_TREND or not leaks:
         return []
-    ids = [h.hand_id for h in histories]
-    first = set(ids[: len(ids) // 2])
+    buckets = _week_buckets(histories) or _half_buckets(histories)
+    labels = list(buckets)
+    if len(labels) < 2:
+        return []
+    bucket_of: dict[str, str] = {
+        hand_id: label for label, ids in buckets.items() for hand_id in ids
+    }
     out: list[str] = []
     for leak in leaks:
         of_tag = [f for f in facts if f.tag == leak.tag and f.ok is not None]
-        a = [f for f in of_tag if f.hand_id in first]
-        b = [f for f in of_tag if f.hand_id not in first]
-        if len(a) < 3 or len(b) < 3:
+        rates: list[tuple[str, float]] = []
+        for label in labels:
+            fs = [f for f in of_tag if bucket_of.get(f.hand_id) == label]
+            if len(fs) >= _MIN_FACTS_PER_BUCKET:
+                rates.append((label, sum(f.ok is False for f in fs) / len(fs)))
+        if len(rates) < 2:
             continue
-        ra = sum(f.ok is False for f in a) / len(a)
-        rb = sum(f.ok is False for f in b) / len(b)
-        verdict = "better" if rb < ra - 0.05 else "worse" if rb > ra + 0.05 else "no change"
-        out.append(f"{leak.title}: {ra:.0%} → {rb:.0%} ({verdict})")
+        first, last = rates[0][1], rates[-1][1]
+        verdict = (
+            "better" if last < first - 0.05 else "worse" if last > first + 0.05 else "no change"
+        )
+        path = " → ".join(f"{label} {rate:.0%}" for label, rate in rates)
+        out.append(f"{leak.title}: {path} ({verdict})")
     return out
+
+
+def _week_buckets(histories: Sequence[HandHistory]) -> dict[str, list[str]]:
+    """Hand ids per ISO week, oldest first; empty unless at least two weeks are present."""
+    buckets: dict[tuple[int, int], list[str]] = {}
+    for h in histories:
+        played = h.played
+        if played is None:
+            return {}
+        year, week, _ = played.isocalendar()
+        buckets.setdefault((year, week), []).append(h.hand_id)
+    if len(buckets) < 2:
+        return {}
+    return {f"{year}-W{week:02d}": ids for (year, week), ids in sorted(buckets.items())}
+
+
+def _half_buckets(histories: Sequence[HandHistory]) -> dict[str, list[str]]:
+    ids = [h.hand_id for h in histories]
+    half = len(ids) // 2
+    return {"first half": ids[:half], "second half": ids[half:]}
 
 
 def _split(facts: list[Fact], attr: str) -> dict[str, tuple[int, int]]:

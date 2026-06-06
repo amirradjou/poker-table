@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 
 from poker_table.agents.base import position_name
@@ -40,6 +41,9 @@ _RE_HEADER = re.compile(
     + _MONEY.replace("(", "(?P<bb>", 1)
     + r"(?: [A-Z]{3})?\)"
 )
+_RE_DATE = re.compile(r"(\d{4})/(\d{2})/(\d{2}) (\d{1,2}):(\d{2}):(\d{2})(?: (?P<tz>[A-Z]{2,4}))?")
+# PokerStars stamps hands in the client's zone; ET is the default and the common case.
+_TZ_OFFSETS = {"ET": -5, "EST": -5, "EDT": -4, "CET": 1, "CEST": 2, "UTC": 0, "GMT": 0}
 _RE_TABLE = re.compile(
     r"^Table '.*?' (?P<size>\d+)-max(?: \(.*?\))? Seat #(?P<button>\d+) is the button"
 )
@@ -98,6 +102,20 @@ def parse_pokerstars(text: str) -> ImportResult:
         if hero and result.hero is None:
             result.hero = hero
     return result
+
+
+def _played_at(header: str) -> str:
+    """The hand's date from the header, as ISO 8601 UTC (empty if absent)."""
+    m = _RE_DATE.search(header)
+    if m is None:
+        return ""
+    y, mo, d, h, mi, sec = (int(x) for x in m.groups()[:6])
+    tz = m.group("tz") or "ET"
+    offset = _TZ_OFFSETS.get(tz, 0)
+    if tz == "ET" and 3 <= mo <= 11:  # close enough to US daylight saving for a weekly trend
+        offset = -4
+    local = datetime(y, mo, d, h, mi, sec, tzinfo=timezone(timedelta(hours=offset)))
+    return local.astimezone(UTC).isoformat(timespec="seconds")
 
 
 def _money_scale(big_blind: str) -> int:
@@ -300,6 +318,7 @@ def _parse_hand(raw: str, scale: int) -> tuple[HandHistory, str | None]:
         pots=[{"amount": sum(payouts.values()), "eligible": sorted(payouts)}],
         payouts=payouts,
         showdown=showdown,
+        played_at=_played_at(lines[0]),
     )
     return history, hero
 

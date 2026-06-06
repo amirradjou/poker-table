@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Iterator
 from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -70,14 +71,20 @@ class HandHistory:
     payouts: dict[int, int]
     showdown: dict[int, str]
     version: int = FORMAT_VERSION
+    played_at: str = ""  # ISO 8601 UTC; empty when unknown (older files)
+
+    @property
+    def played(self) -> datetime | None:
+        return datetime.fromisoformat(self.played_at) if self.played_at else None
 
     # -- construction --
 
     @classmethod
-    def from_played(cls, played: PlayedHand) -> HandHistory:
+    def from_played(cls, played: PlayedHand, *, played_at: datetime | None = None) -> HandHistory:
         hand = played.hand
         if not hand.finished:
             raise ValueError("hand is not finished")
+        stamp = (played_at or datetime.now(UTC)).astimezone(UTC).isoformat(timespec="seconds")
         net = hand.net()
         players = [
             PlayerRecord(
@@ -116,6 +123,7 @@ class HandHistory:
             pots=[{"amount": p.amount, "eligible": list(p.eligible)} for p in hand.pots],
             payouts=dict(hand.payouts),
             showdown={i: r.describe() for i, r in hand.showdown_ranks.items()},
+            played_at=stamp,
         )
 
     # -- (de)serialisation --
@@ -145,6 +153,7 @@ class HandHistory:
             payouts={int(k): v for k, v in data["payouts"].items()},
             showdown={int(k): v for k, v in data["showdown"].items()},
             version=data.get("version", FORMAT_VERSION),
+            played_at=data.get("played_at", ""),
         )
 
     @classmethod
