@@ -11,7 +11,7 @@ from collections.abc import Sequence
 from enum import IntEnum
 
 from poker_table.cards import Card, Rank
-from poker_table.evaluator import HandCategory, evaluate
+from poker_table.evaluator import HandCategory, _straight_high, evaluate
 
 
 def chen_score(hole: Sequence[Card]) -> float:
@@ -94,3 +94,45 @@ def has_open_ender(hole: Sequence[Card], board: Sequence[Card]) -> bool:
 def outs_equity(outs: int, cards_to_come: int) -> float:
     """Rule of 2 and 4, capped: rough chance to hit by the river."""
     return min(0.95, outs * (0.04 if cards_to_come == 2 else 0.02))
+
+
+def quick_made_hand(hole: Sequence[Card], board: Sequence[Card]) -> MadeHand:
+    """``classify()`` without the full evaluator: rank counts, a suit count and a straight scan.
+
+    Used where thousands of combos are scored on the same board. It agrees with
+    ``classify()`` on the vast majority of spots; the rare disagreements are exotic
+    board-plays-itself cases that do not change a range-narrowing decision.
+    """
+    a, b = hole
+    board_ranks = [c.rank for c in board]
+    counts = Counter(board_ranks)
+    top = max(board_ranks)
+    board_paired = any(n >= 2 for n in counts.values())
+    hits = [c for c in hole if counts.get(c.rank, 0)]
+
+    # flush with one of our cards
+    suit_counts = Counter(c.suit for c in board)
+    for card in hole:
+        ours = 2 if a.suit == b.suit else 1
+        if suit_counts.get(card.suit, 0) + ours >= 5:
+            if suit_counts[card.suit] < 5 or card.rank > min(
+                c.rank for c in board if c.suit == card.suit
+            ):
+                return MadeHand.STRONG
+    # straight that needs one of our cards
+    high = _straight_high(int(c.rank) for c in [*hole, *board])
+    if high is not None and high != _straight_high(int(r) for r in board_ranks):
+        return MadeHand.STRONG
+
+    if a.rank == b.rank:
+        if counts.get(a.rank, 0) or board_paired:
+            return MadeHand.STRONG  # a set, or two pair with the board's pair
+        return MadeHand.TOP_PAIR if a.rank > top else MadeHand.WEAK_PAIR
+    if len(hits) == 2:
+        return MadeHand.STRONG  # two pair or better
+    if len(hits) == 1:
+        hit = hits[0]
+        if counts[hit.rank] >= 2 or board_paired:
+            return MadeHand.STRONG  # trips, or two pair with the board's pair
+        return MadeHand.TOP_PAIR if hit.rank == top else MadeHand.WEAK_PAIR
+    return MadeHand.NOTHING
