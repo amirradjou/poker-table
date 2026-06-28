@@ -1,0 +1,63 @@
+Poker Hand #HD1234567890: Hold'em No Limit ($0.05/$0.1) - 2026/09/12 21:45:10
+Table 'NLHGold12' 6-max Seat #2 is the button
+Seat 1: 4a5b6c7d ($10.32 in chips)
+Seat 2: Hero ($10 in chips)
+Seat 3: 8e9f0a1b ($9.5 in chips)
+Seat 4: 2c3d4e5f ($21.18 in chips)
+Seat 5: 6g7h8i9j ($10 in chips)
+Seat 6: 0k1l2m3n ($4.9 in chips)
+8e9f0a1b: posts small blind $0.05
+2c3d4e5f: posts big blind $0.1
+*** HOLE CARDS ***
+Dealt to Hero [Kc Kd]
+Dealt to 0k1l2m3n [As 9s]
+6g7h8i9j: folds
+0k1l2m3n: raises $0.2 to $0.3
+4a5b6c7d: folds
+Hero: raises $0.7 to $1
+8e9f0a1b: folds
+2c3d4e5f: folds
+0k1l2m3n: raises $3.9 to $4.9 and is all-in
+Hero: calls $3.9
+*** FLOP *** [7s 2h Qc]
+*** TURN *** [7s 2h Qc] [9d]
+*** RIVER *** [7s 2h Qc 9d] [3c]
+*** SHOWDOWN ***
+0k1l2m3n: shows [As 9s] (a pair of Nines)
+Hero: shows [Kc Kd] (a pair of Kings)
+Hero collected $9.45 from pot
+*** SUMMARY ***
+Total pot $9.95 | Rake $0.5 | Jackpot $0 | Bingo $0 | Fortune $0 | Tax $0
+Board [7s 2h Qc 9d 3c]
+Seat 1: 4a5b6c7d folded before Flop (didn't bet)
+Seat 2: Hero (button) showed [Kc Kd] and won ($9.45) with a pair of Kings
+Seat 3: 8e9f0a1b (small blind) folded before Flop
+Seat 4: 2c3d4e5f (big blind) folded before Flop
+Seat 5: 6g7h8i9j folded before Flop (didn't bet)
+Seat 6: 0k1l2m3n showed [As 9s] and lost with a pair of Nines
+
+Poker Hand #HD1234567891: Hold'em No Limit ($0.05/$0.1) - 2026/09/12 21:47:33
+Table 'NLHGold12' 6-max Seat #3 is the button
+Seat 1: 4a5b6c7d ($10.32 in chips)
+Seat 2: Hero ($14.55 in chips)
+Seat 3: 8e9f0a1b ($9.45 in chips)
+Seat 4: 2c3d4e5f ($21.08 in chips)
+Seat 5: 6g7h8i9j ($10 in chips)
+2c3d4e5f: posts small blind $0.05
+6g7h8i9j: posts big blind $0.1
+*** HOLE CARDS ***
+Dealt to Hero [Jd Ts]
+4a5b6c7d: folds
+Hero: raises $0.15 to $0.25
+8e9f0a1b: calls $0.25
+2c3d4e5f: folds
+6g7h8i9j: folds
+*** FIRST FLOP *** [Ah 2d 8c]
+Hero: bets $0.3
+8e9f0a1b: folds
+Uncalled bet ($0.3) returned to Hero
+Hero collected $0.62 from pot
+*** SUMMARY ***
+Total pot $0.65 | Rake $0.03 | Jackpot $0 | Bingo $0 | Fortune $0 | Tax $0
+Board [Ah 2d 8c]
+Seat 2: Hero collected ($0.62)

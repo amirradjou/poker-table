@@ -17,14 +17,18 @@ def detect_format(text: str) -> str | None:
         or "PokerStars Zoom Hand #" in head
     ):
         return "pokerstars"
+    if head.startswith("Poker Hand #"):
+        return "ggpoker"
     return None
 
 
 def import_text(text: str) -> ImportResult:
     kind = detect_format(text)
     if kind is None:
-        raise ImportError_("unrecognised hand history format (PokerStars text is supported)")
-    return parse_pokerstars(text)
+        raise ImportError_(
+            "unrecognised hand history format (PokerStars and GGPoker text are supported)"
+        )
+    return parse_pokerstars(text)  # GGPoker writes the same dialect
 
 
 def import_files(paths: list[Path]) -> Iterator[tuple[Path, ImportResult]]:

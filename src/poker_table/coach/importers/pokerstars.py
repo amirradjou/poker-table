@@ -1,4 +1,8 @@
-"""PokerStars text hand histories (cash and tournament, no-limit hold'em) -> HandHistory.
+"""PokerStars-style text hand histories (PokerStars, GGPoker) -> HandHistory.
+
+GGPoker exports the same dialect with a ``Poker Hand #HD…`` header, amounts like ``$0.1``, a
+hero literally named ``Hero``, and a ``Dealt to`` line for every player whose cards were
+revealed; all of that is handled here rather than in a second parser.
 
 Money is stored in the smallest unit seen in the file (cents when any amount has decimals),
 so $0.05/$0.10 becomes blinds 5/10. Villains' hole cards are known only when shown. Antes,
@@ -34,7 +38,8 @@ class ImportResult:
 
 _MONEY = r"\$?([\d,]+(?:\.\d+)?)"
 _RE_HEADER = re.compile(
-    r"^PokerStars (?:Zoom )?Hand #(?P<id>\d+):\s+(?:Tournament #\d+, .*?)?Hold'em No Limit"
+    r"^(?:PokerStars (?:Zoom )?Hand|Poker Hand) #(?P<id>[A-Z]*\d+):\s+(?:Tournament #\d+, .*?)?"
+    r"Hold'em No Limit"
     r"(?: - Level [IVXLC\d]+)?\s*\("
     + _MONEY.replace("(", "(?P<sb>", 1)
     + r"/"
@@ -59,6 +64,7 @@ _RE_ACTION = re.compile(
     r"(?: " + _MONEY + r")?(?: to " + _MONEY + r")?(?P<allin> and is all-in)?"
 )
 _RE_STREET = re.compile(r"^\*\*\* (?P<name>FLOP|TURN|RIVER) \*\*\* (?P<cards>.+)$")
+_RE_RUN_TWICE = re.compile(r"^\*\*\* (?:FIRST|SECOND) (?:FLOP|TURN|RIVER) \*\*\*")
 _RE_UNCALLED = re.compile(r"^Uncalled bet \(" + _MONEY + r"\) returned to (?P<name>.+)$")
 _RE_COLLECTED = re.compile(
     r"^(?P<name>.+?) collected "
@@ -77,7 +83,7 @@ def split_hands(text: str) -> Iterator[str]:
     chunk: list[str] = []
     for line in text.replace("\r\n", "\n").split("\n"):
         line = line.strip("﻿ \t")
-        if line.startswith("PokerStars ") and chunk:
+        if (line.startswith("PokerStars ") or line.startswith("Poker Hand #")) and chunk:
             yield "\n".join(chunk)
             chunk = []
         if line:
@@ -110,7 +116,7 @@ def _played_at(header: str) -> str:
     if m is None:
         return ""
     y, mo, d, h, mi, sec = (int(x) for x in m.groups()[:6])
-    tz = m.group("tz") or "ET"
+    tz = m.group("tz") or "UTC"  # PokerStars says ET; GGPoker gives no zone and stamps UTC
     offset = _TZ_OFFSETS.get(tz, 0)
     if tz == "ET" and 3 <= mo <= 11:  # close enough to US daylight saving for a weekly trend
         offset = -4
@@ -214,11 +220,14 @@ def _parse_hand(raw: str, scale: int) -> tuple[HandHistory, str | None]:
             continue
         if _RE_SEAT.match(line) or _RE_POST.match(line) or line.startswith("*** HOLE CARDS"):
             continue
+        if _RE_RUN_TWICE.match(line):
+            raise ImportError_("run it twice")
         m = _RE_DEALT.match(line)
         if m:
             who = seat_of_name.get(m.group("name"))
             if who is not None:
-                hero = m.group("name")
+                if hero is None or m.group("name") == "Hero":
+                    hero = m.group("name")
                 holes[who] = _cards(m.group("cards"))
                 events.append(EventRecord("deal_hole", "preflop", who, None, 0, holes[who], ""))
             continue
