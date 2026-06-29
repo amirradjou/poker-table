@@ -69,3 +69,25 @@ def test_outs_equity() -> None:
     assert outs_equity(9, 2) == pytest.approx(0.36)
     assert outs_equity(8, 1) == pytest.approx(0.16)
     assert outs_equity(40, 2) == 0.95
+
+
+def test_quick_made_hand_agrees_with_classify() -> None:
+    import random
+
+    from poker_table.agents.strength import quick_made_hand
+    from poker_table.cards import FULL_DECK
+
+    rng = random.Random(9)
+    agree = total = 0
+    for _ in range(3000):
+        n = rng.choice([3, 4, 5])
+        cards = rng.sample(FULL_DECK, 2 + n)
+        hole, board = cards[:2], cards[2:]
+        total += 1
+        agree += quick_made_hand(hole, board) == classify(hole, board)
+    assert agree / total > 0.99
+    assert quick_made_hand(parse_cards("Ah Kd"), parse_cards("Ac 7s 2d")) is MadeHand.TOP_PAIR
+    assert quick_made_hand(parse_cards("7h 7d"), parse_cards("Jc 9s 2d")) is MadeHand.WEAK_PAIR
+    assert quick_made_hand(parse_cards("Th 9d"), parse_cards("8c 7s 6d")) is MadeHand.STRONG
+    assert quick_made_hand(parse_cards("Ah 2h"), parse_cards("Kh 7h 3h")) is MadeHand.STRONG
+    assert quick_made_hand(parse_cards("Qh 3d"), parse_cards("7c 7s 2d")) is MadeHand.NOTHING

@@ -15,6 +15,9 @@ reports, Claude narration and drills. See `CLAUDE.md` for what is next.
 ![Replay viewer: a table diagram with each seat's cards, the board, and the action log with
 private reasoning](docs/viewer.png)
 
+First numbers: [docs/baseline.md](docs/baseline.md) — five scripted bots over 1,000 seeded
+hands, the leaderboard, and what the coach says about each of them.
+
 ```sh
 uv sync
 # scripted bots only — no API key needed
@@ -88,8 +91,8 @@ hand history + reasoning trace + stats ──► leaderboard, replay viewer
 
 *Status: chart/equity facts (opponents' ranges narrowed by their postflop actions), leak
 report with cited hands, Claude narration constrained to those facts, drills with spaced
-repetition, first-half/second-half trend, a Coach tab in the viewer, and a PokerStars text
-importer are built. Other sites' formats and a postflop solver are not.*
+repetition, a weekly trend, a Coach tab in the viewer, and PokerStars/GGPoker text importers
+are built. A postflop solver is not.*
 
 The chess-coach idea applied to poker. Once the table exists, point the same machinery at
 *your* hands — from poker-table itself or from hand-history exports of real sites — and
