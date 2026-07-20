@@ -6,10 +6,11 @@ import random
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
-from poker_table.agents.base import Agent
+from poker_table.agents.base import Agent, SeatView
+from poker_table.engine import Hand
 from poker_table.history import HandHistory
 from poker_table.stats import PlayerStats, compute_stats
-from poker_table.table import new_hand, play_hand
+from poker_table.table import DecisionRecord, new_hand, play_hand
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,9 +42,16 @@ def run_league(
     config: LeagueConfig,
     *,
     on_hand: Callable[[HandHistory], None] | None = None,
+    on_hand_start: Callable[[Hand], None] | None = None,
+    on_view: Callable[[SeatView], None] | None = None,
+    on_decision: Callable[[DecisionRecord, Hand], None] | None = None,
     keep_histories: bool = True,
 ) -> LeagueResult:
-    """Play ``config.hands`` hands. ``on_hand`` is called after each one (for streaming to disk)."""
+    """Play ``config.hands`` hands.
+
+    ``on_hand`` is called after each finished hand (for streaming to disk); ``on_hand_start``,
+    ``on_view`` and ``on_decision`` fire as a hand is dealt and played, for a live table.
+    """
     if len(agents) < 2:
         raise ValueError("a league needs at least two agents")
     names = [a.name for a in agents]
@@ -70,7 +78,10 @@ def run_league(
             seed=seeds.randrange(2**63),
             hand_id=str(n + 1),
         )
-        history = HandHistory.from_played(play_hand(hand, seated))
+        if on_hand_start is not None:
+            on_hand_start(hand)
+        played = play_hand(hand, seated, on_view=on_view, on_decision=on_decision)
+        history = HandHistory.from_played(played)
         for player in history.players:
             result.bankrolls[player.name] += player.net
         stacks = [s.stack for s in hand.seats]

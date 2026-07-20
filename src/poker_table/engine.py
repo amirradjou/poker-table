@@ -78,6 +78,7 @@ class Seat:
     index: int
     name: str
     stack: int
+    kind: str = ""  # what sits here ("tag", "llm:nerd", "human"); "" when unknown
     hole: tuple[Card, Card] | None = None
     folded: bool = False
     street_bet: int = 0
@@ -170,6 +171,7 @@ class Player:
 
     name: str
     stack: int
+    kind: str = ""
 
 
 class Hand:
@@ -203,7 +205,7 @@ class Hand:
         self.small_blind = small_blind
         self.big_blind = big_blind
         self.button = button % len(players)
-        self.seats = [Seat(i, p.name, p.stack) for i, p in enumerate(players)]
+        self.seats = [Seat(i, p.name, p.stack, kind=p.kind) for i, p in enumerate(players)]
         self.starting_stacks = {s.index: s.stack for s in self.seats}
         self.deck = deck if deck is not None else Deck(seed)
         self.board: list[Card] = []

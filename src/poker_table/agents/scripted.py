@@ -19,6 +19,8 @@ from poker_table.engine import Action, ActionType, Street
 class RandomAgent:
     """Picks uniformly among legal actions; sizes bets uniformly. The chaos baseline."""
 
+    kind = "random"
+
     def __init__(self, name: str = "random", seed: int = 0) -> None:
         self.name = name
         self._rng = random.Random(seed)
@@ -36,6 +38,8 @@ class RandomAgent:
 
 class CallingStation:
     """Never folds, never raises: checks when it can and calls anything."""
+
+    kind = "station"
 
     def __init__(self, name: str = "station") -> None:
         self.name = name
@@ -75,8 +79,10 @@ class TightAggressive:
         tightness: float = 0.0,
         aggression: float = 1.0,
         seed: int = 0,
+        kind: str = "tag",
     ) -> None:
         self.name = name
+        self.kind = kind
         self.tightness = tightness
         self.aggression = aggression
         self._rng = random.Random(seed)
@@ -209,6 +215,8 @@ class TightAggressive:
 
 class Maniac:
     """Raises most of the time, calls the rest, almost never folds. Loud, expensive, fun."""
+
+    kind = "maniac"
 
     def __init__(self, name: str = "maniac", seed: int = 0, raise_rate: float = 0.7) -> None:
         self.name = name
