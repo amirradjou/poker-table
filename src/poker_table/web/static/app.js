@@ -15,17 +15,64 @@ const STAT_HELP = {
   "$/hand": "estimated model cost per hand",
 };
 const PERCENT = new Set(["vpip", "pfr", "3bet", "f3b", "wtsd", "w$sd", "bluff", "illegal"]);
+const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const EASE = "cubic-bezier(.2,.8,.2,1)";
+// Who sits where: a glyph and a hue per kind. LLM seats share one look (a gold ring marks them).
+const KINDS = {
+  tag: { glyph: "♠", color: "#3b5f8a", label: "bot · tag" },
+  rock: { glyph: "■", color: "#6b6a63", label: "bot · rock" },
+  maniac: { glyph: "⚡", color: "#b3261e", label: "bot · maniac" },
+  station: { glyph: "●", color: "#7a8f3a", label: "bot · station" },
+  random: { glyph: "⚄", color: "#8a5fb5", label: "bot · random" },
+  human: { glyph: "☺", color: "#d4a72c", label: "human" },
+};
+const DENOMS = [[100, "black"], [25, "green"], [5, "red"], [1, "white"]];
 
 let listOffset = 0, listTotal = 0;
 let hand = null, step = 0, showThink = true, showCards = true;
 let live = null, follow = true, autoTimer = null, turn = null;
+let liveHand = null, liveActing = null, tickerTimer = null;
+const bubbles = {};      // seat -> { text, until }
+const lastDecision = {}; // seat -> { latency_ms, cost_usd } shown after an LLM seat decides
+const modelOf = {};      // seat -> model name seen in a decision's meta
+let prev = { handId: null, street: null, boardLen: 0, done: false };
 
+function kindInfo(kind) {
+  if (!kind) return { glyph: "", color: "#8f8b80", label: "" };
+  if (kind.startsWith("llm:")) return { glyph: "✦", color: "#1f7a4d", label: kind.slice(4), llm: true };
+  return KINDS[kind] || { glyph: "", color: "#8f8b80", label: kind };
+}
+function initials(name) {
+  const letters = String(name).replace(/[^\p{L}\p{N}]/gu, "");
+  return (letters.slice(0, 2) || "?").toUpperCase();
+}
 function cardEl(text, small) {
   const el = document.createElement("span");
   if (text === null) { el.className = "card back" + (small ? " small" : ""); return el; }
   const rank = text[0] === "T" ? "10" : text[0], suit = text[1];
   el.className = "card" + ((suit === "h" || suit === "d") ? " red" : "") + (small ? " small" : "");
   el.innerHTML = `<span>${rank}</span><span class="suit">${SUITS[suit]}</span>`;
+  return el;
+}
+function avatarEl(p) {
+  const info = kindInfo(p.kind);
+  const el = document.createElement("span");
+  el.className = "avatar" + (info.llm ? " llm" : "") + (p.kind === "human" ? " human" : "");
+  el.style.setProperty("--c", info.color);
+  el.innerHTML = `<span class="initials">${esc(initials(p.name))}</span>` + (info.glyph ? `<span class="glyph">${info.glyph}</span>` : "");
+  return el;
+}
+// A stack of chip discs for an amount: classic 1 / 5 / 25 / 100 colours, at most six discs.
+function chipStackEl(amount) {
+  const el = document.createElement("span"); el.className = "chipstack";
+  let rest = amount; const discs = [];
+  for (const [value, color] of DENOMS) {
+    const n = Math.floor(rest / value); rest -= n * value;
+    for (let i = 0; i < n && discs.length < 6; i++) discs.push(color);
+  }
+  if (!discs.length) discs.push("white");
+  discs.forEach((color, i) => { const c = document.createElement("i"); c.className = "chip " + color; c.style.bottom = (i * 3) + "px"; el.appendChild(c); });
+  const label = document.createElement("b"); label.textContent = amount; el.appendChild(label);
   return el;
 }
 
@@ -49,8 +96,8 @@ async function loadList(reset) {
     const li = document.createElement("li");
     const b = document.createElement("button");
     b.dataset.id = h.hand_id;
-    const net = h.players.filter(p => p.net > 0).map(p => `${p.name} +${p.net}`).join(", ");
-    b.innerHTML = `<span class="id">#${h.hand_id}</span><span class="who">${net || "no winner"}</span><span class="pot">${h.pot}</span>`;
+    const net = h.players.filter(p => p.net > 0).map(p => `${esc(p.name)} +${p.net}`).join(", ");
+    b.innerHTML = `<span class="id">#${esc(h.hand_id)}</span><span class="who">${net || "no winner"}</span><span class="pot">${h.pot}</span>`;
     b.addEventListener("click", () => openHand(h.hand_id));
     li.appendChild(b);
     $("hand-list").appendChild(li);
@@ -59,11 +106,11 @@ async function loadList(reset) {
   $("more").classList.toggle("hidden", listOffset >= listTotal);
 }
 
-async function openHand(id, { autoplay = false } = {}) {
+async function openHand(id, { autoplay = false, at = "start" } = {}) {
   stopAuto();
   hand = await api(`/api/hands/${id}`);
-  hand.live = false;
-  step = 0;
+  hand.streaming = false;
+  step = at === "end" ? hand.steps.length : 0;
   $("action-bar").classList.add("hidden");
   $("summary").classList.remove("hidden");
   for (const b of $("hand-list").querySelectorAll("button[data-id]")) b.setAttribute("aria-current", b.dataset.id === id);
@@ -101,45 +148,92 @@ function stateAt(n) {
       case "win": seats[e.seat].stack += e.amount; seats[e.seat].won += e.amount; seats[e.seat].allIn = false; pot -= e.amount; break;
     }
   }
-  // Who acts next: the seat of the next action step, if any.
+  // Who acts next: the seat of the next action step (replay) or whoever the table says (live).
   const nxt = hand.steps.slice(n).find(e => e.kind === "action");
   if (nxt) acting = nxt.seat;
-  if (hand.live && n >= hand.steps.length) acting = hand.seat;
-  return { seats, board, pot, street, acting, showdown, done: n >= hand.steps.length };
+  if (hand.streaming && n >= hand.steps.length) acting = liveActing ? liveActing.seat : (turn ? turn.seat : null);
+  const done = n >= hand.steps.length && !hand.streaming;
+  return { seats, board, pot, street, acting, showdown, done };
+}
+
+function rectIn(el, box) {
+  const r = el.getBoundingClientRect(), t = box.getBoundingClientRect();
+  return { x: r.left - t.left, y: r.top - t.top, w: r.width, h: r.height };
 }
 
 function render() {
   const st = stateAt(step);
+  const table = $("table");
+  const sameHand = prev.handId === hand.hand_id;
+  // Remember where chips were, so they can travel when the state moves on.
+  const oldBets = {};
+  for (const el of table.querySelectorAll(".seat")) {
+    const b = el.querySelector(".bet .chipstack");
+    if (b) oldBets[el.dataset.seat] = rectIn(b, table);
+  }
+  const oldPotEl = $("pot").querySelector(".chipstack");
+  const oldPot = oldPotEl ? rectIn(oldPotEl, table) : null;
+
   $("scrub").value = step;
-  $("street").textContent = hand.live ? hand.street : st.done ? "hand over" : st.street;
+  $("street").textContent = st.done ? "hand over" : st.street;
   // board
   const board = $("board"); board.innerHTML = "";
   st.board.forEach(c => board.appendChild(cardEl(c)));
-  $("pot").innerHTML = st.pot ? `<span>pot ${st.pot}</span>` : "";
-  // seats around the oval
-  const table = $("table");
+  $("pot").innerHTML = "";
+  if (st.pot) { $("pot").appendChild(chipStackEl(st.pot)); const t = document.createElement("span"); t.className = "pot-label"; t.textContent = `pot ${st.pot}`; $("pot").appendChild(t); }
+  // seats around the oval (ghost chip flights remove themselves when they land)
   for (const el of table.querySelectorAll(".seat")) el.remove();
   const n = st.seats.length;
+  const now = Date.now();
   st.seats.forEach((s, i) => {
     const el = document.createElement("div");
     const angle = Math.PI / 2 + (2 * Math.PI * i) / n;  // seat 0 at the bottom, clockwise
     const x = 50 + 43 * Math.cos(angle), y = 50 + 33 * Math.sin(angle);
+    const acting = st.acting === i && !st.done;
     el.className = "seat" + (y < 50 ? " top" : " bottom") + (s.folded ? " folded" : "")
-      + (st.acting === i && !st.done ? " acting" : "") + (s.won ? " winner" : "");
+      + (acting ? " acting" : "") + (s.won ? " winner" : "");
+    el.dataset.seat = i;
     el.style.left = x + "%"; el.style.top = y + "%";
+    const info = kindInfo(s.kind);
+    const who = document.createElement("div"); who.className = "who";
+    who.appendChild(avatarEl(s));
+    const label = info.llm && modelOf[i] ? `${info.label} · ${modelOf[i].replace(/^claude-/, "")}` : info.label;
+    who.innerHTML += `<div class="id"><div class="name">${esc(s.name)}</div><div class="pos">${s.position}${label ? " · " + esc(label) : ""}</div></div>`;
+    el.appendChild(who);
     const reveal = showCards || st.showdown || (st.done && s.won);
     const cards = document.createElement("div"); cards.className = "cards";
     const hole = s.hole.length ? s.hole : [null, null];  // imported hands may not know them
     if (!s.folded || showCards) hole.forEach(c => cards.appendChild(cardEl(reveal ? c : null, true)));
-    el.innerHTML = `<div class="name">${s.name}</div><div class="pos">${s.position}</div>`;
     el.appendChild(cards);
     const stack = document.createElement("div"); stack.className = "stack";
     stack.textContent = s.allIn ? "all-in" : `${s.stack}`;
     el.appendChild(stack);
-    if (s.bet) { const b = document.createElement("div"); b.className = "bet"; b.innerHTML = `<span>${s.bet}</span>`; el.appendChild(b); }
+    if (acting && hand.streaming) {
+      const th = document.createElement("div"); th.className = "thinking"; th.innerHTML = "<i></i><i></i><i></i>";
+      el.appendChild(th);
+      if (info.llm) { const tk = document.createElement("div"); tk.className = "ticker"; tk.dataset.since = liveActing ? liveActing.since : now; el.appendChild(tk); }
+    } else if (lastDecision[i] && hand.streaming && info.llm) {
+      const tk = document.createElement("div"); tk.className = "ticker settled";
+      const d = lastDecision[i];
+      tk.textContent = `${(d.latency_ms / 1000).toFixed(1)} s` + (d.cost_usd !== undefined ? ` · $${d.cost_usd.toFixed(4)}` : "");
+      el.appendChild(tk);
+    }
+    if (s.bet) { const b = document.createElement("div"); b.className = "bet"; b.appendChild(chipStackEl(s.bet)); el.appendChild(b); }
     if (i === hand.button) { const d = document.createElement("div"); d.className = "button"; d.textContent = "D"; el.appendChild(d); }
+    const bubble = bubbles[i];
+    if (bubble && bubble.until > now) { const q = document.createElement("div"); q.className = "bubble"; q.textContent = `“${bubble.text}”`; el.appendChild(q); }
     table.appendChild(el);
   });
+  // motion that answers what just happened
+  if (!REDUCED) {
+    const forward = sameHand && step === prev.step + 1;
+    if (!sameHand && (step === 0 || hand.streaming)) dealCards(table);
+    if (forward && st.street !== prev.street && Object.keys(oldBets).length) chipsToPot(table, oldBets);
+    if (forward && st.board.length > prev.boardLen) flipIn(board, st.board.length - prev.boardLen);
+    const justWon = st.seats.some(s => s.won) && !prev.won;
+    if (forward && justWon && oldPot) potToWinners(table, oldPot, st.seats.filter(s => s.won).map(s => s.seat));
+  }
+  prev = { handId: hand.hand_id, step, street: st.street, boardLen: st.board.length, done: st.done, won: st.seats.some(s => s.won) };
   // log
   const items = $("log-list").children;
   for (let i = 0; i < items.length; i++) {
@@ -155,47 +249,107 @@ function render() {
   $("log").classList.toggle("no-think", !showThink);
 }
 
+// ---- motion ----
+function dealCards(table) {
+  const centre = { x: table.clientWidth / 2, y: table.clientHeight / 2 };
+  let i = 0;
+  for (const card of table.querySelectorAll(".seat .cards .card")) {
+    const r = rectIn(card, table);
+    const dx = centre.x - (r.x + r.w / 2), dy = centre.y - (r.y + r.h / 2);
+    card.animate([{ transform: `translate(${dx}px, ${dy}px) scale(.5)`, opacity: 0 }, { transform: "none", opacity: 1 }],
+      { duration: 380, delay: 60 * i++, easing: EASE, fill: "backwards" });
+  }
+}
+function flipIn(board, count) {
+  const cards = [...board.children].slice(-count);
+  cards.forEach((c, i) => c.animate([{ transform: "rotateY(90deg) scale(.9)", opacity: .3 }, { transform: "none", opacity: 1 }],
+    { duration: 280, delay: 110 * i, easing: EASE, fill: "backwards" }));
+}
+function ghostStack(table, rect, amount) {
+  const g = document.createElement("div"); g.className = "ghost";
+  g.style.left = rect.x + "px"; g.style.top = rect.y + "px";
+  g.appendChild(chipStackEl(amount));
+  table.appendChild(g);
+  return g;
+}
+function chipsToPot(table, oldBets) {
+  const potEl = $("pot").querySelector(".chipstack");
+  if (!potEl) return;
+  const target = rectIn(potEl, table);
+  potEl.style.opacity = "0";
+  const flights = Object.entries(oldBets).map(([seat, r]) => {
+    const g = ghostStack(table, r, 0); g.querySelector("b").remove();
+    return g.animate([{ transform: "none" }, { transform: `translate(${target.x - r.x}px, ${target.y - r.y}px)`, opacity: .9 }],
+      { duration: 450, easing: EASE, fill: "forwards" }).finished.then(() => g.remove());
+  });
+  Promise.all(flights).then(() => { potEl.style.opacity = ""; });
+}
+function potToWinners(table, oldPot, winners) {
+  for (const seat of winners) {
+    const el = table.querySelector(`.seat[data-seat="${seat}"]`);
+    if (!el) continue;
+    const target = rectIn(el.querySelector(".stack"), table);
+    const g = ghostStack(table, oldPot, 0); g.querySelector("b").remove();
+    g.animate([{ transform: "none", opacity: 1 }, { transform: `translate(${target.x - oldPot.x}px, ${target.y - oldPot.y}px)`, opacity: .2 }],
+      { duration: 600, easing: EASE, fill: "forwards" }).finished.then(() => {
+        g.remove();
+        el.animate([{ boxShadow: "0 0 0 0 rgba(212,167,44,.9)" }, { boxShadow: "0 0 0 18px rgba(212,167,44,0)" }], { duration: 900, easing: "ease-out" });
+      });
+  }
+}
+function bubble(seat, text) {
+  bubbles[seat] = { text, until: Date.now() + 4000 };
+  setTimeout(() => { if (bubbles[seat] && bubbles[seat].until <= Date.now() + 5) { delete bubbles[seat]; if (hand) render(); } }, 4100);
+}
+function startTicker() {
+  if (tickerTimer) return;
+  tickerTimer = setInterval(() => {
+    for (const tk of document.querySelectorAll(".ticker:not(.settled)")) tk.textContent = `${((Date.now() - +tk.dataset.since) / 1000).toFixed(1)} s`;
+  }, 200);
+}
+
 function buildLog() {
   const ol = $("log-list"); ol.innerHTML = "";
-  for (const e of hand.steps) {
-    const li = document.createElement("li");
-    switch (e.kind) {
-      case "post_blind":
-        li.textContent = `${e.name} posts ${e.amount}${e.all_in ? " and is all-in" : ""}`; break;
-      case "action": {
-        li.innerHTML = `<span class="who">${e.name}</span> ${verb(e)}${e.all_in ? " and is all-in" : ""}`;
-        if (e.table_talk) li.innerHTML += ` <span class="talk">“${esc(e.table_talk)}”</span>`;
-        if (e.meta && e.meta.cost_usd !== undefined) li.innerHTML += `<span class="meta">${e.meta.model}, $${e.meta.cost_usd.toFixed(4)}</span>`;
-        if (e.reasoning || e.illegal) {
-          const t = document.createElement("span"); t.className = "think";
-          t.innerHTML = (e.illegal ? `<span class="illegal">wanted “${esc(e.requested)}”, which was illegal.</span> ` : "") + esc(e.reasoning || "");
-          li.appendChild(t);
-        }
-        break;
+  for (const e of hand.steps) ol.appendChild(logItem(e));
+}
+function logItem(e) {
+  const li = document.createElement("li");
+  switch (e.kind) {
+    case "post_blind":
+      li.textContent = `${e.name} posts ${e.amount}${e.all_in ? " and is all-in" : ""}`; break;
+    case "action": {
+      li.innerHTML = `<span class="who">${esc(e.name)}</span> ${verb(e)}${e.all_in ? " and is all-in" : ""}`;
+      if (e.table_talk) li.innerHTML += ` <span class="talk">“${esc(e.table_talk)}”</span>`;
+      if (e.meta && e.meta.cost_usd !== undefined) li.innerHTML += `<span class="meta">${esc(e.meta.model)}, $${e.meta.cost_usd.toFixed(4)}</span>`;
+      if (e.reasoning || e.illegal) {
+        const t = document.createElement("span"); t.className = "think";
+        t.innerHTML = (e.illegal ? `<span class="illegal">wanted “${esc(e.requested)}”, which was illegal.</span> ` : "") + esc(e.reasoning || "");
+        li.appendChild(t);
       }
-      case "street": {
-        li.className = "street";
-        li.textContent = e.street;
-        const c = document.createElement("span"); c.className = "cards";
-        e.cards.forEach(x => c.appendChild(cardEl(x, true)));
-        li.appendChild(c);
-        break;
-      }
-      case "return_uncalled": li.textContent = `${e.amount} uncalled, back to ${e.name}`; break;
-      case "showdown": {
-        li.innerHTML = `<span class="who">${e.name}</span> shows `;
-        const c = document.createElement("span"); c.className = "cards"; c.style.display = "inline-flex"; c.style.gap = "3px"; c.style.verticalAlign = "middle";
-        e.cards.forEach(x => c.appendChild(cardEl(x, true)));
-        li.appendChild(c);
-        li.appendChild(document.createTextNode(` — ${e.text}`));
-        break;
-      }
-      case "win": li.className = "win"; li.innerHTML = `<span class="who">${e.name}</span> wins ${e.amount} (${esc(e.text)})`; break;
-      case "hand_end": li.className = "street"; li.textContent = "hand over"; break;
-      default: li.textContent = e.kind;
+      break;
     }
-    ol.appendChild(li);
+    case "street": {
+      li.className = "street";
+      li.textContent = e.street;
+      const c = document.createElement("span"); c.className = "cards";
+      e.cards.forEach(x => c.appendChild(cardEl(x, true)));
+      li.appendChild(c);
+      break;
+    }
+    case "return_uncalled": li.textContent = `${e.amount} uncalled, back to ${e.name}`; break;
+    case "showdown": {
+      li.innerHTML = `<span class="who">${esc(e.name)}</span> shows `;
+      const c = document.createElement("span"); c.className = "cards"; c.style.display = "inline-flex"; c.style.gap = "3px"; c.style.verticalAlign = "middle";
+      e.cards.forEach(x => c.appendChild(cardEl(x, true)));
+      li.appendChild(c);
+      li.appendChild(document.createTextNode(` — ${e.text}`));
+      break;
+    }
+    case "win": li.className = "win"; li.innerHTML = `<span class="who">${esc(e.name)}</span> wins ${e.amount} (${esc(e.text)})`; break;
+    case "hand_end": li.className = "street"; li.textContent = "hand over"; break;
+    default: li.textContent = e.kind;
   }
+  return li;
 }
 
 function verb(e) {
@@ -210,7 +364,7 @@ function buildSummary() {
   const rows = hand.players.map(p => {
     const cls = p.net > 0 ? "plus" : p.net < 0 ? "minus" : "";
     const sd = hand.showdown[p.seat] ? ` — ${hand.showdown[p.seat]}` : "";
-    return `<tr><td>${p.name}</td><td>${p.position}</td><td>${p.hole.join(" ")}${sd}</td><td class="num ${cls}">${p.net > 0 ? "+" : ""}${p.net}</td></tr>`;
+    return `<tr><td>${esc(p.name)}</td><td>${p.position}</td><td>${p.hole.join(" ")}${sd}</td><td class="num ${cls}">${p.net > 0 ? "+" : ""}${p.net}</td></tr>`;
   }).join("");
   const pots = hand.pots.map((p, i) => `${i === 0 ? "main pot" : "side pot " + i} ${p.amount}`).join(", ");
   $("summary").innerHTML = `<table><tr><th>Seat</th><th></th><th>Cards</th><th class="num">Result</th></tr>${rows}</table><p>${pots}. Board ${hand.board.join(" ") || "never dealt"}.</p>`;
@@ -248,8 +402,8 @@ async function drawBankroll() {
   // gridlines: a few round steps
   const grid = svgEl("g", { class: "grid" }, svg), axis = svgEl("g", { class: "axis" }, svg);
   const stepRaw = (hi - lo) / 4, mag = Math.pow(10, Math.floor(Math.log10(stepRaw)));
-  const step = [1, 2, 5, 10].map(k => k * mag).find(k => k >= stepRaw) || mag;
-  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+  const gstep = [1, 2, 5, 10].map(k => k * mag).find(k => k >= stepRaw) || mag;
+  for (let v = Math.ceil(lo / gstep) * gstep; v <= hi; v += gstep) {
     svgEl("line", { x1: m.left, x2: W - m.right, y1: y(v), y2: y(v), class: v === 0 ? "zero" : "" }, grid);
     const t = svgEl("text", { x: m.left - 8, y: y(v) + 4, "text-anchor": "end" }, axis); t.textContent = v;
   }
@@ -320,7 +474,7 @@ async function showBoard() {
 }
 
 function startAuto() {
-  if (!hand || autoTimer) return;
+  if (!hand || autoTimer || hand.streaming) return;
   if (step >= hand.steps.length) step = 0;
   $("auto").setAttribute("aria-pressed", "true");
   autoTimer = setInterval(() => {
@@ -349,22 +503,76 @@ function setLive(st) {
   el.classList.toggle("over", !!st.finished);
   el.classList.toggle("turn", !!st.turn);
   $("follow").classList.remove("hidden");
+  $("pace-wrap").classList.toggle("hidden", !!st.finished);
+  if (st.pace !== undefined && document.activeElement !== $("pace")) { $("pace").value = st.pace; $("pace-value").textContent = `${(+st.pace).toFixed(1)} s`; }
+  // with a human seated nobody else's cards are available, so the reveal toggle is moot
+  $("toggle-cards").classList.toggle("hidden", st.spectator === false);
+}
+function watchingLive() { return hand && hand.streaming; }
+function showLive() {
+  if (!liveHand) return;
+  stopAuto();
+  hand = liveHand;
+  step = liveHand.steps.length;
+  $("empty").classList.add("hidden");
+  $("replay").classList.remove("hidden");
+  $("action-bar").classList.toggle("hidden", !turn);
+  $("summary").classList.add("hidden");
+  $("hand-title").textContent = `Hand #${liveHand.hand_id}`;
+  $("hand-sub").textContent = turn ? `your turn on the ${turn.street}` : `live, blinds ${liveHand.small_blind}/${liveHand.big_blind}`;
+  $("scrub").max = liveHand.steps.length;
+  for (const b of $("hand-list").querySelectorAll("button[data-id]")) b.setAttribute("aria-current", "false");
+  buildLog();
+  render();
+  startTicker();
+}
+function beginLiveHand(h) {
+  liveHand = { ...h, streaming: true };
+  liveActing = null;
+  for (const k of Object.keys(lastDecision)) delete lastDecision[k];
+  if (turn && turn.hand_id !== h.hand_id) turn = null;
+  if (follow) showLive();
+}
+function takeLiveStep(ev) {
+  if (!liveHand || ev.hand_id !== liveHand.hand_id) return;
+  const s = ev.step;
+  liveHand.steps.push(s);
+  if (s.kind === "street") liveHand.board = liveHand.board.concat(s.cards);
+  if (s.kind === "action") {
+    if (liveActing && liveActing.seat === s.seat) liveActing = null;
+    if (s.latency_ms !== undefined) lastDecision[s.seat] = { latency_ms: s.latency_ms, cost_usd: s.meta ? s.meta.cost_usd : undefined };
+    if (s.meta && s.meta.model) modelOf[s.seat] = s.meta.model;
+    if (s.table_talk) bubble(s.seat, s.table_talk);
+  }
+  if (watchingLive() && hand.hand_id === liveHand.hand_id) {
+    step = liveHand.steps.length;
+    $("scrub").max = step;
+    $("log-list").appendChild(logItem(s));
+    render();
+  }
 }
 async function connectLive() {
   const st = await api("/api/live");
   if (!st.live) return;
   setLive(st);
+  if (st.current) beginLiveHand(st.current);
   if (st.turn) showTurn(st.turn);
   const es = new EventSource("/api/events");
   es.onmessage = async (msg) => {
     const ev = JSON.parse(msg.data);
-    if (ev.type === "hand") {
+    if (ev.type === "hand_start") beginLiveHand(ev.hand);
+    else if (ev.type === "acting") {
+      liveActing = { seat: ev.seat, kind: ev.kind, since: Date.now() };
+      if (watchingLive()) render();
+    } else if (ev.type === "step") takeLiveStep(ev);
+    else if (ev.type === "hand") {
+      if (liveHand && liveHand.hand_id === ev.hand_id) { liveHand.streaming = false; liveHand.finished = true; }
       await loadSession();
       await loadList(true);
       const now = await api("/api/live");  // the next hand may already be waiting for us
       setLive(now);
       if (now.turn) showTurn(now.turn);
-      else if (follow) openHand(ev.hand_id, { autoplay: true });
+      else if (follow && (!hand || hand.hand_id === ev.hand_id)) openHand(ev.hand_id, { at: "end" });
     } else if (ev.type === "turn") {
       const now = await api("/api/live");
       setLive(now);
@@ -378,18 +586,11 @@ async function connectLive() {
 
 // Show the pending decision: the table as the human sees it, plus the action bar.
 function showTurn(t) {
-  stopAuto();
   turn = t;
-  hand = { ...t, live: true };
-  step = t.steps.length;
-  $("empty").classList.add("hidden");
-  $("replay").classList.remove("hidden");
-  $("hand-title").textContent = `Hand #${t.hand_id}`;
-  $("hand-sub").textContent = `your turn on the ${t.street}`;
-  $("scrub").max = t.steps.length;
-  $("summary").classList.add("hidden");
-  buildLog();
-  render();
+  if (!liveHand || liveHand.hand_id !== t.hand_id) liveHand = { ...t, streaming: true };
+  liveHand.players[t.seat].hole = t.players[t.seat].hole;  // our own cards, for the rest of the hand
+  liveActing = null;
+  showLive();
   const L = t.legal;
   $("action-legal").textContent = `— ${L.describe}`;
   $("act-check").textContent = L.can_check ? "Check" : `Call ${L.call_amount}`;
@@ -438,8 +639,10 @@ $("act-fold").onclick = () => sendAction("fold");
 $("act-check").onclick = () => sendAction(turn && turn.legal.can_check ? "check" : "call");
 $("act-raise").onclick = () => sendAction(`${turn.legal.is_bet ? "bet" : "raise"} ${$("act-amount").value}`);
 $("action-bar").onsubmit = (e) => { e.preventDefault(); if (turn && turn.legal.max_raise_to > 0) $("act-raise").click(); else $("act-check").click(); };
-$("follow").onclick = (e) => { follow = !follow; e.target.setAttribute("aria-pressed", follow); };
+$("follow").onclick = (e) => { follow = !follow; e.target.setAttribute("aria-pressed", follow); if (follow && liveHand && liveHand.streaming) showLive(); };
 $("auto").onclick = () => (autoTimer ? stopAuto() : startAuto());
+$("pace").oninput = (e) => { $("pace-value").textContent = `${(+e.target.value).toFixed(1)} s`; };
+$("pace").onchange = (e) => fetch("/api/live/pace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pace: +e.target.value }) });
 
 function setTab(which) {
   for (const name of ["hands", "board", "coach"]) $(`tab-${name}`).setAttribute("aria-pressed", name === which);
@@ -490,7 +693,7 @@ function renderCoach(r) {
   }
   html += "</ol>";
   if (r.observations.length) html += "<h4>Observations</h4><ul class=\"plain\">" + r.observations.map(o => `<li>${esc(o)}</li>`).join("") + "</ul>";
-  if (r.trend.length) html += "<h4>Trend, first half of the session vs second</h4><ul class=\"plain\">" + r.trend.map(o => `<li>${esc(o)}</li>`).join("") + "</ul>";
+  if (r.trend.length) html += "<h4>Trend</h4><ul class=\"plain\">" + r.trend.map(o => `<li>${esc(o)}</li>`).join("") + "</ul>";
   if (coachNotes && coachNotes.focus) html += `<div class="focus">The one thing to work on: ${esc(coachNotes.focus)}</div>`;
   if (coachNotes) html += `<p class="empty-note">${esc(coachNotes.model)}, $${coachNotes.cost_usd}${coachNotes.dropped ? `, ${coachNotes.dropped} unsupported note(s) dropped` : ""}</p>`;
   root.innerHTML = html;
@@ -512,7 +715,14 @@ function renderCoach(r) {
   };
 }
 
-function go(n) { if (!hand) return; step = Math.max(0, Math.min(hand.steps.length, n)); render(); }
+function go(n) {
+  if (!hand) return;
+  n = Math.max(0, Math.min(hand.steps.length, n));
+  const s = n === step + 1 ? hand.steps[n - 1] : null;  // stepping onto a line: let it speak
+  if (s && s.kind === "action" && s.table_talk) bubble(s.seat, s.table_talk);
+  step = n;
+  render();
+}
 for (const id of ["first", "prev", "next", "last", "scrub"]) $(id).addEventListener("pointerdown", stopAuto);
 
 $("first").onclick = () => go(0);
