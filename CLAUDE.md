@@ -50,8 +50,15 @@ a hand history with each seat's private reasoning attached.
   `/api/stats`, `/api/bankroll`) and a single-file vanilla-JS replay viewer (paper-on-felt look,
   Source Sans 3; the bankroll chart uses the dataviz reference palette, validated on `#efe9da`).
 - `web/live.py` — `serve --live`: `LiveSession` runs a league on a thread, appends to the JSONL
-  and publishes SSE (`/api/events`); `WebHumanAgent` blocks in `act()` until `POST /api/act`;
-  `/api/live` returns the pending turn as the viewer's hand shape (own cards only).
+  and publishes SSE (`/api/events`): `hand_start` (seats + kinds; everyone's cards only in
+  spectator mode), `acting`, one `step` per engine event (decision details ride on action
+  steps; reasoning/cost only for spectators), `hand`, `turn`, `done`. `pace` sleeps after
+  `acting` for bots so they visibly think; `POST /api/live/pace` changes it live. `WebHumanAgent`
+  blocks in `act()` until `POST /api/act`; `/api/live` carries the in-progress hand (`current`).
+- `web/static/app.js` — one file, no build: `stateAt()`/`render()` draw any hand (replay or
+  live) from its steps; animations (deal, flip, chips to pot / to winner, bubbles) are decided
+  by comparing the new state with `prev` inside `render()`, so replay stepping and live
+  streaming share them. Motion is skipped under `prefers-reduced-motion`.
 - `coach/ranges.py` — 169 hand classes, range notation (`22+, A2s+, T9s-65s`), reference
   6-max charts in one dict (`CHARTS`), sampling combos from a range.
 - `coach/equity.py` — Monte Carlo equity vs random hands, class ranges or explicit combos
@@ -87,10 +94,14 @@ a hand history with each seat's private reasoning attached.
 
 ## Status / how to continue (as of 2026-09-18)
 Merged: PR #1 (engine, bots, LLM seats, human seats, histories, stats, league, CLI, viewer,
-live tables), PR #2 (poker-coach: ranges, equity, facts, report, narration, drills, trend),
-PR #3 (Coach tab, PokerStars importer, range narrowing). Branch `feat/coach-timeline` (PR #4):
-`played_at` + weekly trend + `coach --since/--until`, GGPoker import, 10x faster narrowing,
-`docs/baseline.md`. 268 tests green. HQ registered. **Not done yet, in this order:**
+live tables), PR #2 (poker-coach), PR #3 (Coach tab, PokerStars importer, range narrowing),
+PR #4 (`played_at` + weekly trend, GGPoker import, fast narrowing, `docs/baseline.md`).
+Branch `feat/watch-mode` (PR #5): cinematic watch mode — real-time streaming of hands with a
+pace, seat kinds, avatars, chip stacks, animations, bubbles, thinking indicator. 271 tests.
+The development plan for everything after this lives in the approved plan
+(`~/.claude/plans/try-to-create-a-generic-raven.md`): M2 coach on real hands, M3 antes +
+tournaments, M4 packaging + static demo, M5 LLM league (needs a key), M6 solver (conditional).
+**Not done yet, in this order:**
 
 1. **Live smoke test of the LLM seat** — no API key on this machine yet. Run
    `ANTHROPIC_API_KEY=... uv run poker-table play -n 2 --seats llm:nerd,tag --show` and check
