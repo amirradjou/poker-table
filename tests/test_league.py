@@ -78,6 +78,24 @@ def test_agent_kinds_reach_the_hand_history() -> None:
 
     again = HandHistory.from_json(result.histories[0].to_json())
     assert [p.kind for p in again.players] == ["tag", "rock", "maniac", "station", "random"]
+    assert again.hero == ""  # no human at this table
+
+
+def test_a_lone_human_seat_is_the_hero_of_league_hands() -> None:
+    from poker_table.cli import resolve_player
+    from poker_table.web.live import WebHumanAgent
+
+    class Folder(WebHumanAgent):  # a browser seat that answers instantly
+        def act(self, view):
+            from poker_table.agents import Decision
+            from poker_table.engine import Action
+
+            return Decision(Action.fold())
+
+    agents = [Folder("me"), *make_agents(["tag", "station"], seed=2)]
+    result = run_league(agents, LeagueConfig(hands=3, seed=2))
+    assert all(h.hero == "me" for h in result.histories)
+    assert resolve_player(result.histories, None, __import__("pathlib").Path("x")) == "me"
 
 
 def test_registry_builds_named_and_numbered_agents() -> None:

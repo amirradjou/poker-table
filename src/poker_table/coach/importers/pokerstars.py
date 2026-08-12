@@ -328,6 +328,7 @@ def _parse_hand(raw: str, scale: int) -> tuple[HandHistory, str | None]:
         payouts=payouts,
         showdown=showdown,
         played_at=_played_at(lines[0]),
+        hero=hero or "",
     )
     return history, hero
 

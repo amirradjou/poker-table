@@ -138,7 +138,13 @@ def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
     @app.get("/api/session")
     def session() -> dict[str, Any]:
         store.reload()
-        return {"file": store.path.name, "hands": len(store.hands), "players": store.players()}
+        heroes = {h.hero for h in store.hands if h.hero}
+        return {
+            "file": store.path.name,
+            "hands": len(store.hands),
+            "players": store.players(),
+            "hero": heroes.pop() if len(heroes) == 1 else None,
+        }
 
     @app.get("/api/hands")
     def hands(offset: int = 0, limit: int = 100) -> dict[str, Any]:

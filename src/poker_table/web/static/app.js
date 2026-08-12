@@ -666,7 +666,7 @@ async function showCoach() {
     b.onclick = () => { coachPlayer = name; coachNotes = null; showCoach(); };
     picker.appendChild(b);
   }
-  if (!coachPlayer && s.players.length) coachPlayer = s.players[0];
+  if (!coachPlayer && s.players.length) coachPlayer = s.hero || s.players[0];
   if (!coachPlayer) { $("coach").innerHTML = '<span class="empty-note">No hands yet.</span>'; return; }
   for (const b of picker.children) b.setAttribute("aria-pressed", b.textContent === coachPlayer);
   $("coach").innerHTML = '<span class="empty-note">Replaying every hand and running the numbers…</span>';

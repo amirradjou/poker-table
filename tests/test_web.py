@@ -27,6 +27,7 @@ def test_index_and_session(hands_file: Path) -> None:
         "file": "hands.jsonl",
         "hands": 12,
         "players": ["tag", "maniac", "station"],
+        "hero": None,
     }
 
 
@@ -73,7 +74,12 @@ def test_session_reload_sees_appended_hands(hands_file: Path) -> None:
 
 def test_missing_file_serves_an_empty_session(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path / "nope.jsonl"))
-    assert client.get("/api/session").json() == {"file": "nope.jsonl", "hands": 0, "players": []}
+    assert client.get("/api/session").json() == {
+        "file": "nope.jsonl",
+        "hands": 0,
+        "players": [],
+        "hero": None,
+    }
     assert client.get("/api/hands").json() == {"total": 0, "hands": []}
     assert client.get("/api/stats").json() == {"hands": 0, "rows": []}
 

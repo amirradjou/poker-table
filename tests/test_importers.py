@@ -160,3 +160,25 @@ def test_ggpoker_dialect() -> None:
     ]
     facts = tag_hands([hand], "Hero", samples=40)
     assert [(f.tag, f.ok) for f in facts] == [("three_bet", True), ("vs_three_bet", True)]
+
+
+def test_imported_hands_carry_their_hero_and_the_cli_uses_it(tmp_path: Path) -> None:
+    import io
+
+    from poker_table.cli import main, resolve_player
+
+    cash = import_text(CASH).hands
+    assert all(h.hero == "hero" for h in cash)
+    assert HandHistory.from_json(cash[0].to_json()).hero == "hero"
+    assert resolve_player(cash, None, Path("x")) == "hero"
+    assert resolve_player(cash, "villain1", Path("x")) == "villain1"
+    gg = import_text((FIXTURES / "ggpoker_cash.txt").read_text()).hands
+    with pytest.raises(ValueError, match="several heroes"):
+        resolve_player(cash + gg, None, Path("x"))
+    with pytest.raises(ValueError, match="no seat named"):
+        resolve_player(cash, "nobody", Path("x"))
+    out = tmp_path / "h.jsonl"
+    main(["import", str(FIXTURES / "pokerstars_cash.txt"), "-o", str(out)], out=io.StringIO())
+    buf = io.StringIO()
+    assert main(["coach", str(out), "--samples", "30"], out=buf) == 0
+    assert "Coach report for hero" in buf.getvalue()

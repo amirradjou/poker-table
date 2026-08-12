@@ -73,6 +73,7 @@ class HandHistory:
     showdown: dict[int, str]
     version: int = FORMAT_VERSION
     played_at: str = ""  # ISO 8601 UTC; empty when unknown (older files)
+    hero: str = ""  # whose hand this is: the imported file's hero, or the one human seat
 
     @property
     def played(self) -> datetime | None:
@@ -87,6 +88,7 @@ class HandHistory:
             raise ValueError("hand is not finished")
         stamp = (played_at or datetime.now(UTC)).astimezone(UTC).isoformat(timespec="seconds")
         net = hand.net()
+        humans = [s.name for s in hand.seats if s.kind == "human"]
         players = [
             PlayerRecord(
                 seat=s.index,
@@ -126,6 +128,7 @@ class HandHistory:
             payouts=dict(hand.payouts),
             showdown={i: r.describe() for i, r in hand.showdown_ranks.items()},
             played_at=stamp,
+            hero=humans[0] if len(humans) == 1 else "",
         )
 
     # -- (de)serialisation --
@@ -156,6 +159,7 @@ class HandHistory:
             showdown={int(k): v for k, v in data["showdown"].items()},
             version=data.get("version", FORMAT_VERSION),
             played_at=data.get("played_at", ""),
+            hero=data.get("hero", ""),
         )
 
     @classmethod
