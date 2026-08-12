@@ -12,6 +12,13 @@ seat, hand histories, stats, league, CLI and a browser replay viewer are in (Pyt
 `uv`), including live tables in the browser. Phase 2 (poker-coach) has its math layer, leak
 reports, Claude narration and drills. See `CLAUDE.md` for what is next.
 
+![Watch mode: bots playing a hand live, with avatars, chip stacks, a thinking indicator and
+table talk](docs/watch.gif)
+
+Live tables play out card by card — dealing, chips sliding to the pot and to the winner, table
+talk as notes by the seat, and a thinking indicator (with a cost ticker for LLM seats). The
+replay viewer steps through any finished hand with every seat's private reasoning:
+
 ![Replay viewer: a table diagram with each seat's cards, the board, and the action log with
 private reasoning](docs/viewer.png)
 
@@ -27,8 +34,8 @@ uv run poker-table stats hands.jsonl                  # VPIP, PFR, 3-bet, AF, WT
 uv run poker-table serve hands.jsonl --open           # replay viewer + leaderboard in the browser
 uv run poker-table play -n 20 --seats me:human,tag,maniac   # pull up a chair (terminal)
 
-# watch bots play live in the browser, or sit down yourself
-uv run poker-table serve live.jsonl --live -n 200 --seats tag,maniac,llm:nerd --open
+# watch bots play live in the browser (--pace = seconds per decision), or sit down yourself
+uv run poker-table serve live.jsonl --live -n 200 --seats tag,maniac,llm:nerd --pace 0.8 --open
 uv run poker-table serve live.jsonl --live -n 20 --seats me:human,tag,maniac --open
 
 # LLM seats (needs ANTHROPIC_API_KEY): kind is llm:<personality>[@model]
