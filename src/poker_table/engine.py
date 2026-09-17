@@ -12,7 +12,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
-from poker_table.cards import Card, Deck
+from poker_table.cards import Card, Deck, cards_str
+from poker_table.evaluator import HandRank, evaluate
+from poker_table.pots import Pot, build_pots, split_amount, uncalled_amount
 
 
 class ActionType(StrEnum):
@@ -182,6 +184,7 @@ class Hand:
         big_blind: int,
         seed: int,
         hand_id: str = "1",
+        deck: Deck | None = None,
     ) -> None:
         if len(players) < 2:
             raise ValueError("a hand needs at least two players")
@@ -202,12 +205,14 @@ class Hand:
         self.button = button % len(players)
         self.seats = [Seat(i, p.name, p.stack) for i, p in enumerate(players)]
         self.starting_stacks = {s.index: s.stack for s in self.seats}
-        self.deck = Deck(seed)
+        self.deck = deck if deck is not None else Deck(seed)
         self.board: list[Card] = []
         self.street = Street.PREFLOP
         self.events: list[Event] = []
         self.finished = False
         self.payouts: dict[int, int] = {}
+        self.pots: list[Pot] = []
+        self.showdown_ranks: dict[int, HandRank] = {}
         self.current_bet = 0
         self.last_raise_size = big_blind
         self._actor: int | None = None
@@ -215,7 +220,7 @@ class Hand:
         self._log(EventKind.HAND_START, text=f"button seat {self.button}")
         self._post_blinds()
         self._deal_hole_cards()
-        self._actor = self._first_to_act(preflop=True)
+        self._begin_betting(after=self.bb_index)
 
     # ----- setup ---------------------------------------------------------------------------
 
@@ -251,12 +256,16 @@ class Hand:
             self.seats[i].hole = (first[i], second[i])
             self._log(EventKind.DEAL_HOLE, seat=i, cards=self.seats[i].hole)
 
-    def _first_to_act(self, *, preflop: bool) -> int | None:
-        start = self.bb_index if preflop else self.button
-        index = start
+    def _find_actor(self, after: int) -> int | None:
+        """The next seat clockwise from ``after`` that still owes a decision, if any."""
+        can_act = [s for s in self.seats if s.can_act]
+        if len(can_act) == 1 and can_act[0].street_bet >= self.current_bet:
+            return None  # nobody left to bet against
+        index = after
         for _ in range(self.num_players):
             index = self._next_index(index)
-            if self.seats[index].can_act:
+            seat = self.seats[index]
+            if seat.can_act and (not seat.acted or seat.street_bet < self.current_bet):
                 return index
         return None
 
@@ -265,6 +274,14 @@ class Hand:
     @property
     def pot(self) -> int:
         return sum(s.total_bet for s in self.seats)
+
+    @property
+    def in_hand(self) -> list[Seat]:
+        return [s for s in self.seats if s.in_hand]
+
+    def net(self) -> dict[int, int]:
+        """Chips won (positive) or lost per seat index, valid once the hand is finished."""
+        return {s.index: s.stack - self.starting_stacks[s.index] for s in self.seats}
 
     @property
     def actor(self) -> Seat | None:
@@ -293,6 +310,156 @@ class Hand:
             max_raise_to=max_to,
             current_bet=self.current_bet,
         )
+
+    # ----- actions -------------------------------------------------------------------------
+
+    def apply(self, action: Action) -> None:
+        """Apply the acting seat's decision and move the hand forward."""
+        seat = self.actor
+        if seat is None:
+            raise IllegalAction("the hand is over" if self.finished else "no seat is due to act")
+        legal = self.legal_actions()
+        self._validate(action, legal)
+
+        paid = 0
+        match action.type:
+            case ActionType.FOLD:
+                seat.folded = True
+            case ActionType.CHECK:
+                pass
+            case ActionType.CALL:
+                paid = seat.put_in(legal.call_amount)
+            case ActionType.BET | ActionType.RAISE:
+                raise_size = action.amount - self.current_bet
+                paid = seat.put_in(action.amount - seat.street_bet)
+                if raise_size >= self.last_raise_size:
+                    # A full raise reopens the action for everyone else; an all-in for
+                    # less does not (they may only call the extra or fold).
+                    self.last_raise_size = raise_size
+                    for other in self.seats:
+                        other.acted = False
+                self.current_bet = action.amount
+        seat.acted = True
+        self._log(EventKind.ACTION, seat=seat.index, action=action, amount=paid, all_in=seat.all_in)
+        self._advance()
+
+    def _validate(self, action: Action, legal: LegalActions) -> None:
+        match action.type:
+            case ActionType.FOLD:
+                return
+            case ActionType.CHECK:
+                if not legal.can_check:
+                    raise IllegalAction(f"cannot check facing a bet of {legal.current_bet}")
+            case ActionType.CALL:
+                if not legal.can_call:
+                    raise IllegalAction("nothing to call")
+            case ActionType.BET | ActionType.RAISE:
+                if not legal.can_raise:
+                    raise IllegalAction("raising is not allowed here")
+                if action.type is ActionType.BET and not legal.is_bet:
+                    raise IllegalAction("there is already a bet; use raise")
+                if action.type is ActionType.RAISE and legal.is_bet:
+                    raise IllegalAction("nothing to raise; use bet")
+                if not legal.min_raise_to <= action.amount <= legal.max_raise_to:
+                    raise IllegalAction(
+                        f"amount {action.amount} outside {legal.min_raise_to}..{legal.max_raise_to}"
+                    )
+
+    # ----- flow ----------------------------------------------------------------------------
+
+    def _begin_betting(self, after: int) -> None:
+        self._actor = self._find_actor(after)
+        if self._actor is None:
+            self._end_street()
+
+    def _advance(self) -> None:
+        live = self.in_hand
+        if len(live) == 1:
+            self._finish_by_fold(live[0])
+            return
+        assert self._actor is not None
+        self._actor = self._find_actor(self._actor)
+        if self._actor is None:
+            self._end_street()
+
+    def _end_street(self) -> None:
+        self._actor = None
+        if self.street is Street.RIVER:
+            self._showdown()
+            return
+        for seat in self.seats:
+            seat.street_bet = 0
+            seat.acted = False
+        self.current_bet = 0
+        self.last_raise_size = self.big_blind
+        self.street = {
+            Street.PREFLOP: Street.FLOP,
+            Street.FLOP: Street.TURN,
+            Street.TURN: Street.RIVER,
+        }[self.street]
+        dealt = self.deck.deal(BOARD_CARDS[self.street] - len(self.board))
+        self.board.extend(dealt)
+        self._log(EventKind.STREET, cards=tuple(dealt), text=cards_str(self.board))
+        self._begin_betting(after=self.button)
+
+    def _return_uncalled(self) -> None:
+        returned = uncalled_amount({s.index: s.total_bet for s in self.seats})
+        if returned is None:
+            return
+        index, amount = returned
+        seat = self.seats[index]
+        seat.stack += amount
+        seat.total_bet -= amount
+        seat.street_bet = max(0, seat.street_bet - amount)
+        self._log(EventKind.RETURN_UNCALLED, seat=index, amount=amount)
+
+    def _finish_by_fold(self, winner: Seat) -> None:
+        self._actor = None
+        self._return_uncalled()
+        amount = self.pot
+        self.pots = [Pot(amount, (winner.index,))]
+        winner.stack += amount
+        self.payouts = {winner.index: amount}
+        self._log(EventKind.WIN, seat=winner.index, amount=amount, text="everyone else folded")
+        self._finish()
+
+    def _showdown(self) -> None:
+        self.street = Street.SHOWDOWN
+        self._return_uncalled()
+        self.pots = build_pots(
+            {s.index: s.total_bet for s in self.seats}, [s.index for s in self.in_hand]
+        )
+        for seat in self.in_hand:
+            assert seat.hole is not None
+            rank = evaluate([*self.board, *seat.hole])
+            self.showdown_ranks[seat.index] = rank
+            self._log(EventKind.SHOWDOWN, seat=seat.index, cards=seat.hole, text=rank.describe())
+
+        payouts: dict[int, int] = {}
+        for number, pot in enumerate(self.pots):
+            best = max(self.showdown_ranks[i] for i in pot.eligible)
+            winners = [i for i in pot.eligible if self.showdown_ranks[i] == best]
+            label = "main pot" if number == 0 else f"side pot {number}"
+            shares = split_amount(
+                pot.amount, winners, self._next_index(self.button), self.num_players
+            )
+            for index, amount in shares.items():
+                payouts[index] = payouts.get(index, 0) + amount
+                self._log(
+                    EventKind.WIN,
+                    seat=index,
+                    amount=amount,
+                    text=f"{label} with {self.showdown_ranks[index].describe()}",
+                )
+        for index, amount in payouts.items():
+            self.seats[index].stack += amount
+        self.payouts = payouts
+        self._finish()
+
+    def _finish(self) -> None:
+        self.finished = True
+        self._actor = None
+        self._log(EventKind.HAND_END)
 
     # ----- helpers -------------------------------------------------------------------------
 

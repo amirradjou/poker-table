@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import random
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 
@@ -94,6 +94,16 @@ class Deck:
         self._rng = random.Random(seed)
         self._cards: list[Card] = list(FULL_DECK)
         self._rng.shuffle(self._cards)
+
+    @classmethod
+    def stacked(cls, top: Sequence[Card]) -> Deck:
+        """A deck that deals ``top`` in order first — for tests and replays, not for play."""
+        if len(set(top)) != len(top):
+            raise ValueError("duplicate cards in stacked deck")
+        deck = cls(seed=0)
+        rest = [card for card in FULL_DECK if card not in set(top)]
+        deck._cards = list(reversed(rest)) + list(reversed(top))
+        return deck
 
     def __len__(self) -> int:
         return len(self._cards)
