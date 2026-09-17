@@ -5,6 +5,18 @@ each other for play money — and you can pull up a chair. Later, the same engin
 around and coaches *you*: **poker-coach** analyses your own hand histories and explains
 your recurring leaks.
 
+## Status
+
+Engine, evaluator, side pots, scripted bots, hand histories, stats, league and CLI are in
+(Python 3.12, `uv`). LLM seats, table talk and the web UI are next — see `CLAUDE.md`.
+
+```sh
+uv sync
+uv run poker-table play -n 500 --seats tag,rock,maniac,station,random -o hands.jsonl
+uv run poker-table replay hands.jsonl --hand 7 -r     # one hand with every seat's reasoning
+uv run poker-table stats hands.jsonl                  # VPIP, PFR, 3-bet, AF, WTSD, W$SD, bluff %
+```
+
 ## What it is
 
 - A correct hold'em engine: blinds, betting rounds, side pots, showdown, hand ranking.
