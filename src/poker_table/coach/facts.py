@@ -36,6 +36,36 @@ CALL_MARGIN = 0.03  # equity may sit this far under the price (implied odds) bef
 FOLD_MARGIN = 0.05  # folding with more equity than the price plus this is giving up too much
 STRONG = 0.80
 
+
+@dataclass(frozen=True, slots=True)
+class Margins:
+    """The tunable thresholds of the postflop verdicts; ``Margins.parse("call=0.05,fold=0.1")``."""
+
+    call: float = CALL_MARGIN
+    fold: float = FOLD_MARGIN
+    strong: float = STRONG
+    bluff_share: float = BLUFF_SHARE
+    float_share: float = FLOAT_SHARE
+
+    @classmethod
+    def parse(cls, text: str) -> Margins:
+        values: dict[str, float] = {}
+        for part in text.split(","):
+            if not part.strip():
+                continue
+            key, sep, value = part.partition("=")
+            key = key.strip().replace("-", "_")
+            if not sep or key not in cls.__slots__:
+                raise ValueError(
+                    f"unknown margin {part.strip()!r}; "
+                    "use call=, fold=, strong=, bluff_share=, float_share="
+                )
+            values[key] = float(value)
+        return cls(**values)
+
+
+DEFAULT_MARGINS = Margins()
+
 TITLES = {
     "limp": "Open-limping instead of raising or folding",
     "open": "Opening hands outside the chart",
@@ -71,9 +101,12 @@ class Fact:
     texture: str = ""
     pot: int = 0
     to_call: int = 0
+    opponents: tuple[str, ...] = ()  # seats still in the pot when the decision was made
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        data["opponents"] = list(self.opponents)
+        return data
 
 
 # ----- replaying a history through the engine ---------------------------------------------
@@ -118,10 +151,11 @@ def replay(history: HandHistory) -> Iterator[tuple[SeatView, Action]]:
 class _Line:
     """Each opponent's range: from the preflop line, then narrowed by what they do postflop."""
 
-    def __init__(self) -> None:
+    def __init__(self, margins: Margins = DEFAULT_MARGINS) -> None:
         self.raises = 0
         self.opener: int | None = None
         self.ranges: dict[int, Range] = {}
+        self.margins = margins
 
     def note(self, view: SeatView, action: Action) -> None:
         if view.street is Street.PREFLOP:
@@ -146,9 +180,9 @@ class _Line:
     def _note_postflop(self, view: SeatView, action: Action) -> None:
         """A bet or raise keeps made hands and draws (plus some bluffs); a call keeps a bit more."""
         if action.type in (ActionType.BET, ActionType.RAISE):
-            floor, air = MadeHand.WEAK_PAIR, BLUFF_SHARE
+            floor, air = MadeHand.WEAK_PAIR, self.margins.bluff_share
         elif action.type is ActionType.CALL:
-            floor, air = MadeHand.WEAK_PAIR, FLOAT_SHARE
+            floor, air = MadeHand.WEAK_PAIR, self.margins.float_share
         else:
             return
         dead = set(view.board)  # the hero's cards are removed when the equity is sampled
@@ -157,12 +191,18 @@ class _Line:
         )
 
 
-def tag_hand(history: HandHistory, player: str, *, samples: int = 300) -> list[Fact]:
+def tag_hand(
+    history: HandHistory,
+    player: str,
+    *,
+    samples: int = 300,
+    margins: Margins = DEFAULT_MARGINS,
+) -> list[Fact]:
     seat_of = {p.name: p.seat for p in history.players}
     if player not in seat_of:
         return []
     me = seat_of[player]
-    line = _Line()
+    line = _Line(margins)
     facts: list[Fact] = []
     cbet_done = False
     for view, action in replay(history):
@@ -178,10 +218,16 @@ def tag_hand(history: HandHistory, player: str, *, samples: int = 300) -> list[F
     return facts
 
 
-def tag_hands(histories: Iterable[HandHistory], player: str, *, samples: int = 300) -> list[Fact]:
+def tag_hands(
+    histories: Iterable[HandHistory],
+    player: str,
+    *,
+    samples: int = 300,
+    margins: Margins = DEFAULT_MARGINS,
+) -> list[Fact]:
     facts: list[Fact] = []
     for history in histories:
-        facts.extend(tag_hand(history, player, samples=samples))
+        facts.extend(tag_hand(history, player, samples=samples, margins=margins))
     return facts
 
 
@@ -198,6 +244,7 @@ def _base(view: SeatView, action: Action, tag: str, ok: bool | None, detail: str
         detail=detail,
         pot=view.pot,
         to_call=view.to_call,
+        opponents=tuple(p.name for p in view.players if not p.folded and p.seat != view.seat),
         **kw,
     )
 
@@ -291,13 +338,14 @@ def _postflop_fact(
     eq = equity(view.hole, board, ranges, samples=samples)
     pct = f"{eq:.0%} equity"
     common = {"equity": round(eq, 3), "texture": texture}
+    margins = line.margins
 
     if view.to_call > 0:
         price = pot_odds(view.to_call, view.pot)
         odds = f"{(view.pot / view.to_call):.1f}:1"
         common["price"] = round(price, 3)
         if kind is ActionType.CALL:
-            ok = eq >= price - CALL_MARGIN
+            ok = eq >= price - margins.call
             return _base(
                 view,
                 action,
@@ -308,7 +356,7 @@ def _postflop_fact(
                 **common,
             ), cbet_done
         if kind is ActionType.FOLD:
-            ok = eq <= price + FOLD_MARGIN
+            ok = eq <= price + margins.fold
             return _base(
                 view,
                 action,
@@ -347,7 +395,7 @@ def _postflop_fact(
             f"checks instead of c-betting a {texture} flop ({pct})",
             **common,
         ), True
-    if view.street is Street.RIVER and eq >= STRONG:
+    if view.street is Street.RIVER and eq >= margins.strong:
         return _base(
             view, action, "check_strong_river", False, f"checks the river with {pct}", **common
         ), cbet_done

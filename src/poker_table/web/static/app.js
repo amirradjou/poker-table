@@ -694,6 +694,7 @@ function renderCoach(r) {
   html += "</ol>";
   if (r.observations.length) html += "<h4>Observations</h4><ul class=\"plain\">" + r.observations.map(o => `<li>${esc(o)}</li>`).join("") + "</ul>";
   if (r.trend.length) html += "<h4>Trend</h4><ul class=\"plain\">" + r.trend.map(o => `<li>${esc(o)}</li>`).join("") + "</ul>";
+  if (r.opponents && r.opponents.length) html += "<h4>Against whom</h4><ul class=\"plain\">" + r.opponents.map(o => `<li>${esc(o.text)}</li>`).join("") + "</ul>";
   if (coachNotes && coachNotes.focus) html += `<div class="focus">The one thing to work on: ${esc(coachNotes.focus)}</div>`;
   if (coachNotes) html += `<p class="empty-note">${esc(coachNotes.model)}, $${coachNotes.cost_usd}${coachNotes.dropped ? `, ${coachNotes.dropped} unsupported note(s) dropped` : ""}</p>`;
   root.innerHTML = html;

@@ -62,7 +62,8 @@ def build_parser() -> argparse.ArgumentParser:
     replay.add_argument("-r", "--reasoning", action="store_true", help="include private reasoning")
 
     imp = sub.add_parser(
-        "import", help="convert site hand-history exports (PokerStars text) to JSONL"
+        "import",
+        help="convert site hand-history exports (PokerStars, GGPoker, 888poker text) to JSONL",
     )
     imp.add_argument("files", type=Path, nargs="+", help="text files exported by the site")
     imp.add_argument("-o", "--out", type=Path, required=True, help="JSONL file to write")
@@ -84,6 +85,14 @@ def build_parser() -> argparse.ArgumentParser:
     coach.add_argument("--model", default=None, help="model for --narrate (default claude-opus-5)")
     coach.add_argument("--since", help="only hands played on/after this date (YYYY-MM-DD)")
     coach.add_argument("--until", help="only hands played before this date (YYYY-MM-DD)")
+    coach.add_argument(
+        "--margins",
+        default="",
+        help=(
+            "postflop thresholds, e.g. call=0.05,fold=0.1,strong=0.85,bluff_share=0.3 "
+            "(defaults: call 0.03, fold 0.05, strong 0.8, bluff_share 0.25, float_share 0.15)"
+        ),
+    )
 
     drill = sub.add_parser("drill", help="quiz yourself on the spots the coach flagged")
     drill.add_argument("file", type=Path)
@@ -253,14 +262,15 @@ def resolve_player(histories, player: str | None, path: Path) -> str:
 def cmd_coach(args: argparse.Namespace, out) -> int:
     import json
 
-    from poker_table.coach.facts import tag_hands
+    from poker_table.coach.facts import Margins, tag_hands
     from poker_table.coach.report import build_report
 
     histories = filter_by_date(list(read_jsonl(args.file)), args.since, args.until)
     if not histories:
         raise ValueError("no hands in that date range (imported hands need a header date)")
     player = resolve_player(histories, args.player, args.file)
-    facts = tag_hands(histories, player, samples=args.samples)
+    margins = Margins.parse(args.margins)
+    facts = tag_hands(histories, player, samples=args.samples, margins=margins)
     report = build_report(histories, player, facts)
     print(report.render(top=args.top), file=out)
     if args.narrate:

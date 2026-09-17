@@ -9,6 +9,41 @@ from typing import Any
 
 from poker_table.coach.facts import TITLES, Fact
 from poker_table.history import HandHistory
+from poker_table.stats import compute_stats
+
+
+@dataclass(slots=True)
+class Opponent:
+    """How the player fares against one villain: leaks made with that villain in the pot."""
+
+    name: str
+    decisions: int
+    leaks: int
+    worst_tag: str
+    worst_title: str
+    worst_count: int
+    vpip: float | None
+    pfr: float | None
+    aggression: float | None
+    hands: int
+
+    @property
+    def rate(self) -> float:
+        return self.leaks / self.decisions if self.decisions else 0.0
+
+    def describe(self) -> str:
+        traits = []
+        if self.vpip is not None:
+            traits.append(f"VPIP {self.vpip:.0%}")
+        if self.pfr is not None:
+            traits.append(f"PFR {self.pfr:.0%}")
+        if self.aggression is not None and self.aggression != float("inf"):
+            traits.append(f"AF {self.aggression:.1f}")
+        who = f"{self.name}" + (f" ({', '.join(traits)})" if traits else "")
+        return (
+            f"vs {who}: {self.leaks} leaks in {self.decisions} decisions ({self.rate:.0%})"
+            f" — mostly {self.worst_title.lower()} ({self.worst_count})"
+        )
 
 
 @dataclass(slots=True)
@@ -36,6 +71,7 @@ class Report:
     leaks: list[Leak]
     observations: list[str]
     trend: list[str] = field(default_factory=list)  # first half vs second half of the session
+    opponents: list[Opponent] = field(default_factory=list)  # villains you leak the most against
     facts: list[Fact] = field(default_factory=list)
 
     @property
@@ -68,6 +104,23 @@ class Report:
             ],
             "observations": self.observations,
             "trend": self.trend,
+            "opponents": [
+                {
+                    "name": o.name,
+                    "decisions": o.decisions,
+                    "leaks": o.leaks,
+                    "rate": round(o.rate, 3),
+                    "worst_tag": o.worst_tag,
+                    "worst_title": o.worst_title,
+                    "worst_count": o.worst_count,
+                    "vpip": o.vpip,
+                    "pfr": o.pfr,
+                    "aggression": None if o.aggression == float("inf") else o.aggression,
+                    "hands": o.hands,
+                    "text": o.describe(),
+                }
+                for o in self.opponents
+            ],
             "facts": [f.to_dict() for f in self.facts],
         }
 
@@ -99,6 +152,10 @@ class Report:
             lines.append("")
             lines.append("Trend")
             lines += [f"- {t}" for t in self.trend]
+        if self.opponents:
+            lines.append("")
+            lines.append("Against whom")
+            lines += [f"- {o.describe()}" for o in self.opponents]
         return "\n".join(lines)
 
 
@@ -145,8 +202,52 @@ def build_report(
         leaks=leaks,
         observations=_observations(facts),
         trend=_trend(histories, facts, leaks),
+        opponents=_opponents(histories, facts, player),
         facts=facts if keep_facts else [],
     )
+
+
+_MIN_DECISIONS_VS_OPPONENT = 5
+_MAX_OPPONENTS = 5
+
+
+def _opponents(histories: Sequence[HandHistory], facts: list[Fact], player: str) -> list[Opponent]:
+    """The villains the player leaks the most against, with the villains' own tendencies."""
+    graded = [f for f in facts if f.ok is not None and f.opponents]
+    if not graded:
+        return []
+    decisions: Counter[str] = Counter()
+    leaks: Counter[str] = Counter()
+    by_tag: dict[str, Counter[str]] = defaultdict(Counter)
+    for f in graded:
+        for name in f.opponents:
+            decisions[name] += 1
+            if f.ok is False:
+                leaks[name] += 1
+                by_tag[name][f.tag] += 1
+    stats = compute_stats(histories)
+    out: list[Opponent] = []
+    for name, n in decisions.items():
+        if n < _MIN_DECISIONS_VS_OPPONENT or not leaks[name] or name == player:
+            continue
+        tag, count = by_tag[name].most_common(1)[0]
+        s = stats.get(name)
+        out.append(
+            Opponent(
+                name=name,
+                decisions=n,
+                leaks=leaks[name],
+                worst_tag=tag,
+                worst_title=TITLES.get(tag, tag),
+                worst_count=count,
+                vpip=s.vpip if s else None,
+                pfr=s.pfr if s else None,
+                aggression=s.aggression_factor if s else None,
+                hands=s.hands if s else 0,
+            )
+        )
+    out.sort(key=lambda o: (o.leaks, o.rate), reverse=True)
+    return out[:_MAX_OPPONENTS]
 
 
 _MIN_HANDS_FOR_TREND = 40
