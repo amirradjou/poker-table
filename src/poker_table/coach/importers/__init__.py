@@ -5,12 +5,16 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 
-from poker_table.coach.importers.pokerstars import ImportError_, ImportResult, parse_pokerstars
+from poker_table.coach.importers.builder import ImportError_
+from poker_table.coach.importers.eight88 import parse_888
+from poker_table.coach.importers.pokerstars import ImportResult, parse_pokerstars
 from poker_table.history import HandHistory
+
+SUPPORTED = "PokerStars, GGPoker and 888poker text"
 
 
 def detect_format(text: str) -> str | None:
-    head = text.lstrip()[:200]
+    head = text.lstrip("﻿ \t\r\n")[:200]
     if (
         head.startswith("PokerStars ")
         or "PokerStars Hand #" in head
@@ -19,15 +23,17 @@ def detect_format(text: str) -> str | None:
         return "pokerstars"
     if head.startswith("Poker Hand #"):
         return "ggpoker"
+    if "888poker Hand History" in head:
+        return "888"
     return None
 
 
 def import_text(text: str) -> ImportResult:
     kind = detect_format(text)
     if kind is None:
-        raise ImportError_(
-            "unrecognised hand history format (PokerStars and GGPoker text are supported)"
-        )
+        raise ImportError_(f"unrecognised hand history format ({SUPPORTED} are supported)")
+    if kind == "888":
+        return parse_888(text)
     return parse_pokerstars(text)  # GGPoker writes the same dialect
 
 

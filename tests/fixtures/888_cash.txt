@@ -1,0 +1,68 @@
+***** 888poker Hand History for Game 1122334455 *****
+$0.01/$0.02 Blinds No Limit Holdem - *** 10 09 2026 20:11:22
+Table Rio 6 Max (Real Money)
+Seat 3 is the button
+Total number of players : 6
+Seat 1: villain1 ( $2.34 )
+Seat 2: hero ( $2.00 )
+Seat 3: villain3 ( $1.98 )
+Seat 4: villain4 ( $5.00 )
+Seat 5: villain5 ( $2.00 )
+Seat 6: villain6 ( $1.60 )
+villain4 posts small blind [$0.01]
+villain5 posts big blind [$0.02]
+** Dealing down cards **
+Dealt to hero [ Ah, Kd ]
+villain6 folds
+villain1 raises [$0.06]
+hero raises [$0.20]
+villain3 folds
+villain4 folds
+villain5 folds
+villain1 calls [$0.14]
+** Dealing flop ** [ 2c, 7d, Kh ]
+villain1 checks
+hero bets [$0.24]
+villain1 calls [$0.24]
+** Dealing turn ** [ 9s ]
+villain1 checks
+hero bets [$0.50]
+villain1 folds
+** Summary **
+hero collected [ $0.87 ]
+
+***** 888poker Hand History for Game 1122334456 *****
+$0.01/$0.02 Blinds No Limit Holdem - *** 10 09 2026 20:13:02
+Table Rio 6 Max (Real Money)
+Seat 4 is the button
+Total number of players : 5
+Seat 1: villain1 ( $1.87 )
+Seat 2: hero ( $2.43 )
+Seat 3: villain3 ( $1.98 )
+Seat 4: villain4 ( $4.99 )
+Seat 5: villain5 ( $1.98 )
+villain5 posts small blind [$0.01]
+villain1 posts big blind [$0.02]
+** Dealing down cards **
+Dealt to hero [ Qs, Qd ]
+hero raises [$0.06]
+villain3 folds
+villain4 calls [$0.06]
+villain5 raises [$0.19]
+villain1 folds
+hero raises [$0.54]
+villain4 folds
+villain5 calls [$0.40]
+** Dealing flop ** [ 8d, 3c, Qh ]
+villain5 checks
+hero bets [$0.60]
+villain5 calls [$0.60]
+** Dealing turn ** [ 5h ]
+villain5 checks
+hero bets [$1.23], and is all-in
+villain5 calls [$0.78], and is all-in
+** Dealing river ** [ Jc ]
+** Summary **
+villain5 shows [ Ac, As ]
+hero shows [ Qs, Qd ]
+hero collected [ $3.85 ]

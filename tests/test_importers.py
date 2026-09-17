@@ -182,3 +182,46 @@ def test_imported_hands_carry_their_hero_and_the_cli_uses_it(tmp_path: Path) -> 
     buf = io.StringIO()
     assert main(["coach", str(out), "--samples", "30"], out=buf) == 0
     assert "Coach report for hero" in buf.getvalue()
+
+
+def test_888_dialect() -> None:
+    text = (FIXTURES / "888_cash.txt").read_text()
+    assert detect_format(text) == "888"
+    result = import_text(text)
+    assert [h.hand_id for h in result.hands] == ["1122334455", "1122334456"]
+    assert result.skipped == [] and result.hero == "hero"
+    first, second = result.hands
+    assert (first.small_blind, first.big_blind) == (1, 2)
+    assert first.played_at == "2026-09-10T20:11:22+00:00"
+    assert [p.name for p in first.players][:3] == ["villain1", "hero", "villain3"]
+    assert first.players[1].position == "CO" and first.button == 2
+    assert first.players[1].hole == ["Ah", "Kd"] and first.hero == "hero"
+    # "raises [$X]" is what the player added: villain1 to 6, hero to 20, villain1 calls 14
+    assert [(e.seat, e.action, e.amount) for e in first.actions()][1:3] == [
+        (0, "raise 6", 6),
+        (1, "raise 20", 20),
+    ]
+    assert [e for e in first.actions() if e.action == "call"][0].amount == 14
+    # no "uncalled bet" line in the file, so the builder returned hero's 50 on the turn
+    returned = [e for e in first.events if e.kind == "return_uncalled"]
+    assert [(e.seat, e.amount) for e in returned] == [(1, 50)]
+    assert first.payouts == {1: 87}
+    assert first.players[1].net == 87 - 20 - 24  # rake-adjusted
+    assert first.players[0].net == -(20 + 24)
+    # second hand: the small blind's re-raise adds on top of the posted blind
+    hero_raise = [e for e in second.actions() if e.seat == 1 and e.action.startswith("raise")]
+    assert [e.action for e in hero_raise] == ["raise 6", "raise 60"]
+    sb = [e for e in second.actions() if e.seat == 4 and e.action.startswith("raise")]
+    assert sb[0].action == "raise 20"  # posted 1, added 19
+    assert second.showdown[1] == "three of a kind, queens"
+    assert second.showdown[4] == "a pair of aces"
+    assert second.players[1].hole == ["Qs", "Qd"] and second.players[4].hole == ["Ac", "As"]
+    # hero shoved 123 into villain5's last 78: the 45 nobody could call comes back
+    assert [(e.seat, e.amount) for e in second.events if e.kind == "return_uncalled"] == [(1, 45)]
+    assert second.players[1].net == 385 - 198 and second.players[4].net == -198
+    for hand in result.hands:
+        assert [(v.seat, str(a)) for v, a in replay(hand)] == [
+            (e.seat, e.action) for e in hand.actions()
+        ]
+    facts = tag_hands(result.hands, "hero", samples=40)
+    assert facts and all(f.hand_id in ("1122334455", "1122334456") for f in facts)
