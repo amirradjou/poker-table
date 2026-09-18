@@ -10,6 +10,8 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from poker_table.coach.facts import Fact, tag_hands
+from poker_table.coach.report import Report, build_report
 from poker_table.engine import EventKind
 from poker_table.history import HandHistory, read_jsonl
 from poker_table.stats import compute_stats, leaderboard
@@ -25,12 +27,43 @@ class HandStore:
         self.path = path
         self.hands: list[HandHistory] = []
         self.by_id: dict[str, HandHistory] = {}
+        self._reports: dict[tuple[str, int, int], Report] = {}
         self.reload()
 
     def reload(self) -> int:
         self.hands = list(read_jsonl(self.path)) if self.path.exists() else []
         self.by_id = {h.hand_id: h for h in self.hands}
         return len(self.hands)
+
+    def players(self) -> list[str]:
+        seen: dict[str, None] = {}
+        for h in self.hands:
+            for p in h.players:
+                seen.setdefault(p.name, None)
+        return list(seen)
+
+    def report(self, player: str, samples: int) -> Report:
+        """The coach report for ``player``, cached until more hands arrive."""
+        key = (player, len(self.hands), samples)
+        if key not in self._reports:
+            facts = tag_hands(self.hands, player, samples=samples)
+            self._reports[key] = build_report(self.hands, player, facts)
+        return self._reports[key]
+
+    def step_of(self, fact: Fact) -> int:
+        """Index of the fact's decision among the hand's viewer steps (state just before it)."""
+        history = self.by_id.get(fact.hand_id)
+        if history is None:
+            return 0
+        for index, step in enumerate(steps_for(history)):
+            if (
+                step["kind"] == EventKind.ACTION.value
+                and step["seat"] == fact.seat
+                and step["street"] == fact.street
+                and step["action"] == fact.action
+            ):
+                return index
+        return 0
 
 
 def summarize(history: HandHistory) -> dict[str, Any]:
@@ -83,6 +116,11 @@ class ActRequest(BaseModel):
     table_talk: str = ""
 
 
+class NarrateRequest(BaseModel):
+    player: str
+    model: str | None = None
+
+
 def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
     store = HandStore(Path(path))
     app = FastAPI(title="poker-table", docs_url=None, redoc_url=None)
@@ -96,7 +134,7 @@ def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
     @app.get("/api/session")
     def session() -> dict[str, Any]:
         store.reload()
-        return {"file": store.path.name, "hands": len(store.hands)}
+        return {"file": store.path.name, "hands": len(store.hands), "players": store.players()}
 
     @app.get("/api/hands")
     def hands(offset: int = 0, limit: int = 100) -> dict[str, Any]:
@@ -139,6 +177,47 @@ def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(400, f"bad action: {exc}") from None
         return {"ok": True, "action": str(action)}
+
+    @app.get("/api/coach")
+    def coach(player: str, samples: int = 200) -> dict[str, Any]:
+        if player not in store.players():
+            raise HTTPException(404, f"no seat named {player!r}")
+        report = store.report(player, max(20, min(samples, 2000)))
+        data = report.to_dict()
+        data.pop("facts")
+        for leak, source in zip(data["leaks"], report.leaks, strict=True):
+            for example, fact in zip(leak["examples"], source.examples, strict=True):
+                example["step"] = store.step_of(fact)
+        return data
+
+    @app.post("/api/coach/narrate")
+    def coach_narrate(body: NarrateRequest) -> dict[str, Any]:
+        from poker_table.agents.llm import DEFAULT_MODEL
+        from poker_table.coach.narrate import narrate
+
+        if body.player not in store.players():
+            raise HTTPException(404, f"no seat named {body.player!r}")
+        report = store.report(body.player, 200)
+        try:
+            narration = narrate(report, model=body.model or DEFAULT_MODEL)
+        except Exception as exc:  # noqa: BLE001 - no key, network down, model error: tell the page
+            raise HTTPException(503, f"{type(exc).__name__}: {exc}") from None
+        return {
+            "notes": [
+                {
+                    "tag": n.tag,
+                    "title": n.title,
+                    "note": n.note,
+                    "cited_hands": list(n.cited_hands),
+                    "one_thing": n.one_thing,
+                }
+                for n in narration.notes
+            ],
+            "focus": narration.focus,
+            "dropped": narration.dropped,
+            "model": narration.model,
+            "cost_usd": round(narration.cost_usd, 4),
+        }
 
     @app.get("/api/bankroll")
     def bankroll() -> dict[str, Any]:
