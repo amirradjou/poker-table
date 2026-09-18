@@ -152,7 +152,8 @@ function stateAt(n) {
   const nxt = hand.steps.slice(n).find(e => e.kind === "action");
   if (nxt) acting = nxt.seat;
   if (hand.streaming && n >= hand.steps.length) acting = liveActing ? liveActing.seat : (turn ? turn.seat : null);
-  const done = n >= hand.steps.length && !hand.streaming;
+  if (hand.drill && n >= hand.steps.length) acting = hand.seat;
+  const done = n >= hand.steps.length && !hand.streaming && !hand.drill;
   return { seats, board, pot, street, acting, showdown, done };
 }
 
@@ -208,7 +209,7 @@ function render() {
     const stack = document.createElement("div"); stack.className = "stack";
     stack.textContent = s.allIn ? "all-in" : `${s.stack}`;
     el.appendChild(stack);
-    if (acting && hand.streaming) {
+    if (acting && hand.streaming && !(turn && turn.seat === i)) {
       const th = document.createElement("div"); th.className = "thinking"; th.innerHTML = "<i></i><i></i><i></i>";
       el.appendChild(th);
       if (info.llm) { const tk = document.createElement("div"); tk.className = "ticker"; tk.dataset.since = liveActing ? liveActing.since : now; el.appendChild(tk); }
@@ -587,10 +588,16 @@ async function connectLive() {
 // Show the pending decision: the table as the human sees it, plus the action bar.
 function showTurn(t) {
   turn = t;
+  drillSpot = null;
   if (!liveHand || liveHand.hand_id !== t.hand_id) liveHand = { ...t, streaming: true };
   liveHand.players[t.seat].hole = t.players[t.seat].hole;  // our own cards, for the rest of the hand
   liveActing = null;
   showLive();
+  fillActionBar(t);
+}
+
+// The action bar for a decision payload (a live turn or a drill spot): legal buttons and sizes.
+function fillActionBar(t) {
   const L = t.legal;
   $("action-legal").textContent = `— ${L.describe}`;
   $("act-check").textContent = L.can_check ? "Check" : `Call ${L.call_amount}`;
@@ -625,6 +632,7 @@ function showTurn(t) {
 }
 
 async function sendAction(text) {
+  if (drillSpot) return answerDrill(text);
   if (!turn) return;
   const body = { action: text, table_talk: $("act-talk").value.trim() };
   const r = await fetch("/api/act", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -634,25 +642,110 @@ async function sendAction(text) {
   $("hand-sub").textContent = "waiting for the other seats";
   setLive({ ...live, turn: null });
 }
+const decision = () => drillSpot || turn;  // whichever decision the action bar is showing
 
 $("act-fold").onclick = () => sendAction("fold");
-$("act-check").onclick = () => sendAction(turn && turn.legal.can_check ? "check" : "call");
-$("act-raise").onclick = () => sendAction(`${turn.legal.is_bet ? "bet" : "raise"} ${$("act-amount").value}`);
-$("action-bar").onsubmit = (e) => { e.preventDefault(); if (turn && turn.legal.max_raise_to > 0) $("act-raise").click(); else $("act-check").click(); };
+$("act-check").onclick = () => sendAction(decision() && decision().legal.can_check ? "check" : "call");
+$("act-raise").onclick = () => sendAction(`${decision().legal.is_bet ? "bet" : "raise"} ${$("act-amount").value}`);
+$("action-bar").onsubmit = (e) => { e.preventDefault(); if (decision() && decision().legal.max_raise_to > 0) $("act-raise").click(); else $("act-check").click(); };
+
+// ---- drill tab: the coach's flagged spots, asked on the real table ----
+let drillPlayer = null, drillSpot = null;
+async function showDrill({ restart = false } = {}) {
+  const s = await api("/api/session");
+  const picker = $("drill-picker"); picker.innerHTML = "";
+  if (!drillPlayer && s.players.length) drillPlayer = s.hero || s.players[0];
+  for (const name of s.players) {
+    const b = document.createElement("button");
+    b.textContent = name; b.setAttribute("aria-pressed", name === drillPlayer);
+    b.onclick = () => { drillPlayer = name; showDrill(); };
+    picker.appendChild(b);
+  }
+  $("drill-verdict").classList.add("hidden");
+  if (!drillPlayer) { $("drill-progress").innerHTML = '<span class="empty-note">No hands yet.</span>'; return; }
+  $("drill-progress").innerHTML = "Replaying the flagged spots…";
+  const data = await api(`/api/drill/next?player=${encodeURIComponent(drillPlayer)}${restart ? "&restart=1" : ""}`);
+  renderDrillProgress(data.progress);
+  if (data.spot) showDrillSpot(data.spot);
+  else {
+    drillSpot = null;
+    $("action-bar").classList.add("hidden");
+    $("empty").classList.remove("hidden");
+    $("replay").classList.add("hidden");
+    const p = data.progress;
+    $("empty").innerHTML = p.spots === 0
+      ? `The coach found nothing to drill for ${esc(drillPlayer)}. Play more hands.`
+      : p.asked ? `Done for now: ${p.correct} of ${p.asked} right. ${p.due - p.remaining > 0 ? "Wrong ones come back tomorrow; " : ""}use Start again to go through them once more.`
+      : "Nothing is due today. Come back tomorrow, or play more hands.";
+  }
+}
+function renderDrillProgress(p) {
+  const total = Math.max(1, p.spots);
+  const boxes = p.boxes.map((n, i) => `<span title="box ${i}: ${n}"><i style="width:${Math.round(100 * n / total)}%"></i></span>`).join("");
+  $("drill-progress").innerHTML =
+    `<strong>${p.remaining}</strong> to go today · ${p.spots} spots, ${p.due} due` +
+    (p.asked ? ` · this sitting <strong>${p.correct}/${p.asked}</strong>` : "") +
+    `<div class="boxes">${boxes}</div><div class="boxes-legend"><span>new / missed</span><span>30 days</span></div>`;
+}
+function showDrillSpot(spot) {
+  stopAuto();
+  turn = null;
+  drillSpot = spot;
+  hand = { ...spot, drill: true };
+  step = spot.steps.length;
+  $("empty").classList.add("hidden");
+  $("replay").classList.remove("hidden");
+  $("summary").classList.add("hidden");
+  $("hand-title").textContent = `Drill · hand #${spot.hand_id}`;
+  $("hand-sub").textContent = `your move on the ${spot.street}`;
+  $("scrub").max = spot.steps.length;
+  buildLog();
+  render();
+  fillActionBar(spot);
+  $("act-talk").classList.add("hidden");
+  $("drill-verdict").classList.add("hidden");
+}
+async function answerDrill(text) {
+  const spot = drillSpot;
+  const r = await fetch("/api/drill/answer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ player: drillPlayer, key: spot.key, action: text }) });
+  if (!r.ok) { $("action-legal").textContent = `— ${(await r.json()).detail}`; return; }
+  const v = await r.json();
+  drillSpot = null;
+  $("action-bar").classList.add("hidden");
+  $("act-talk").classList.remove("hidden");
+  const box = $("drill-verdict");
+  box.className = "verdict " + (v.correct ? "right" : "wrong");
+  box.innerHTML = `<b>${v.correct ? "Right." : `Not this time — the answer is ${esc(v.answer_text)}.`}</b>` +
+    `<div class="table-said">At the table you chose ${esc(v.at_the_table)}: ${esc(v.detail)}</div>` +
+    `<div class="table-said">Box ${v.box}, next due ${esc(v.due)}.</div>`;
+  box.classList.remove("hidden");
+  renderDrillProgress(v.progress);
+  $("hand-sub").textContent = v.correct ? "right — next spot when you are ready" : "not this time — next spot when you are ready";
+  $("drill-next").focus();
+}
+$("drill-next").onclick = () => showDrill();
+$("drill-restart").onclick = () => showDrill({ restart: true });
 $("follow").onclick = (e) => { follow = !follow; e.target.setAttribute("aria-pressed", follow); if (follow && liveHand && liveHand.streaming) showLive(); };
 $("auto").onclick = () => (autoTimer ? stopAuto() : startAuto());
 $("pace").oninput = (e) => { $("pace-value").textContent = `${(+e.target.value).toFixed(1)} s`; };
 $("pace").onchange = (e) => fetch("/api/live/pace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pace: +e.target.value }) });
 
 function setTab(which) {
-  for (const name of ["hands", "board", "coach"]) $(`tab-${name}`).setAttribute("aria-pressed", name === which);
-  const hands = which === "hands";
+  for (const name of ["hands", "board", "coach", "drill"]) $(`tab-${name}`).setAttribute("aria-pressed", name === which);
+  const hands = which === "hands", drill = which === "drill";
   $("list").classList.toggle("hidden", !hands);
-  $("hand-view").classList.toggle("hidden", !hands);
+  $("drill-side").classList.toggle("hidden", !drill);
+  $("hand-view").classList.toggle("hidden", !hands && !drill);
   $("board-view").classList.toggle("hidden", which !== "board");
   $("coach-view").classList.toggle("hidden", which !== "coach");
+  if (!drill && drillSpot) {  // leaving a drill mid-spot: the table goes back to normal use
+    drillSpot = null; hand = null;
+    $("action-bar").classList.add("hidden"); $("act-talk").classList.remove("hidden");
+    $("replay").classList.add("hidden"); $("empty").classList.remove("hidden");
+  }
   if (which === "board") showBoard();
   if (which === "coach") showCoach();
+  if (drill) showDrill();
 }
 
 // ---- coach tab ----
@@ -784,6 +877,7 @@ $("toggle-cards").onclick = (e) => { showCards = !showCards; e.target.setAttribu
 $("tab-hands").onclick = () => setTab("hands");
 $("tab-board").onclick = () => setTab("board");
 $("tab-coach").onclick = () => setTab("coach");
+$("tab-drill").onclick = () => setTab("drill");
 $("more").onclick = () => loadList(false);
 document.addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT") return;
