@@ -9,7 +9,7 @@ your recurring leaks.
 
 Engine, evaluator, side pots, scripted bots, LLM seats with personalities, table talk, a human
 seat, hand histories, stats, league, CLI and a browser replay viewer are in (Python 3.12,
-`uv`). Live tables in the browser are next — see `CLAUDE.md`.
+`uv`), including live tables in the browser. See `CLAUDE.md` for what is next.
 
 ![Replay viewer: a table diagram with each seat's cards, the board, and the action log with
 private reasoning](docs/viewer.png)
@@ -22,6 +22,10 @@ uv run poker-table replay hands.jsonl --hand 7 -r     # one hand with every seat
 uv run poker-table stats hands.jsonl                  # VPIP, PFR, 3-bet, AF, WTSD, W$SD, bluff %
 uv run poker-table serve hands.jsonl --open           # replay viewer + leaderboard in the browser
 uv run poker-table play -n 20 --seats me:human,tag,maniac   # pull up a chair (terminal)
+
+# watch bots play live in the browser, or sit down yourself
+uv run poker-table serve live.jsonl --live -n 200 --seats tag,maniac,llm:nerd --open
+uv run poker-table serve live.jsonl --live -n 20 --seats me:human,tag,maniac --open
 
 # LLM seats (needs ANTHROPIC_API_KEY): kind is llm:<personality>[@model]
 uv run poker-table play -n 20 --seats llm:nerd,llm:maniac,tag,station --show -o llm.jsonl
