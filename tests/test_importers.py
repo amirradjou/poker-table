@@ -137,3 +137,26 @@ def test_cli_import_then_coach(tmp_path: Path) -> None:
     buf = io.StringIO()
     assert main(["replay", str(out), "--hand", "245000000002"], out=buf) == 0
     assert "hero: shows [7s 2h] (two pair, sevens and twos)" in buf.getvalue()
+
+
+def test_ggpoker_dialect() -> None:
+    text = (FIXTURES / "ggpoker_cash.txt").read_text()
+    assert detect_format(text) == "ggpoker"
+    result = import_text(text)
+    assert [h.hand_id for h in result.hands] == ["HD1234567890"]
+    assert result.skipped == [("HD1234567891", "run it twice")]
+    assert result.hero == "Hero"
+    hand = result.hands[0]
+    assert (hand.small_blind, hand.big_blind) == (5, 10)
+    hero = hand.players[1]
+    assert hero.name == "Hero" and hero.stack == 1000 and hero.hole == ["Kc", "Kd"]
+    assert hand.players[5].hole == ["As", "9s"]  # revealed by its own "Dealt to" line
+    assert hand.players[5].stack == 490
+    assert hero.net == 945 - 490 and hand.players[5].net == -490
+    assert hand.played_at == "2026-09-12T21:45:10+00:00"
+    assert hand.showdown[1] == "a pair of kings"
+    assert [(v.seat, str(a)) for v, a in replay(hand)] == [
+        (e.seat, e.action) for e in hand.actions()
+    ]
+    facts = tag_hands([hand], "Hero", samples=40)
+    assert [(f.tag, f.ok) for f in facts] == [("three_bet", True), ("vs_three_bet", True)]
