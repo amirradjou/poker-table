@@ -18,7 +18,11 @@ def test_index_and_session(hands_file: Path) -> None:
     client = TestClient(create_app(hands_file))
     page = client.get("/")
     assert page.status_code == 200 and "<title>poker-table</title>" in page.text
-    assert client.get("/api/session").json() == {"file": "hands.jsonl", "hands": 12}
+    assert client.get("/api/session").json() == {
+        "file": "hands.jsonl",
+        "hands": 12,
+        "players": ["tag", "maniac", "station"],
+    }
 
 
 def test_hand_list_is_newest_first_and_paged(hands_file: Path) -> None:
@@ -64,7 +68,7 @@ def test_session_reload_sees_appended_hands(hands_file: Path) -> None:
 
 def test_missing_file_serves_an_empty_session(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path / "nope.jsonl"))
-    assert client.get("/api/session").json() == {"file": "nope.jsonl", "hands": 0}
+    assert client.get("/api/session").json() == {"file": "nope.jsonl", "hands": 0, "players": []}
     assert client.get("/api/hands").json() == {"total": 0, "hands": []}
     assert client.get("/api/stats").json() == {"hands": 0, "rows": []}
 
@@ -85,3 +89,31 @@ def test_bankroll_series_are_cumulative_and_aligned(hands_file: Path) -> None:
     assert finals == stats
     empty = TestClient(create_app(hands_file.parent / "none.jsonl")).get("/api/bankroll").json()
     assert empty == {"hands": [], "big_blind": 0, "series": []}
+
+
+def test_coach_endpoint_reports_a_seat_with_replay_steps(hands_file: Path) -> None:
+    client = TestClient(create_app(hands_file))
+    assert client.get("/api/session").json()["players"] == ["tag", "maniac", "station"]
+    data = client.get("/api/coach?player=maniac&samples=30").json()
+    assert data["player"] == "maniac" and data["hands"] == 12
+    assert "facts" not in data
+    assert data["leaks"], "the maniac always has leaks"
+    example = data["leaks"][0]["examples"][0]
+    assert isinstance(example["step"], int)
+    hand = client.get(f"/api/hands/{example['hand_id']}").json()
+    step = hand["steps"][example["step"]]
+    assert step["kind"] == "action" and step["seat"] == example["seat"]
+    assert step["street"] == example["street"] and step["action"] == example["action"]
+    assert client.get("/api/coach?player=nobody").status_code == 404
+    # cached: the same object comes back until hands change
+    assert client.get("/api/coach?player=maniac&samples=30").json() == data
+
+
+def test_coach_narrate_without_credentials_is_a_clean_503(hands_file: Path, monkeypatch) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:9")  # nothing listens here
+    client = TestClient(create_app(hands_file))
+    r = client.post("/api/coach/narrate", json={"player": "maniac"})
+    assert r.status_code == 503 and "Error" in r.json()["detail"]
+    assert client.post("/api/coach/narrate", json={"player": "nobody"}).status_code == 404

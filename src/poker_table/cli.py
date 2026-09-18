@@ -61,6 +61,13 @@ def build_parser() -> argparse.ArgumentParser:
     replay.add_argument("--last", type=int, help="only the last N hands")
     replay.add_argument("-r", "--reasoning", action="store_true", help="include private reasoning")
 
+    imp = sub.add_parser(
+        "import", help="convert site hand-history exports (PokerStars text) to JSONL"
+    )
+    imp.add_argument("files", type=Path, nargs="+", help="text files exported by the site")
+    imp.add_argument("-o", "--out", type=Path, required=True, help="JSONL file to write")
+    imp.add_argument("--append", action="store_true", help="append instead of overwriting")
+
     coach = sub.add_parser("coach", help="find one player's recurring leaks in a JSONL file")
     coach.add_argument("file", type=Path)
     coach.add_argument("-p", "--player", required=True, help="seat name to coach")
@@ -167,6 +174,33 @@ def cmd_replay(args: argparse.Namespace, out) -> int:
     return 0
 
 
+def cmd_import(args: argparse.Namespace, out) -> int:
+    from poker_table.coach.importers import import_files
+
+    total = 0
+    skipped: list[tuple[str, str]] = []
+    heroes: set[str] = set()
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    first = not args.append
+    for path, result in import_files(args.files):
+        write_jsonl(args.out, result.hands, append=not first)
+        first = False
+        total += len(result.hands)
+        skipped += result.skipped
+        if result.hero:
+            heroes.add(result.hero)
+        print(f"{path}: {len(result.hands)} hands, {len(result.skipped)} skipped", file=out)
+    for hand_id, reason in skipped[:10]:
+        print(f"  skipped #{hand_id}: {reason}", file=out)
+    if len(skipped) > 10:
+        print(f"  ... and {len(skipped) - 10} more", file=out)
+    print(f"{total} hands written to {args.out}", file=out)
+    if heroes:
+        who = ", ".join(sorted(heroes))
+        print(f"next: uv run poker-table coach {args.out} --player {who}", file=out)
+    return 0
+
+
 def cmd_coach(args: argparse.Namespace, out) -> int:
     import json
 
@@ -257,6 +291,8 @@ def main(argv: Sequence[str] | None = None, out=None) -> int:
                 return cmd_replay(args, out)
             case "serve":
                 return cmd_serve(args, out)
+            case "import":
+                return cmd_import(args, out)
             case "coach":
                 return cmd_coach(args, out)
             case "drill":

@@ -1,0 +1,37 @@
+PokerStars Hand #245000000010: Tournament #3400000001, $0.98+$0.12 USD Hold'em No Limit - Level III (25/50) - 2026/09/11 18:02:10 ET
+Table '3400000001 12' 9-max Seat #5 is the button
+Seat 1: p_one (1450 in chips)
+Seat 3: hero (2210 in chips)
+Seat 5: p_five (990 in chips)
+Seat 7: p_seven (3120 in chips)
+Seat 9: p_nine (1500 in chips)
+p_seven: posts small blind 25
+p_nine: posts big blind 50
+*** HOLE CARDS ***
+Dealt to hero [Td 9d]
+p_one: folds
+hero: raises 100 to 150
+p_five: folds
+p_seven: folds
+p_nine: calls 100
+*** FLOP *** [8d 7s 2d]
+p_nine: checks
+hero: bets 200
+p_nine: raises 400 to 600
+hero: raises 1460 to 2060 and is all-in
+p_nine: calls 750 and is all-in
+Uncalled bet (710) returned to hero
+*** TURN *** [8d 7s 2d] [Kc]
+*** RIVER *** [8d 7s 2d Kc] [6h]
+*** SHOW DOWN ***
+p_nine: shows [8c 8h] (three of a kind, Eights)
+hero: shows [Td 9d] (a straight, Six to Ten)
+hero collected 3025 from pot
+*** SUMMARY ***
+Total pot 3025 | Rake 0
+Board [8d 7s 2d Kc 6h]
+Seat 1: p_one folded before Flop (didn't bet)
+Seat 3: hero showed [Td 9d] and won (3025) with a straight, Six to Ten
+Seat 5: p_five (button) folded before Flop (didn't bet)
+Seat 7: p_seven (small blind) folded before Flop
+Seat 9: p_nine (big blind) showed [8c 8h] and lost with three of a kind, Eights

@@ -234,3 +234,53 @@ def test_tag_hands_over_a_bot_session_runs_and_is_consistent() -> None:
     )
     assert not any(f.tag == "fold_vs_bet" for f in facts)  # a station never folds
     assert tag_hands(result.histories, "nobody") == []
+
+
+def test_opponent_ranges_narrow_after_they_bet() -> None:
+    from poker_table.coach.equity import equity, narrow_range
+    from poker_table.coach.ranges import expand
+
+    board = parse_cards("Kh 9d 4s")
+    dead = set(board)
+    wide = expand("*")
+    bettor = narrow_range(wide, board, dead, keep_at_least=1, keep_air=0.25)  # WEAK_PAIR = 1
+    assert bettor is not None and 0 < len(bettor) < 1300
+    # A bettor's range on K94 has many more kings and pairs than any-two-cards does.
+    from poker_table.coach.ranges import hand_class
+
+    pairs = sum(1 for a, b in bettor if hand_class([a, b])[0] in "K9" or a.rank == b.rank)
+    assert pairs / len(bettor) > 0.35
+    hero = parse_cards("Ac 7c")
+    assert equity(hero, board, [bettor], samples=800) < equity(hero, board, 1, samples=800) - 0.1
+    assert (
+        narrow_range(wide, [], dead, keep_at_least=1, keep_air=0.25) is not None
+    )  # preflop: plain combos
+    # A range that the filter would empty falls back to the unfiltered combos.
+    tiny = expand("72o")
+    assert len(narrow_range(tiny, board, dead, keep_at_least=3, keep_air=0.0) or ()) == 12
+
+
+def test_facts_use_the_narrowed_range() -> None:
+    # Villain (BB) check-raises the flop and bets the turn; hero's AK-high equity must reflect
+    # that villain now mostly has a pair or a draw, not any two cards from the BB defend range.
+    history = scripted(
+        {0: "Ah Kd", 1: "7c 2d", 2: "Qs Jh"},
+        "Qc 9d 4h Ts 3c",
+        [
+            Action.raise_to(6),
+            Action.fold(),
+            Action.call(),
+            Action.check(),
+            Action.bet(6),
+            Action.raise_to(20),
+            Action.call(),  # hero calls the check-raise
+            Action.bet(30),
+            Action.fold(),  # hero folds the turn
+        ],
+    )
+    facts = tag_hand(history, "p0", samples=500)
+    call, fold = facts[2], facts[3]
+    assert call.tag == "call_vs_bet" and fold.tag == "fold_vs_bet"
+    assert call.equity is not None and fold.equity is not None
+    assert fold.equity < 0.25  # AK high vs a range that raised Q94 and bet the T
+    assert fold.ok is True

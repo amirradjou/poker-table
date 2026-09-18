@@ -1,0 +1,99 @@
+PokerStars Hand #245000000001:  Hold'em No Limit ($0.05/$0.10 USD) - 2026/09/10 20:11:22 ET
+Table 'Aludra II' 6-max Seat #3 is the button
+Seat 1: villain1 ($10.00 in chips)
+Seat 2: hero ($12.35 in chips)
+Seat 3: villain3 ($9.80 in chips)
+Seat 4: villain4 ($25.00 in chips)
+Seat 6: villain6 ($8.00 in chips)
+villain4: posts small blind $0.05
+villain6: posts big blind $0.10
+*** HOLE CARDS ***
+Dealt to hero [Ah Kd]
+villain1: raises $0.20 to $0.30
+hero: raises $0.70 to $1.00
+villain3: folds
+villain4: folds
+villain6: folds
+villain1: calls $0.70
+*** FLOP *** [2c 7d Kh]
+villain1: checks
+hero: bets $1.20
+villain1: calls $1.20
+*** TURN *** [2c 7d Kh] [9s]
+villain1: checks
+hero: bets $2.50
+villain1: folds
+Uncalled bet ($2.50) returned to hero
+hero collected $4.35 from pot
+hero: doesn't show hand
+*** SUMMARY ***
+Total pot $4.55 | Rake $0.20
+Board [2c 7d Kh 9s]
+Seat 1: villain1 folded on the Turn
+Seat 2: hero collected ($4.35)
+Seat 3: villain3 (button) folded before Flop (didn't bet)
+Seat 4: villain4 (small blind) folded before Flop
+Seat 6: villain6 (big blind) folded before Flop
+
+PokerStars Hand #245000000002:  Hold'em No Limit ($0.05/$0.10 USD) - 2026/09/10 20:13:02 ET
+Table 'Aludra II' 6-max Seat #4 is the button
+Seat 1: villain1 ($8.65 in chips)
+Seat 2: hero ($16.70 in chips)
+Seat 3: villain3 ($9.80 in chips)
+Seat 4: villain4 ($24.95 in chips)
+Seat 6: villain6 ($2.00 in chips)
+villain6: posts small blind $0.05
+villain1: posts big blind $0.10
+*** HOLE CARDS ***
+Dealt to hero [7s 2h]
+hero: calls $0.10
+villain3: folds
+villain4: raises $0.30 to $0.40
+villain6: raises $1.60 to $2.00 and is all-in
+villain1: folds
+hero: calls $1.90
+villain4: calls $1.60
+*** FLOP *** [Qs Jd 4c]
+hero: checks
+villain4: bets $3.00
+hero: calls $3.00
+*** TURN *** [Qs Jd 4c] [7c]
+hero: checks
+villain4: checks
+*** RIVER *** [Qs Jd 4c 7c] [2d]
+hero: bets $4.00
+villain4: calls $4.00
+*** SHOW DOWN ***
+hero: shows [7s 2h] (two pair, Sevens and Deuces)
+villain4: mucks hand
+hero collected $13.40 from side pot
+villain6: shows [As Ac] (a pair of Aces)
+villain6 collected $5.80 from main pot
+*** SUMMARY ***
+Total pot $20.10 Main pot $6.10. Side pot $14.00. | Rake $0.90
+Board [Qs Jd 4c 7c 2d]
+Seat 1: villain1 (big blind) folded before Flop
+Seat 2: hero showed [7s 2h] and won ($13.40) with two pair, Sevens and Deuces
+Seat 3: villain3 folded before Flop (didn't bet)
+Seat 4: villain4 (button) mucked [Kh Qh]
+Seat 6: villain6 (small blind) showed [As Ac] and won ($5.80) with a pair of Aces
+
+PokerStars Hand #245000000003:  Hold'em No Limit ($0.05/$0.10 USD) - 2026/09/10 20:15:40 ET
+Table 'Aludra II' 6-max Seat #6 is the button
+Seat 1: villain1 ($8.55 in chips)
+Seat 2: hero ($22.30 in chips)
+Seat 4: villain4 ($17.95 in chips)
+Seat 6: villain6 ($5.80 in chips)
+villain1: posts small blind $0.05
+hero: posts big blind $0.10
+villain4: posts the ante $0.02
+*** HOLE CARDS ***
+Dealt to hero [Jc Jh]
+villain4: folds
+villain6: folds
+villain1: folds
+Uncalled bet ($0.05) returned to hero
+hero collected $0.10 from pot
+*** SUMMARY ***
+Total pot $0.10 | Rake $0.00
+Seat 2: hero (big blind) collected ($0.10)

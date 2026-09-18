@@ -195,15 +195,24 @@ def class_combos(cls: str) -> list[tuple[Card, Card]]:
 
 
 @cache
-def _range_combos(classes: frozenset[str]) -> tuple[tuple[Card, Card], ...]:
+def _class_range_combos(classes: frozenset[str]) -> tuple[tuple[Card, Card], ...]:
     return tuple(combo for cls in sorted(classes) for combo in class_combos(cls))
 
 
+def range_combos(
+    rng: frozenset[str] | tuple[tuple[Card, Card], ...],
+) -> tuple[tuple[Card, Card], ...]:
+    """The specific combos of a range given as hand classes or already as combos."""
+    return _class_range_combos(rng) if isinstance(rng, frozenset) else rng
+
+
 def sample_from_range(
-    classes: frozenset[str], dead: set[Card], rng: random.Random
+    classes: frozenset[str] | tuple[tuple[Card, Card], ...], dead: set[Card], rng: random.Random
 ) -> tuple[Card, Card] | None:
     """A random combo from the range that avoids ``dead`` cards, or None if impossible."""
-    pool = _range_combos(classes)
+    pool = range_combos(classes)
+    if not pool:
+        return None
     for _ in range(50):
         a, b = pool[rng.randrange(len(pool))]
         if a not in dead and b not in dead:
