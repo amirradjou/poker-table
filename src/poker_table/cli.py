@@ -74,6 +74,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     coach.add_argument("--model", default=None, help="model for --narrate (default claude-opus-5)")
 
+    drill = sub.add_parser("drill", help="quiz yourself on the spots the coach flagged")
+    drill.add_argument("file", type=Path)
+    drill.add_argument("-p", "--player", required=True, help="seat name to drill")
+    drill.add_argument("-n", "--count", type=int, default=10, help="spots per session")
+    drill.add_argument("--samples", type=int, default=300, help="equity samples per decision")
+
     serve = sub.add_parser("serve", help="open the replay viewer and leaderboard in a browser")
     serve.add_argument("file", type=Path, help="JSONL file (may still be growing)")
     serve.add_argument("--host", default="127.0.0.1")
@@ -189,6 +195,18 @@ def cmd_coach(args: argparse.Namespace, out) -> int:
     return 0
 
 
+def cmd_drill(args: argparse.Namespace, out) -> int:
+    from poker_table.coach.drills import DrillLog, run_drill, spots_from
+    from poker_table.coach.facts import tag_hands
+
+    histories = list(read_jsonl(args.file))
+    facts = tag_hands(histories, args.player, samples=args.samples)
+    spots = spots_from(histories, facts)
+    log = DrillLog.load(args.file.with_suffix(f".{args.player}.drills.json"))
+    run_drill(spots, log, count=args.count, output_fn=lambda s: print(s, file=out))
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace, out) -> int:
     import uvicorn
 
@@ -241,6 +259,8 @@ def main(argv: Sequence[str] | None = None, out=None) -> int:
                 return cmd_serve(args, out)
             case "coach":
                 return cmd_coach(args, out)
+            case "drill":
+                return cmd_drill(args, out)
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
