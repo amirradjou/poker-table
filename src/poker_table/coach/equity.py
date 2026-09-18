@@ -8,8 +8,8 @@ from collections import Counter
 from collections.abc import Sequence
 from functools import lru_cache
 
-from poker_table.agents.strength import MadeHand, classify, has_flush_draw, has_open_ender
-from poker_table.cards import FULL_DECK, Card
+from poker_table.agents.strength import MadeHand
+from poker_table.cards import FULL_DECK, Card, Suit
 from poker_table.coach.ranges import range_combos, sample_from_range
 from poker_table.evaluator import evaluate
 
@@ -127,6 +127,10 @@ def narrow_range(
     return _narrow(rng, tuple(board), frozenset(dead), keep_at_least, keep_air)
 
 
+_RUN5 = [(high, sum(1 << r for r in range(high - 4, high + 1))) for high in range(14, 4, -1)]
+_RUN4 = [(low, sum(1 << r for r in range(low, low + 4))) for low in range(3, 11)]
+
+
 @lru_cache(maxsize=4096)
 def _narrow(
     rng: Range,
@@ -135,20 +139,96 @@ def _narrow(
     keep_at_least: MadeHand,
     keep_air: float,
 ) -> tuple[Combo, ...]:
+    """The per-combo work of narrow_range, with everything about the board computed once."""
     combos = list(range_combos(rng)) if rng is not None else _all_combos()
     combos = [c for c in combos if c[0] not in dead and c[1] not in dead]
+
+    board_ranks = [int(c.rank) for c in board]
+    counts: dict[int, int] = {}
+    for r in board_ranks:
+        counts[r] = counts.get(r, 0) + 1
+    top = max(board_ranks)
+    board_paired = any(n >= 2 for n in counts.values())
+    board_mask = _rank_mask(board_ranks)
+    board_straight = _straight_from_mask(board_mask)
+    suit_counts: dict[Suit, int] = {}
+    for c in board:
+        suit_counts[c.suit] = suit_counts.get(c.suit, 0) + 1
+    suit_min_rank = {s: min(int(c.rank) for c in board if c.suit == s) for s in suit_counts}
+    cards_to_come = len(board) < 5
+    board_key = sum((int(c.rank) * 4 + _SUIT_INDEX[c.suit]) * 53**i for i, c in enumerate(board))
+    keep_threshold = int(keep_air * 1000)
+
     kept: list[Combo] = []
     for combo in combos:
-        strong = classify(combo, board) >= keep_at_least
-        draw = has_flush_draw(combo, board) or has_open_ender(combo, board)
-        if strong or draw or _keep(combo, board, keep_air):
+        a, b = combo
+        ra, rb = int(a.rank), int(b.rank)
+        ours = 2 if a.suit == b.suit else 1
+        strength = MadeHand.NOTHING
+        draw = False
+        for card, r in ((a, ra), (b, rb)):
+            have = suit_counts.get(card.suit, 0) + ours
+            if have >= 5 and (suit_counts[card.suit] < 5 or r > suit_min_rank[card.suit]):
+                strength = MadeHand.STRONG
+            elif have == 4 and cards_to_come:
+                draw = True
+        if strength is not MadeHand.STRONG:
+            hole_mask = _rank_mask((ra, rb))
+            mask = board_mask | hole_mask
+            straight = _straight_from_mask(mask)
+            if straight is not None and straight != board_straight:
+                strength = MadeHand.STRONG
+            elif cards_to_come and not draw:
+                for low, run in _RUN4:
+                    if (
+                        mask & run == run
+                        and hole_mask & run
+                        and not mask & (1 << (low - 1))
+                        and not mask & (1 << (low + 4))
+                    ):
+                        draw = True
+                        break
+        if strength is not MadeHand.STRONG:
+            ha, hb = counts.get(ra, 0), counts.get(rb, 0)
+            if ra == rb:
+                if ha or board_paired:
+                    strength = MadeHand.STRONG
+                else:
+                    strength = MadeHand.TOP_PAIR if ra > top else MadeHand.WEAK_PAIR
+            elif ha and hb:
+                strength = MadeHand.STRONG
+            elif ha or hb:
+                hit, n = (ra, ha) if ha else (rb, hb)
+                if n >= 2 or board_paired:
+                    strength = MadeHand.STRONG
+                else:
+                    strength = MadeHand.TOP_PAIR if hit == top else MadeHand.WEAK_PAIR
+        if strength >= keep_at_least or draw:
+            kept.append(combo)
+            continue
+        key = (ra * 4 + _SUIT_INDEX[a.suit]) * 52 + (rb * 4 + _SUIT_INDEX[b.suit]) + board_key
+        if (key * 2654435761) % 1000 < keep_threshold:
             kept.append(combo)
     return tuple(kept) if kept else tuple(combos)
 
 
-def _keep(combo: Combo, board: Sequence[Card], share: float) -> bool:
-    key = (str(combo[0]) + str(combo[1]) + "".join(str(c) for c in board)).encode()
-    return (sum(key) * 2654435761 % 1000) < share * 1000
+_SUIT_INDEX = {suit: i for i, suit in enumerate(Suit)}
+
+
+def _rank_mask(ranks) -> int:
+    mask = 0
+    for r in ranks:
+        mask |= 1 << r
+        if r == 14:
+            mask |= 1 << 1  # the ace plays low too
+    return mask
+
+
+def _straight_from_mask(mask: int) -> int | None:
+    for high, run in _RUN5:
+        if mask & run == run:
+            return high
+    return None
 
 
 @lru_cache(maxsize=1)

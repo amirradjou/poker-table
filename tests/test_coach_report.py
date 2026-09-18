@@ -86,3 +86,36 @@ def test_trend_compares_the_two_halves() -> None:
     assert "Trend" in report.render()
     short = build_report(histories[:20], "maniac", tag_hands(histories[:20], "maniac", samples=30))
     assert short.trend == []
+
+
+def test_weekly_trend_when_hands_span_weeks() -> None:
+    from dataclasses import replace
+
+    histories = session(90)
+    stamped = []
+    for i, h in enumerate(histories):
+        week = i // 30  # three weeks of thirty hands
+        stamped.append(replace(h, played_at=f"2026-09-{1 + 7 * week:02d}T12:00:00+00:00"))
+    report = build_report(stamped, "maniac", tag_hands(stamped, "maniac", samples=30))
+    assert report.trend
+    assert any("2026-W36" in t and "2026-W38" in t for t in report.trend)
+    assert all("→" in t and "W3" in t for t in report.trend)
+    assert "Trend" in report.render()
+    # hands without any date fall back to halves
+    undated = [replace(h, played_at="") for h in stamped]
+    plain = build_report(undated, "maniac", tag_hands(undated, "maniac", samples=30))
+    assert plain.trend and all("first half" in t for t in plain.trend)
+
+
+def test_played_at_is_stamped_and_filterable(tmp_path: Path) -> None:
+    from datetime import UTC, datetime
+
+    from poker_table.cli import filter_by_date
+
+    histories = session(5)
+    assert all(h.played is not None and h.played.tzinfo is not None for h in histories)
+    assert all(h.played.year == datetime.now(UTC).year for h in histories)
+    today = datetime.now(UTC).date().isoformat()
+    assert len(filter_by_date(histories, today, None)) == 5
+    assert filter_by_date(histories, None, today) == []
+    assert filter_by_date(histories, None, None) == histories
