@@ -10,7 +10,7 @@ from pathlib import Path
 from poker_table import __version__
 from poker_table.agents.human import HumanAgent
 from poker_table.agents.registry import available_kinds, make_agents
-from poker_table.history import HandHistory, read_jsonl, write_jsonl
+from poker_table.history import HandHistory, filter_by_date, read_jsonl, write_jsonl
 from poker_table.league import LeagueConfig, run_league
 from poker_table.stats import compute_stats, format_table
 
@@ -220,24 +220,6 @@ def cmd_import(args: argparse.Namespace, out) -> int:
         who = ", ".join(sorted(heroes))
         print(f"next: uv run poker-table coach {args.out} --player {who}", file=out)
     return 0
-
-
-def filter_by_date(histories, since: str | None, until: str | None):
-    """Keep hands played inside [since, until); hands without a date are kept only if unfiltered."""
-    from datetime import UTC, datetime
-
-    if not since and not until:
-        return histories
-    lo = datetime.fromisoformat(since).replace(tzinfo=UTC) if since else None
-    hi = datetime.fromisoformat(until).replace(tzinfo=UTC) if until else None
-    kept = []
-    for h in histories:
-        played = h.played
-        if played is None:
-            continue
-        if (lo is None or played >= lo) and (hi is None or played < hi):
-            kept.append(h)
-    return kept
 
 
 def resolve_player(histories, player: str | None, path: Path) -> str:

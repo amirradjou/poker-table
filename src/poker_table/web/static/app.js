@@ -656,7 +656,7 @@ function setTab(which) {
 }
 
 // ---- coach tab ----
-let coachPlayer = null, coachNotes = null;
+let coachPlayer = null, coachNotes = null, coachWeek = null;  // coachWeek: {label, since, until} or null = all
 async function showCoach() {
   const s = await api("/api/session");
   const picker = $("seat-picker"); picker.innerHTML = "";
@@ -669,27 +669,72 @@ async function showCoach() {
   if (!coachPlayer && s.players.length) coachPlayer = s.hero || s.players[0];
   if (!coachPlayer) { $("coach").innerHTML = '<span class="empty-note">No hands yet.</span>'; return; }
   for (const b of picker.children) b.setAttribute("aria-pressed", b.textContent === coachPlayer);
+  // a week picker, only when the hands span more than one week
+  const weeks = $("week-picker"); weeks.innerHTML = "";
+  weeks.classList.toggle("hidden", s.weeks.length < 2);
+  if (s.weeks.length >= 2) {
+    const all = document.createElement("button"); all.textContent = "All weeks";
+    all.setAttribute("aria-pressed", coachWeek === null);
+    all.onclick = () => { coachWeek = null; coachNotes = null; showCoach(); };
+    weeks.appendChild(all);
+    for (const w of s.weeks) {
+      const b = document.createElement("button");
+      b.textContent = `${w.label} · ${w.hands}`; b.title = `${w.since} to ${w.until}`;
+      b.setAttribute("aria-pressed", !!coachWeek && coachWeek.label === w.label);
+      b.onclick = () => { coachWeek = w; coachNotes = null; showCoach(); };
+      weeks.appendChild(b);
+    }
+  }
   $("coach").innerHTML = '<span class="empty-note">Replaying every hand and running the numbers…</span>';
-  const r = await api(`/api/coach?player=${encodeURIComponent(coachPlayer)}`);
+  const period = coachWeek ? `&since=${coachWeek.since}&until=${coachWeek.until}` : "";
+  const r = await api(`/api/coach?player=${encodeURIComponent(coachPlayer)}${period}`);
   renderCoach(r);
+}
+
+// The Hands list narrowed to a few hands (a leak's examples); "All hands" brings the list back.
+async function showHandSubset(ids, label) {
+  const data = await api(`/api/hands?ids=${encodeURIComponent(ids.join(","))}`);
+  const list = $("hand-list"); list.innerHTML = "";
+  const head = document.createElement("li"); head.className = "subset";
+  head.innerHTML = `<span>${esc(label)}</span>`;
+  const back = document.createElement("button"); back.textContent = "All hands";
+  back.onclick = () => loadList(true);
+  head.appendChild(back);
+  list.appendChild(head);
+  for (const h of data.hands) {
+    const li = document.createElement("li");
+    const b = document.createElement("button");
+    b.dataset.id = h.hand_id;
+    const net = h.players.filter(p => p.net > 0).map(p => `${esc(p.name)} +${p.net}`).join(", ");
+    b.innerHTML = `<span class="id">#${esc(h.hand_id)}</span><span class="who">${net || "no winner"}</span><span class="pot">${h.pot}</span>`;
+    b.addEventListener("click", () => openHand(h.hand_id));
+    li.appendChild(b);
+    list.appendChild(li);
+  }
+  $("more").classList.add("hidden");
+  setTab("hands");
 }
 
 function renderCoach(r) {
   const root = $("coach");
   const netCls = r.net > 0 ? "plus" : r.net < 0 ? "minus" : "";
-  let html = `<div class="lead"><strong>${esc(r.player)}</strong><span>${r.hands} hands, ${r.decisions} decisions</span>` +
+  const period = r.since || r.until ? ` (${coachWeek ? coachWeek.label : `${r.since} to ${r.until}`})` : "";
+  let html = `<div class="lead"><strong>${esc(r.player)}</strong><span>${r.hands} hands${esc(period)}, ${r.decisions} decisions</span>` +
     `<span class="${netCls}">${r.net > 0 ? "+" : ""}${r.net} chips (${r.bb_per_100 > 0 ? "+" : ""}${r.bb_per_100} bb/100)</span>` +
     `<button id="ask-claude" type="button">Ask Claude to explain</button></div>`;
   if (!r.leaks.length) html += '<p class="empty-note">No leaks found by the charts and the math. Play more hands.</p>';
   html += '<ol class="leaks">';
   for (const leak of r.leaks) {
     const chips = Object.entries(leak.by_position).filter(([, [n]]) => n).map(([pos, [n, d]]) => `<span>${pos} ${n}/${d}</span>`).join("");
+    const streets = Object.entries(leak.by_street).filter(([, [n]]) => n).map(([st, [n, d]]) => `<span class="street-chip">${st} ${n}/${d}</span>`).join("");
     const examples = leak.examples.slice(0, 6).map(e =>
       `<li><a href="#${e.hand_id}" data-hand="${e.hand_id}" data-step="${e.step}">#${e.hand_id}</a><span class="where">${e.street} ${e.position}</span>${esc(e.detail)}</li>`).join("");
     const note = coachNotes && coachNotes.notes.find(n => n.tag === leak.tag);
     const noteHtml = note ? `<div class="note">${esc(note.note)}<div class="do">Do this: ${esc(note.one_thing)}</div></div>` : "";
-    html += `<li><h3>${esc(leak.title)} <span class="rate">— ${leak.leaks} of ${leak.opportunities} (${Math.round(leak.rate * 100)}%)</span></h3>` +
-      `<div class="chips">${chips}</div><ul class="examples">${examples}</ul>${noteHtml}</li>`;
+    const ids = leak.examples.map(e => e.hand_id).join(",");
+    html += `<li><h3>${esc(leak.title)} <span class="rate">— ${leak.leaks} of ${leak.opportunities} (${Math.round(leak.rate * 100)}%)</span>` +
+      ` <button type="button" class="leak-link" data-ids="${esc(ids)}" data-label="${esc(leak.title)}">show these hands</button></h3>` +
+      `<div class="chips">${chips}${streets}</div><ul class="examples">${examples}</ul>${noteHtml}</li>`;
   }
   html += "</ol>";
   if (r.observations.length) html += "<h4>Observations</h4><ul class=\"plain\">" + r.observations.map(o => `<li>${esc(o)}</li>`).join("") + "</ul>";
@@ -698,6 +743,9 @@ function renderCoach(r) {
   if (coachNotes && coachNotes.focus) html += `<div class="focus">The one thing to work on: ${esc(coachNotes.focus)}</div>`;
   if (coachNotes) html += `<p class="empty-note">${esc(coachNotes.model)}, $${coachNotes.cost_usd}${coachNotes.dropped ? `, ${coachNotes.dropped} unsupported note(s) dropped` : ""}</p>`;
   root.innerHTML = html;
+  for (const b of root.querySelectorAll("button.leak-link")) {
+    b.onclick = () => showHandSubset(b.dataset.ids.split(","), b.dataset.label);
+  }
   for (const a of root.querySelectorAll("a[data-hand]")) {
     a.onclick = async (e) => {
       e.preventDefault();

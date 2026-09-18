@@ -252,8 +252,13 @@ section.coach-view h2 { color: var(--white); font-weight: 400; font-size: 18px; 
 .coach ol.leaks > li > h3 { margin: 0 0 4px; font-size: 17px; }
 .coach ol.leaks > li > h3::before { content: counter(leak) ". "; color: var(--ink-soft); }
 .coach .rate { color: var(--ink-soft); font-weight: 400; }
+.coach .leak-link { font-size: 13px; padding: 1px 8px; margin-left: 6px; vertical-align: middle; }
 .coach .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
 .coach .chips span { background: var(--paper-2); border-radius: 12px; padding: 1px 10px; font-size: 14px; }
+.coach .chips span.street-chip { background: transparent; border: 1px solid #d3cab2; }
+.week-picker button { font-size: 14px; padding: 3px 10px; }
+aside li.subset { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 14px; background: var(--paper); border-bottom: 1px solid #d3cab2; font-size: 14px; }
+aside li.subset button { padding: 2px 8px; font-size: 13px; }
 .coach ul.examples { margin: 0; padding-left: 0; list-style: none; }
 .coach ul.examples li { padding: 3px 0; }
 .coach ul.examples a { color: var(--felt); font-weight: 700; text-decoration: none; margin-right: 6px; }

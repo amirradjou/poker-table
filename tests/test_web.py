@@ -23,12 +23,14 @@ def test_index_and_session(hands_file: Path) -> None:
     assert css.status_code == 200 and "--felt:" in css.text
     js = client.get("/static/app.js")
     assert js.status_code == 200 and "function stateAt(" in js.text
-    assert client.get("/api/session").json() == {
+    session = client.get("/api/session").json()
+    assert {k: v for k, v in session.items() if k != "weeks"} == {
         "file": "hands.jsonl",
         "hands": 12,
         "players": ["tag", "maniac", "station"],
         "hero": None,
     }
+    assert len(session["weeks"]) == 1 and session["weeks"][0]["hands"] == "12"
 
 
 def test_hand_list_is_newest_first_and_paged(hands_file: Path) -> None:
@@ -79,6 +81,7 @@ def test_missing_file_serves_an_empty_session(tmp_path: Path) -> None:
         "hands": 0,
         "players": [],
         "hero": None,
+        "weeks": [],
     }
     assert client.get("/api/hands").json() == {"total": 0, "hands": []}
     assert client.get("/api/stats").json() == {"hands": 0, "rows": []}
@@ -118,6 +121,25 @@ def test_coach_endpoint_reports_a_seat_with_replay_steps(hands_file: Path) -> No
     assert client.get("/api/coach?player=nobody").status_code == 404
     # cached: the same object comes back until hands change
     assert client.get("/api/coach?player=maniac&samples=30").json() == data
+
+
+def test_coach_can_be_scoped_to_a_period_and_hands_listed_by_id(hands_file: Path) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    client = TestClient(create_app(hands_file))
+    weeks = client.get("/api/session").json()["weeks"]
+    assert len(weeks) == 1 and weeks[0]["hands"] == "12"
+    assert {"label", "since", "until"} <= set(weeks[0])
+    tomorrow = (datetime.now(UTC) + timedelta(days=1)).date().isoformat()
+    scoped = client.get(f"/api/coach?player=maniac&samples=30&since={tomorrow}").json()
+    assert scoped["hands"] == 0 and scoped["leaks"] == [] and scoped["since"] == tomorrow
+    week = client.get(
+        f"/api/coach?player=maniac&samples=30&since={weeks[0]['since']}&until={weeks[0]['until']}"
+    ).json()
+    assert week["hands"] == 12 and week["leaks"]
+    assert client.get("/api/coach?player=maniac&since=not-a-date").status_code == 400
+    subset = client.get("/api/hands?ids=3,1,999").json()
+    assert [h["hand_id"] for h in subset["hands"]] == ["3", "1"] and subset["total"] == 2
 
 
 def test_coach_narrate_without_credentials_is_a_clean_503(hands_file: Path, monkeypatch) -> None:
