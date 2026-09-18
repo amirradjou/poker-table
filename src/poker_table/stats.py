@@ -48,6 +48,8 @@ class PlayerStats:
     illegal: int = 0
     latency_ms_total: float = 0.0
     talks: int = 0
+    model_calls: int = 0
+    cost_usd: float = 0.0
 
     # -- derived rates (None when there was no opportunity) --
 
@@ -97,6 +99,10 @@ class PlayerStats:
     def avg_latency_ms(self) -> float | None:
         return None if self.decisions == 0 else self.latency_ms_total / self.decisions
 
+    @property
+    def cost_per_hand(self) -> float | None:
+        return None if self.hands == 0 else self.cost_usd / self.hands
+
     def as_row(self) -> dict[str, object]:
         return {
             "name": self.name,
@@ -113,6 +119,7 @@ class PlayerStats:
             "bluff": self.bluff_rate,
             "illegal": self.illegal_rate,
             "ms": self.avg_latency_ms,
+            "$/hand": self.cost_per_hand,
         }
 
 
@@ -199,6 +206,9 @@ def _add_hand(stats: dict[str, PlayerStats], history: HandHistory) -> None:
         s.illegal += d.illegal
         s.latency_ms_total += d.latency_ms
         s.talks += bool(d.table_talk)
+        if "cost_usd" in d.meta:
+            s.model_calls += 1
+            s.cost_usd += float(d.meta["cost_usd"])
 
 
 def _is_air(hole: tuple[Card, Card], board: list[Card]) -> bool:
@@ -228,6 +238,8 @@ def format_table(stats: dict[str, PlayerStats]) -> str:
             return f"{float(value) * 100:.0f}%"
         if key in ("bb/100", "af", "ms"):
             return "inf" if value == float("inf") else f"{float(value):.1f}"
+        if key == "$/hand":
+            return f"{float(value):.4f}"
         return str(value)
 
     table = [columns] + [[cell(k, r[k]) for k in columns] for r in rows]

@@ -52,6 +52,7 @@ class DecisionTrace:
     reasoning: str
     table_talk: str
     latency_ms: float
+    meta: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +109,7 @@ class HandHistory:
                     reasoning=d.reasoning,
                     table_talk=d.table_talk,
                     latency_ms=round(d.latency_ms, 3),
+                    meta=dict(d.meta),
                 )
                 for d in played.decisions
             ],

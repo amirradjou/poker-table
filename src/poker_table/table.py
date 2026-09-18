@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import Any
 
 from poker_table.agents.base import Agent, Decision, make_view
 from poker_table.engine import Action, Hand, LegalActions, Player, Street
@@ -22,6 +23,7 @@ class DecisionRecord:
     reasoning: str
     table_talk: str
     latency_ms: float
+    meta: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -61,10 +63,11 @@ def sanitize(action: Action, legal: LegalActions) -> Action | None:
 def play_hand(hand: Hand, agents: Mapping[int, Agent]) -> PlayedHand:
     """Drive ``hand`` to completion, asking ``agents[seat]`` at every decision point."""
     played = PlayedHand(hand)
+    talk: list[tuple[str, str]] = []
     while not hand.finished:
         seat = hand.actor
         assert seat is not None
-        view = make_view(hand, seat.index)
+        view = make_view(hand, seat.index, talk=tuple(talk))
         started = time.perf_counter()
         try:
             decision = agents[seat.index].act(view)
@@ -86,8 +89,11 @@ def play_hand(hand: Hand, agents: Mapping[int, Agent]) -> PlayedHand:
                 reasoning=decision.reasoning,
                 table_talk=decision.table_talk,
                 latency_ms=latency,
+                meta=dict(decision.meta),
             )
         )
+        if decision.table_talk:
+            talk.append((seat.name, decision.table_talk))
     return played
 
 
