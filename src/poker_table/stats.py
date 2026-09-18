@@ -101,7 +101,7 @@ class PlayerStats:
 
     @property
     def cost_per_hand(self) -> float | None:
-        return None if self.hands == 0 else self.cost_usd / self.hands
+        return None if self.hands == 0 or self.model_calls == 0 else self.cost_usd / self.hands
 
     def as_row(self) -> dict[str, object]:
         return {

@@ -88,13 +88,16 @@ class TightAggressive:
 
     # -- preflop --
 
-    def _open_threshold(self, position: str) -> float:
-        if position in _EARLY:
+    def _open_threshold(self, view: SeatView) -> float:
+        # Chen's thresholds are for full-ring tables; a point looser when six or fewer.
+        if view.position in _EARLY:
             base = 9
-        elif position in _LATE:
+        elif view.position in _LATE:
             base = 7
         else:
             base = 8
+        if len(view.players) <= 6:
+            base -= 1
         return base + self.tightness
 
     def _preflop(self, view: SeatView) -> Decision:
@@ -117,7 +120,7 @@ class TightAggressive:
             return Decision(Action.fold(), f"{why}: short, fold")
 
         if not facing_raise:
-            if score >= self._open_threshold(view.position) and legal.can_raise:
+            if score >= self._open_threshold(view) and legal.can_raise:
                 if self._rng.random() < self.aggression:
                     size = 3 * bb + limpers * bb
                     return Decision(raise_or_bet(view, size), f"{why}: open to {size}")
@@ -137,7 +140,7 @@ class TightAggressive:
             if self._rng.random() < self.aggression:
                 return Decision(raise_or_bet(view, view.current_bet * 3), f"{why}: re-raise")
             return Decision(Action.call(), f"{why}: flat")
-        if score >= 8 + self.tightness and view.to_call <= max(0.2 * view.stack, 3 * bb):
+        if score >= 7 + self.tightness and view.to_call <= max(0.25 * view.stack, 4 * bb):
             return Decision(Action.call(), f"{why}: call a raise")
         if legal.can_check:
             return Decision(Action.check(), f"{why}: check")
