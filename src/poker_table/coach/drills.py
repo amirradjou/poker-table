@@ -144,6 +144,80 @@ class DrillResult:
     keys: list[str] = field(default_factory=list)
 
 
+class DrillSession:
+    """One sitting: hands out due spots one at a time and grades answers (the browser's drill).
+
+    A spot answered in this sitting is not asked again until ``restart()``, even if it was
+    answered wrong and is due again at once — the same rule the terminal drill applies.
+    """
+
+    def __init__(self, spots: Sequence[Spot], log: DrillLog, *, today: date | None = None) -> None:
+        self.spots = {s.key: s for s in spots}
+        self.log = log
+        self.today = today or date.today()
+        self.asked: list[str] = []
+        self.correct = 0
+        self.current: Spot | None = None
+
+    def restart(self) -> None:
+        self.asked = []
+        self.correct = 0
+        self.current = None
+
+    def next(self) -> Spot | None:
+        queue = [
+            s
+            for s in self.log.order(list(self.spots.values()), self.today)
+            if s.key not in self.asked
+        ]
+        self.current = queue[0] if queue else None
+        return self.current
+
+    def answer(self, key: str, action: ActionType) -> dict[str, Any]:
+        spot = self.spots.get(key)
+        if spot is None:
+            raise LookupError(f"unknown spot {key!r}")
+        if key in self.asked:
+            raise LookupError("that spot was already answered this sitting")
+        correct = action in spot.accepted
+        entry = self.log.record(key, correct, self.today)
+        self.log.save()
+        self.asked.append(key)
+        self.correct += correct
+        self.current = None
+        return {
+            "correct": correct,
+            "accepted": sorted(a.value for a in spot.accepted),
+            "answer_text": spot.answer_text,
+            "at_the_table": spot.fact.action,
+            "detail": spot.fact.detail,
+            "box": entry["box"],
+            "due": entry["due"],
+            "score": {"asked": len(self.asked), "correct": self.correct},
+        }
+
+    def progress(self) -> dict[str, Any]:
+        boxes = [0] * len(INTERVALS_DAYS)
+        due = 0
+        for key in self.spots:
+            entry = self.log.spots.get(key)
+            boxes[entry["box"] if entry else 0] += 1
+            due += self.log.due(key, self.today)
+        remaining = sum(
+            1
+            for s in self.spots.values()
+            if self.log.due(s.key, self.today) and s.key not in self.asked
+        )
+        return {
+            "spots": len(self.spots),
+            "due": due,
+            "remaining": remaining,
+            "boxes": boxes,
+            "asked": len(self.asked),
+            "correct": self.correct,
+        }
+
+
 def run_drill(
     spots: Sequence[Spot],
     log: DrillLog,
