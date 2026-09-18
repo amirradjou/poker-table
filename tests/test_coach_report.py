@@ -76,3 +76,13 @@ def test_cli_coach(tmp_path: Path) -> None:
     assert (tmp_path / "r.json").exists()
     code = main(["coach", str(out), "--player", "nobody"], out=io.StringIO())
     assert code == 2
+
+
+def test_trend_compares_the_two_halves() -> None:
+    histories = session(80)
+    report = build_report(histories, "maniac", tag_hands(histories, "maniac", samples=30))
+    assert report.trend
+    assert all("→" in t and t.endswith(")") for t in report.trend)
+    assert "Trend" in report.render()
+    short = build_report(histories[:20], "maniac", tag_hands(histories[:20], "maniac", samples=30))
+    assert short.trend == []
