@@ -29,8 +29,9 @@
   </aside>
 
   <section class="hand" id="hand-view">
-    <div class="empty" id="empty">Pick a hand on the left, or play some first:
-      <code>uv run poker-table play -n 100 -o hands.jsonl</code></div>
+    <div class="empty" id="empty">Pick a hand on the left, or start a table and watch it play:
+      <code>uv run poker-table serve live.jsonl --live --seats tag,maniac,station --open</code>
+      — or sit down yourself with <code>--seats me:human,tag,maniac</code>.</div>
     <div id="replay" class="hidden">
       <h2><strong id="hand-title"></strong> <span id="hand-sub"></span></h2>
       <div class="table" id="table">
