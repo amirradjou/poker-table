@@ -8,11 +8,13 @@ from collections import Counter
 from collections.abc import Sequence
 from functools import lru_cache
 
+from poker_table.agents.strength import MadeHand, classify, has_flush_draw, has_open_ender
 from poker_table.cards import FULL_DECK, Card
-from poker_table.coach.ranges import sample_from_range
+from poker_table.coach.ranges import range_combos, sample_from_range
 from poker_table.evaluator import evaluate
 
-Range = frozenset[str] | None  # None = any two cards
+Combo = tuple[Card, Card]
+Range = frozenset[str] | tuple[Combo, ...] | None  # hand classes, explicit combos, or any two
 
 
 def equity(
@@ -100,6 +102,58 @@ def _sample(
             score += 1 / ties
         done += 1
     return score / done if done else 0.0
+
+
+# ----- narrowing a range by what its owner did on the board ---------------------------------
+
+
+def narrow_range(
+    rng: Range,
+    board: Sequence[Card],
+    dead: set[Card],
+    *,
+    keep_at_least: MadeHand,
+    keep_air: float,
+) -> tuple[Combo, ...] | None:
+    """Combos of ``rng`` consistent with a bet or a call on this board.
+
+    Keeps every combo that has ``keep_at_least`` or a draw, plus a fixed share of the rest
+    (bluffs and floats), chosen deterministically so a report is reproducible. Returns None
+    for "any two cards" when nothing is known, and the original combos when the filter would
+    empty the range.
+    """
+    if len(board) < 3:
+        return None if rng is None else tuple(range_combos(rng))
+    return _narrow(rng, tuple(board), frozenset(dead), keep_at_least, keep_air)
+
+
+@lru_cache(maxsize=4096)
+def _narrow(
+    rng: Range,
+    board: tuple[Card, ...],
+    dead: frozenset[Card],
+    keep_at_least: MadeHand,
+    keep_air: float,
+) -> tuple[Combo, ...]:
+    combos = list(range_combos(rng)) if rng is not None else _all_combos()
+    combos = [c for c in combos if c[0] not in dead and c[1] not in dead]
+    kept: list[Combo] = []
+    for combo in combos:
+        strong = classify(combo, board) >= keep_at_least
+        draw = has_flush_draw(combo, board) or has_open_ender(combo, board)
+        if strong or draw or _keep(combo, board, keep_air):
+            kept.append(combo)
+    return tuple(kept) if kept else tuple(combos)
+
+
+def _keep(combo: Combo, board: Sequence[Card], share: float) -> bool:
+    key = (str(combo[0]) + str(combo[1]) + "".join(str(c) for c in board)).encode()
+    return (sum(key) * 2654435761 % 1000) < share * 1000
+
+
+@lru_cache(maxsize=1)
+def _all_combos() -> list[Combo]:
+    return [(a, b) for a, b in itertools.combinations(FULL_DECK, 2)]
 
 
 def pot_odds(to_call: int, pot: int) -> float:
