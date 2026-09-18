@@ -67,8 +67,9 @@ a hand history with each seat's private reasoning attached.
   not in the report are dropped. Injectable client; tests use a fake.
 - `coach/drills.py` — flagged spots as quizzes on the real view, graded by `accepted_actions()`,
   Leitner boxes in `<file>.<player>.drills.json`.
-- `coach/importers/pokerstars.py` — PokerStars text (cash + tournament) → `HandHistory`; cents
-  as chips when blinds have decimals; skips antes/straddles/missed blinds with a reason.
+- `coach/importers/pokerstars.py` — PokerStars and GGPoker text (cash + tournament) →
+  `HandHistory`; cents as chips when blinds have decimals; header date → `played_at` (ET for
+  Stars, UTC for GG); skips antes/straddles/missed blinds/run-it-twice with a reason.
   Fixtures in `tests/fixtures/`. `importers/__init__.py::detect_format` is where a new site goes.
 - `web/app.py` also serves `/api/coach?player=` (report cached until more hands) with the replay
   step of every example, and `/api/coach/narrate`.
@@ -86,9 +87,10 @@ a hand history with each seat's private reasoning attached.
 
 ## Status / how to continue (as of 2026-09-18)
 Merged: PR #1 (engine, bots, LLM seats, human seats, histories, stats, league, CLI, viewer,
-live tables) and PR #2 (poker-coach: ranges, equity, facts, report, narration, drills, trend).
-Branch `feat/coach-tab` (PR #3): Coach tab in the viewer, PokerStars importer + `import`
-command, postflop range narrowing. 264 tests green. HQ registered. **Not done yet, in this order:**
+live tables), PR #2 (poker-coach: ranges, equity, facts, report, narration, drills, trend),
+PR #3 (Coach tab, PokerStars importer, range narrowing). Branch `feat/coach-timeline` (PR #4):
+`played_at` + weekly trend + `coach --since/--until`, GGPoker import, 10x faster narrowing,
+`docs/baseline.md`. 268 tests green. HQ registered. **Not done yet, in this order:**
 
 1. **Live smoke test of the LLM seat** — no API key on this machine yet. Run
    `ANTHROPIC_API_KEY=... uv run poker-table play -n 2 --seats llm:nerd,tag --show` and check
@@ -97,16 +99,14 @@ command, postflop range narrowing. 264 tests green. HQ registered. **Not done ye
    touching that file.
 2. **Per-model comparison**: same personality on opus-5 / sonnet-5 / haiku-4-5, report bb/100
    vs $/hand; commit the JSONL + leaderboard under `docs/` as the first published result.
-3. **More importers**: GGPoker and 888 text formats (same shape as PokerStars with different
-   headers) — add a parser next to `importers/pokerstars.py`, a fixture, and a `detect_format`
+3. **888poker importer** (a genuinely different text format: `** Dealing down cards **`,
+   `[ Ah, Kd ]`, `posts small blind [$0.01]`) — a second parser module + fixture + `detect_format`
    branch. Antes/straddles would need engine support (`Hand` has none) — skip unless asked.
-4. **Weekly leak report over time**: `coach --since DATE` is not possible yet because imported
-   hands carry no timestamp — add `played_at` to `HandHistory` (importer parses the header date;
-   the league stamps `datetime.now()`), then trend by week instead of first/second half.
-5. **Faster narrowing** if reports on very loose players feel slow: `narrow_range` classifies
-   every combo (~25 ms per hand worst case); a rank-count lookup instead of `evaluate()` would
-   cut it 5-10x.
-6. Web viewer polish if wanted: seat filter on the chart, hide cards until showdown by default.
+4. **Coach tab: date range** — the API could take `since`/`until` like the CLI; a week picker in
+   the tab would make the weekly trend browsable.
+5. Web viewer polish if wanted: seat filter on the chart, hide cards until showdown by default.
+6. **Solver-grade postflop facts** would be the next real step up (an open-source solver or a
+   simplified abstraction) — big; only if the chart/equity facts prove insufficient on real hands.
 
 ## Gotchas / decisions
 - `uv` lives in `~/.local/bin`, which is not on PATH in non-login shells.
@@ -122,6 +122,9 @@ command, postflop range narrowing. 264 tests green. HQ registered. **Not done ye
   returns once the session is finished and its queue is drained, so tests run it after `join()`.
 - The live human turn is rendered by reusing the replay renderer: `live_view_payload()` reports
   *starting* stacks (current + contributed) so `stateAt()` can replay the public events.
+- `narrow_range` has its own integer-op scoring loop (`equity.py::_narrow`) — keep it in sync
+  with `strength.quick_made_hand`, which is the readable version and is tested against
+  `classify()` (99.8% agreement; the rest are board-plays-itself cases).
 - Imported hands: nets are rake-adjusted (they do not sum to zero), `seed=0`, no decision
   traces; `replay()` fills unknown villain cards with filler, so villain showdown results in a
   replay can differ from the real ones — the coach only reads the hero's views.
