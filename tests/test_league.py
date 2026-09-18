@@ -63,6 +63,23 @@ def test_league_validation() -> None:
         run_league([CallingStation("s"), CallingStation("s")], LeagueConfig(hands=1))
 
 
+def test_agent_kinds_reach_the_hand_history() -> None:
+    agents = make_agents(["tag", "rock", "alice:maniac", "station", "random", "llm:nerd"], seed=1)
+    assert [a.kind for a in agents] == ["tag", "rock", "maniac", "station", "random", "llm:nerd"]
+    result = run_league(agents[:5], LeagueConfig(hands=2, seed=1))
+    assert [p.kind for p in result.histories[0].players] == [
+        "tag",
+        "rock",
+        "maniac",
+        "station",
+        "random",
+    ]
+    from poker_table.history import HandHistory
+
+    again = HandHistory.from_json(result.histories[0].to_json())
+    assert [p.kind for p in again.players] == ["tag", "rock", "maniac", "station", "random"]
+
+
 def test_registry_builds_named_and_numbered_agents() -> None:
     agents = make_agents(["tag", "alice:maniac", "tag", "station"], seed=1)
     assert [a.name for a in agents] == ["tag", "alice", "tag2", "station"]

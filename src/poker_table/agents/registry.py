@@ -16,7 +16,9 @@ SCRIPTED: dict[str, Factory] = {
     "random": lambda name, seed: RandomAgent(name, seed=seed),
     "station": lambda name, seed: CallingStation(name),
     "tag": lambda name, seed: TightAggressive(name, seed=seed),
-    "rock": lambda name, seed: TightAggressive(name, tightness=2, aggression=0.3, seed=seed),
+    "rock": lambda name, seed: TightAggressive(
+        name, tightness=2, aggression=0.3, seed=seed, kind="rock"
+    ),
     "maniac": lambda name, seed: Maniac(name, seed=seed),
     "human": lambda name, seed: HumanAgent(name),
 }

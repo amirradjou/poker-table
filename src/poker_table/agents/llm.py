@@ -107,6 +107,7 @@ class LLMAgent:
         self.max_tokens = max_tokens
         self.usage = Usage()
         self._client = client
+        self.kind = f"llm:{self.personality.key}"
 
     @property
     def client(self) -> MessagesClient:

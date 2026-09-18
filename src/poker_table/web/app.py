@@ -15,7 +15,7 @@ from poker_table.coach.report import Report, build_report
 from poker_table.engine import EventKind
 from poker_table.history import HandHistory, read_jsonl
 from poker_table.stats import compute_stats, leaderboard
-from poker_table.web.live import LiveSession
+from poker_table.web.live import MAX_PACE, LiveSession
 
 STATIC = Path(__file__).parent / "static"
 
@@ -121,6 +121,10 @@ class NarrateRequest(BaseModel):
     model: str | None = None
 
 
+class PaceRequest(BaseModel):
+    pace: float
+
+
 def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
     store = HandStore(Path(path))
     app = FastAPI(title="poker-table", docs_url=None, redoc_url=None)
@@ -164,6 +168,13 @@ def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+    @app.post("/api/live/pace")
+    def set_pace(body: PaceRequest) -> dict[str, Any]:
+        if live is None:
+            raise HTTPException(404, "not a live session")
+        live.pace = min(max(body.pace, 0.0), MAX_PACE)
+        return {"pace": live.pace}
 
     @app.post("/api/act")
     def act(body: ActRequest) -> dict[str, Any]:

@@ -29,6 +29,7 @@ class PlayerRecord:
     stack: int  # at the start of the hand
     hole: list[str]
     net: int
+    kind: str = ""  # agent kind ("tag", "llm:nerd", "human"); "" for imported hands
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +95,7 @@ class HandHistory:
                 stack=hand.starting_stacks[s.index],
                 hole=[str(c) for c in (s.hole or ())],
                 net=net[s.index],
+                kind=s.kind,
             )
             for s in hand.seats
         ]

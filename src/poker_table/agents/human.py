@@ -16,6 +16,8 @@ HELP = (
 class HumanAgent:
     """Prints the seat's view and reads one action per turn from ``input_fn``."""
 
+    kind = "human"
+
     def __init__(
         self,
         name: str = "you",

@@ -104,6 +104,12 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--seed", type=int, default=0)
     serve.add_argument("--blinds", default="1/2")
     serve.add_argument("--stack", type=int, default=200)
+    serve.add_argument(
+        "--pace",
+        type=float,
+        default=0.8,
+        help="seconds between bot decisions with --live, so hands can be watched (default 0.8)",
+    )
     return parser
 
 
@@ -284,7 +290,7 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
         )
         args.file.parent.mkdir(parents=True, exist_ok=True)
         args.file.touch()
-        live = LiveSession(agents, config, args.file)
+        live = LiveSession(agents, config, args.file, pace=max(0.0, args.pace))
     app = create_app(args.file, live)
     url = f"http://{args.host}:{args.port}/"
     print(f"poker-table viewer on {url} (Ctrl-C to stop)", file=out)
