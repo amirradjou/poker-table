@@ -140,6 +140,24 @@ def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
             raise HTTPException(400, f"bad action: {exc}") from None
         return {"ok": True, "action": str(action)}
 
+    @app.get("/api/bankroll")
+    def bankroll() -> dict[str, Any]:
+        """Cumulative chips won per player after each hand, in seating order of first appearance."""
+        totals: dict[str, int] = {}
+        series: dict[str, list[int]] = {}
+        hand_ids: list[str] = []
+        for history in store.hands:
+            hand_ids.append(history.hand_id)
+            for player in history.players:
+                totals[player.name] = totals.get(player.name, 0) + player.net
+            for name in totals:
+                series.setdefault(name, [0] * (len(hand_ids) - 1)).append(totals[name])
+        return {
+            "hands": hand_ids,
+            "big_blind": store.hands[0].big_blind if store.hands else 0,
+            "series": [{"name": name, "values": values} for name, values in series.items()],
+        }
+
     @app.get("/api/stats")
     def stats() -> dict[str, Any]:
         rows = [s.as_row() for s in leaderboard(compute_stats(store.hands))]

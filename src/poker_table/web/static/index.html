@@ -155,6 +155,39 @@
   @media (prefers-reduced-motion: no-preference) {
     .seat, .log li { transition: background-color .2s, border-color .2s, opacity .2s; }
   }
+  /* bankroll chart: series colors are the validated reference palette (light mode) */
+  .viz-root {
+    --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
+    --series-5: #e87ba4; --series-6: #008300; --series-7: #4a3aa7; --series-8: #e34948;
+    --grid: #d9d1bb; --axis-text: var(--ink-soft);
+    background: var(--paper); border-radius: 8px; padding: 12px 16px 8px; margin-bottom: 14px;
+  }
+  .viz-root .viz-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
+  .viz-root .viz-head h3 { margin: 0; font-size: 17px; font-weight: 700; }
+  .viz-root .viz-head span { color: var(--ink-soft); }
+  .viz-root .viz-head button { margin-left: auto; padding: 3px 10px; font-size: 14px; }
+  .viz-root figure { margin: 0; position: relative; }
+  .viz-root svg { display: block; width: 100%; height: 260px; }
+  .viz-root .grid line { stroke: var(--grid); stroke-width: 1; }
+  .viz-root .zero { stroke: var(--ink-soft); stroke-width: 1; }
+  .viz-root .axis text { fill: var(--axis-text); font-size: 12px; }
+  .viz-root .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .viz-root .end-label { font-size: 13px; fill: var(--ink); }
+  .viz-root .crosshair { stroke: var(--ink-soft); stroke-width: 1; pointer-events: none; }
+  .viz-root .dot { stroke: var(--paper); stroke-width: 2; pointer-events: none; }
+  .viz-root .tip {
+    position: absolute; top: 8px; pointer-events: none; background: var(--white); color: var(--ink);
+    border: 1px solid #c9bfa6; border-radius: 6px; padding: 6px 10px; font-size: 14px; white-space: nowrap;
+  }
+  .viz-root .tip b { display: block; margin-bottom: 2px; }
+  .viz-root .tip i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  .viz-root .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 6px; font-size: 14px; }
+  .viz-root .legend span::before { content: ""; display: inline-block; width: 14px; height: 3px; border-radius: 2px; background: var(--c); vertical-align: middle; margin-right: 6px; }
+  .viz-root .viz-table { max-height: 260px; overflow: auto; }
+  .viz-root .viz-table table { border-collapse: collapse; width: 100%; }
+  .viz-root .viz-table th, .viz-root .viz-table td { padding: 3px 10px; text-align: right; border-bottom: 1px solid var(--grid); }
+  .viz-root .viz-table th:first-child, .viz-root .viz-table td:first-child { text-align: left; }
+
   header .live { display: inline-flex; align-items: center; gap: 8px; }
   header .live::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--gold); }
   header .live.over::before { background: rgba(255,255,255,.4); }
@@ -239,6 +272,14 @@
 
   <section class="board-view hidden" id="board-view">
     <h2 id="board-title"></h2>
+    <div class="viz-root hidden" id="bankroll">
+      <div class="viz-head"><h3>Bankroll over the session</h3><span id="bankroll-sub"></span>
+        <button id="bankroll-table-toggle" aria-pressed="false">Show as table</button></div>
+      <figure id="bankroll-figure"><svg id="bankroll-svg" role="img" aria-label="Cumulative chips won per seat, by hand"></svg>
+        <div class="tip hidden" id="bankroll-tip"></div></figure>
+      <div class="legend" id="bankroll-legend"></div>
+      <div class="viz-table hidden" id="bankroll-table"></div>
+    </div>
     <div class="leaderboard"><table id="board-table"></table></div>
   </section>
 </main>
@@ -463,7 +504,93 @@ function buildSummary() {
 
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
+const SVG = "http://www.w3.org/2000/svg";
+function svgEl(tag, attrs, parent) {
+  const el = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  if (parent) parent.appendChild(el);
+  return el;
+}
+
+// Cumulative chips per seat over the session: a multi-series line chart with a crosshair.
+async function drawBankroll() {
+  const data = await api("/api/bankroll");
+  const root = $("bankroll");
+  const n = data.hands.length;
+  if (n < 2) { root.classList.add("hidden"); return; }
+  root.classList.remove("hidden");
+  const series = data.series.slice(0, 8);  // the palette has eight slots; more seats stay in the table
+  $("bankroll-sub").textContent = `${n} hands, chips` + (data.series.length > 8 ? ` (first 8 seats)` : "");
+
+  const svg = $("bankroll-svg"); svg.innerHTML = "";
+  const W = svg.clientWidth || 800, H = 260, m = { top: 12, right: 74, bottom: 26, left: 52 };
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const all = series.flatMap(s => s.values);
+  let lo = Math.min(0, ...all), hi = Math.max(0, ...all);
+  if (lo === hi) hi = lo + 1;
+  const x = i => m.left + (i / (n - 1)) * (W - m.left - m.right);
+  const y = v => m.top + (1 - (v - lo) / (hi - lo)) * (H - m.top - m.bottom);
+
+  // gridlines: a few round steps
+  const grid = svgEl("g", { class: "grid" }, svg), axis = svgEl("g", { class: "axis" }, svg);
+  const stepRaw = (hi - lo) / 4, mag = Math.pow(10, Math.floor(Math.log10(stepRaw)));
+  const step = [1, 2, 5, 10].map(k => k * mag).find(k => k >= stepRaw) || mag;
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+    svgEl("line", { x1: m.left, x2: W - m.right, y1: y(v), y2: y(v), class: v === 0 ? "zero" : "" }, grid);
+    const t = svgEl("text", { x: m.left - 8, y: y(v) + 4, "text-anchor": "end" }, axis); t.textContent = v;
+  }
+  const ticks = [0, Math.round((n - 1) / 2), n - 1];
+  for (const i of ticks) { const t = svgEl("text", { x: x(i), y: H - 8, "text-anchor": "middle" }, axis); t.textContent = `hand ${data.hands[i]}`; }
+
+  // lines
+  series.forEach((s, k) => {
+    const d = s.values.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+    svgEl("path", { d, class: "line", stroke: `var(--series-${k + 1})` }, svg);
+  });
+  // direct end labels when they don't collide (else the legend + tooltip carry identity)
+  if (series.length <= 4) {
+    const ends = series.map((s, k) => ({ k, name: s.name, y: y(s.values[n - 1]) })).sort((a, b) => a.y - b.y);
+    const collide = ends.some((e, i) => i && e.y - ends[i - 1].y < 14);
+    if (!collide) for (const e of ends) { const t = svgEl("text", { x: W - m.right + 8, y: e.y + 4, class: "end-label" }, svg); t.textContent = e.name; }
+  }
+
+  // legend (always, for >= 2 series) - identity by swatch, text in ink
+  const legend = $("bankroll-legend"); legend.innerHTML = "";
+  series.forEach((s, k) => { const el = document.createElement("span"); el.style.setProperty("--c", `var(--series-${k + 1})`); el.textContent = s.name; legend.appendChild(el); });
+
+  // hover: crosshair + one dot per series + tooltip
+  const cross = svgEl("line", { class: "crosshair hidden", y1: m.top, y2: H - m.bottom }, svg);
+  const dots = series.map((s, k) => svgEl("circle", { r: 4, class: "dot hidden", fill: `var(--series-${k + 1})` }, svg));
+  const tip = $("bankroll-tip");
+  const show = (evt) => {
+    const rect = svg.getBoundingClientRect();
+    const px = (evt.clientX - rect.left) * (W / rect.width);
+    const i = Math.max(0, Math.min(n - 1, Math.round(((px - m.left) / (W - m.left - m.right)) * (n - 1))));
+    cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.classList.remove("hidden");
+    dots.forEach((d, k) => { d.setAttribute("cx", x(i)); d.setAttribute("cy", y(series[k].values[i])); d.classList.remove("hidden"); });
+    tip.innerHTML = `<b>hand ${data.hands[i]}</b>` + series.map((s, k) => `<div><i style="background:var(--series-${k + 1})"></i>${s.name} ${s.values[i] > 0 ? "+" : ""}${s.values[i]}</div>`).join("");
+    tip.classList.remove("hidden");
+    const left = (x(i) / W) * rect.width;
+    tip.style.left = (left > rect.width / 2 ? left - tip.offsetWidth - 12 : left + 12) + "px";
+  };
+  svg.onpointermove = show;
+  svg.onpointerleave = () => { cross.classList.add("hidden"); dots.forEach(d => d.classList.add("hidden")); tip.classList.add("hidden"); };
+
+  // table view (the relief for low-contrast hues, and for screen readers)
+  const head = "<tr><th>hand</th>" + data.series.map(s => `<th>${s.name}</th>`).join("") + "</tr>";
+  const rows = data.hands.map((h, i) => `<tr><td>${h}</td>` + data.series.map(s => `<td>${s.values[i]}</td>`).join("") + "</tr>").join("");
+  $("bankroll-table").innerHTML = `<table><thead>${head}</thead><tbody>${rows}</tbody></table>`;
+}
+$("bankroll-table-toggle").onclick = (e) => {
+  const on = $("bankroll-table").classList.toggle("hidden") === false;
+  e.target.setAttribute("aria-pressed", on);
+  e.target.textContent = on ? "Show as chart" : "Show as table";
+  $("bankroll-figure").classList.toggle("hidden", on);
+  $("bankroll-legend").classList.toggle("hidden", on);
+};
+
 async function showBoard() {
+  drawBankroll().catch(() => $("bankroll").classList.add("hidden"));
   const data = await api("/api/stats");
   $("board-title").textContent = `${data.hands} hands, sorted by chips won`;
   const cols = data.rows.length ? Object.keys(data.rows[0]) : [];
