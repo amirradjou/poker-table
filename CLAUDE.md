@@ -21,8 +21,8 @@ a hand history with each seat's private reasoning attached.
 | Browser viewer | `uv run poker-table serve hands.jsonl --open` |
 | Live table / play in browser | `uv run poker-table serve live.jsonl --live -n 20 --seats me:human,tag,maniac --open` |
 | Import site hands | `uv run poker-table import HH*.txt -o real.jsonl` |
-| Leak report | `uv run poker-table coach live.jsonl --player me [--narrate]` |
-| Drill flagged spots | `uv run poker-table drill live.jsonl --player me -n 10` |
+| Leak report | `uv run poker-table coach real.jsonl [--player me] [--since D] [--margins call=0.05] [--narrate]` |
+| Drill flagged spots | `uv run poker-table drill real.jsonl -n 10` (or the Drill tab in `serve`) |
 | Sit down yourself | `uv run poker-table play -n 10 --seats me:human,tag,maniac` |
 | Test | `uv run pytest` |
 | Lint + format | `uv run ruff check . && uv run ruff format .` |
@@ -69,17 +69,25 @@ a hand history with each seat's private reasoning attached.
   postflop calls/folds vs equity (opponent ranges from the preflop line, narrowed street by
   street by their actions) and price, c-bets/bets/checks as observations. `ok=False` = leak.
 - `coach/report.py` — `build_report()`: leaks ranked by frequency with cited example hands,
-  by-position/street splits, observations, first-half vs second-half trend; `render()`/`to_dict()`.
+  by-position/street splits, observations, weekly (or halves) trend, "against whom" (villains
+  you leak against most, with their VPIP/PFR/AF); `render()`/`to_dict()`.
+- `coach/facts.py::Margins` — the postflop thresholds as a value (`Margins.parse("call=0.05")`,
+  CLI `coach --margins`); facts carry `opponents` (seats still in the pot).
 - `coach/narrate.py` — Claude notes per leak (structured output); notes citing leaks or hands
   not in the report are dropped. Injectable client; tests use a fake.
 - `coach/drills.py` — flagged spots as quizzes on the real view, graded by `accepted_actions()`,
-  Leitner boxes in `<file>.<player>.drills.json`.
-- `coach/importers/pokerstars.py` — PokerStars and GGPoker text (cash + tournament) →
-  `HandHistory`; cents as chips when blinds have decimals; header date → `played_at` (ET for
-  Stars, UTC for GG); skips antes/straddles/missed blinds/run-it-twice with a reason.
-  Fixtures in `tests/fixtures/`. `importers/__init__.py::detect_format` is where a new site goes.
-- `web/app.py` also serves `/api/coach?player=` (report cached until more hands) with the replay
-  step of every example, and `/api/coach/narrate`.
+  Leitner boxes in `<file>.<player>.drills.json`; `DrillSession` is the one-sitting state the
+  web Drill tab uses (never repeats a spot in a sitting).
+- `coach/importers/builder.py` — `HandBuilder`, the shared half of every site parser (seat/blind
+  validation, per-street bets, uncalled returns — inferred when the site never prints them,
+  showdown descriptions, rake-adjusted nets, `hero`). `pokerstars.py` (also GGPoker's dialect)
+  and `eight88.py` only recognise lines. `importers/__init__.py::detect_format` routes a file.
+  Fixtures in `tests/fixtures/`; antes/straddles/missed blinds/run-it-twice are skipped with a reason.
+- `history.py` also has `hero` on every hand (importer's "Dealt to" seat, or the lone human seat
+  of a league), `filter_by_date()` and `weeks_of()`.
+- `web/app.py` also serves `/api/coach?player=&since=&until=` (report cached per period until
+  more hands) with the replay step of every example, `/api/coach/narrate`, `/api/hands?ids=`,
+  `/api/drill/next` and `/api/drill/answer`.
 - `cli.py` — `play`, `stats`, `replay`, `serve`, `import`, `coach`, `drill`.
 - `tests/` mirror the modules; `test_engine_betting.py` has a 400-hand random fuzz.
 
@@ -95,29 +103,24 @@ a hand history with each seat's private reasoning attached.
 ## Status / how to continue (as of 2026-09-18)
 Merged: PR #1 (engine, bots, LLM seats, human seats, histories, stats, league, CLI, viewer,
 live tables), PR #2 (poker-coach), PR #3 (Coach tab, PokerStars importer, range narrowing),
-PR #4 (`played_at` + weekly trend, GGPoker import, fast narrowing, `docs/baseline.md`).
-Branch `feat/watch-mode` (PR #5): cinematic watch mode — real-time streaming of hands with a
-pace, seat kinds, avatars, chip stacks, animations, bubbles, thinking indicator. 271 tests.
-The development plan for everything after this lives in the approved plan
-(`~/.claude/plans/try-to-create-a-generic-raven.md`): M2 coach on real hands, M3 antes +
-tournaments, M4 packaging + static demo, M5 LLM league (needs a key), M6 solver (conditional).
-**Not done yet, in this order:**
+PR #4 (`played_at` + weekly trend, GGPoker import, fast narrowing, `docs/baseline.md`),
+PR #5 (cinematic watch mode). Branch `feat/coach-real-hands` (PR #6, milestone 2): hero on every
+hand + `--player` optional, `HandBuilder` + 888poker importer, "against whom", `--margins`,
+Coach tab week picker / street chips / leak → hands, Drill tab. 279 tests.
+The development plan lives in `~/.claude/plans/try-to-create-a-generic-raven.md`; done: M1, M2.
+**Next, in this order:**
 
-1. **Live smoke test of the LLM seat** — no API key on this machine yet. Run
-   `ANTHROPIC_API_KEY=... uv run poker-table play -n 2 --seats llm:nerd,tag --show` and check
-   the request shape (`output_config.format` json_schema + `effort`) is accepted; fix
-   `agents/llm.py::_call` if the API rejects anything. Load the `claude-api` skill before
-   touching that file.
-2. **Per-model comparison**: same personality on opus-5 / sonnet-5 / haiku-4-5, report bb/100
-   vs $/hand; commit the JSONL + leaderboard under `docs/` as the first published result.
-3. **888poker importer** (a genuinely different text format: `** Dealing down cards **`,
-   `[ Ah, Kd ]`, `posts small blind [$0.01]`) — a second parser module + fixture + `detect_format`
-   branch. Antes/straddles would need engine support (`Hand` has none) — skip unless asked.
-4. **Coach tab: date range** — the API could take `since`/`until` like the CLI; a week picker in
-   the tab would make the weekly trend browsable.
-5. Web viewer polish if wanted: seat filter on the chart, hide cards until showdown by default.
-6. **Solver-grade postflop facts** would be the next real step up (an open-source solver or a
-   simplified abstraction) — big; only if the chart/equity facts prove insufficient on real hands.
+1. **M3 — antes and tournaments** (`engine.Hand(..., ante=0)`, `post_ante` event, stats/coach/
+   importers follow — drop the "unsupported post: the ante" skip; tournament mode in `league.py`
+   with a blind schedule, no top-up, bust-outs, finishing positions; `play --tournament`).
+2. **M4 — packaging and a live demo** (`serve --export DIR` static site → GitHub Pages from the
+   seeded baseline; PyPI release workflow on `v*` tags; Dockerfile + compose; architecture SVG).
+3. **M5 — LLM league** (needs `ANTHROPIC_API_KEY`; load the `claude-api` skill first): smoke test
+   `play -n 2 --seats llm:nerd,tag --show`, budget guard, experiment runner, offline decision
+   evals from `drills.spots_from`, opponent memory, parallel tables, results pages.
+4. **M6 — solver-grade postflop facts**, only if real-hand reviews show the chart/equity facts
+   missing what a player would call obvious.
+5. Viewer polish if wanted: seat filter on the chart, hide cards until showdown by default.
 
 ## Gotchas / decisions
 - `uv` lives in `~/.local/bin`, which is not on PATH in non-login shells.
@@ -126,8 +129,11 @@ tournaments, M4 packaging + static demo, M5 LLM league (needs a key), M6 solver 
   possible; a raise smaller than the last full raise does not reopen the action (`Seat.acted`).
 - Scripted bots hold their own `random.Random(seed)`: two `run_league` calls with the *same
   agent objects* diverge — build fresh agents for reproducibility tests.
-- The web viewer is one HTML file with inline CSS/JS on purpose (no build step); the browser
-  caches it aggressively during development — reload with a query string (`/?v=2`).
+- The web viewer is `index.html` + `app.css` + `app.js` with no build step; the browser caches
+  them aggressively during development — reload with a query string (`/?v=2`).
+- A drill spot and a live turn are the same shape (`live_view_payload`) and share the action
+  bar; `drillSpot`/`turn` decide where `sendAction()` posts. `stateAt()` treats `hand.drill`
+  like `hand.streaming` for "who is on the move".
 - `pkill -f "poker-table serve"` kills the shell that runs it too; use `pgrep -f "[s]erve"`.
 - SSE + Starlette `TestClient`: a stream that never ends hangs the test; `LiveSession.sse()`
   returns once the session is finished and its queue is drained, so tests run it after `join()`.
@@ -139,6 +145,8 @@ tournaments, M4 packaging + static demo, M5 LLM league (needs a key), M6 solver 
 - Imported hands: nets are rake-adjusted (they do not sum to zero), `seed=0`, no decision
   traces; `replay()` fills unknown villain cards with filler, so villain showdown results in a
   replay can differ from the real ones — the coach only reads the hero's views.
+- The history was rewritten once (2026-09-18) to re-date commits; local branches were reset to
+  the rewritten refs. If hashes in notes do not match, trust `git log`.
 - Coach thresholds live at the top of `coach/facts.py` (`CALL_MARGIN`, `FOLD_MARGIN`, `STRONG`,
   `BLUFF_SHARE`, `FLOAT_SHARE`)
   and the charts in `coach/ranges.py::CHARTS`; the TAG bot disagrees with the charts in places
