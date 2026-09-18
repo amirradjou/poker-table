@@ -44,7 +44,8 @@ a hand history with each seat's private reasoning attached.
 - `agents/human.py` — terminal seat (`--seats me:human,...`), kind `human`.
 - `web/app.py` + `web/static/index.html` — `poker-table serve FILE`: FastAPI JSON API over a
   JSONL file (`/api/hands`, `/api/hands/{id}` with decision traces joined to action steps,
-  `/api/stats`) and a single-file vanilla-JS replay viewer (paper-on-felt look, Source Sans 3).
+  `/api/stats`, `/api/bankroll`) and a single-file vanilla-JS replay viewer (paper-on-felt look,
+  Source Sans 3; the bankroll chart uses the dataviz reference palette, validated on `#efe9da`).
 - `web/live.py` — `serve --live`: `LiveSession` runs a league on a thread, appends to the JSONL
   and publishes SSE (`/api/events`); `WebHumanAgent` blocks in `act()` until `POST /api/act`;
   `/api/live` returns the pending turn as the viewer's hand shape (own cards only).
@@ -63,8 +64,8 @@ a hand history with each seat's private reasoning attached.
 ## Status / how to continue (as of 2026-09-17)
 Done on branch `feat/engine` (PR #1): engine, evaluator, side pots, scripted bots, LLM seats
 (structured output, personalities, cost accounting, auto-fold gate), table talk, human terminal
-seat, hand histories, stats, league, CLI, browser replay viewer, live sessions with a browser
-human seat. 211 tests green. HQ registered. **Not done yet, in this order:**
+seat, hand histories, stats, league, CLI, browser replay viewer with a bankroll chart, live
+sessions with a browser human seat. 212 tests green. HQ registered. **Not done yet, in this order:**
 
 1. **Live smoke test of the LLM seat** — no API key on this machine yet. Run
    `ANTHROPIC_API_KEY=... uv run poker-table play -n 2 --seats llm:nerd,tag --show` and check
@@ -73,8 +74,8 @@ human seat. 211 tests green. HQ registered. **Not done yet, in this order:**
    touching that file.
 2. **Per-model comparison**: same personality on opus-5 / sonnet-5 / haiku-4-5, report bb/100
    vs $/hand; commit the JSONL + leaderboard under `docs/` as the first published result.
-3. **Web viewer polish** if wanted: bankroll-over-time chart on the leaderboard tab
-   (load the `dataviz` skill first), seat filter, "hide cards until showdown" default.
+3. **Web viewer polish** if wanted: seat filter on the chart, "hide cards until showdown" as the
+   default for replays, per-street stats. Load the `dataviz` skill before touching the chart.
 4. Phase 2 poker-coach: see README.
 
 ## Gotchas / decisions
