@@ -123,6 +123,8 @@ class LiveSession:
     def _on_view(self, view: SeatView) -> None:
         kind = getattr(self.agents[view.seat], "kind", "")
         self.publish({"type": "acting", "hand_id": view.hand_id, "seat": view.seat, "kind": kind})
+        if not kind.startswith("llm:") and kind != "human":
+            self._sleep()  # a bot decides instantly; the pace is where it visibly "thinks"
 
     def _on_decision(self, record: DecisionRecord, hand: Hand) -> None:
         details: dict[str, Any] = {
@@ -135,7 +137,8 @@ class LiveSession:
             details["reasoning"] = record.reasoning
             details["meta"] = dict(record.meta)
         self._flush(hand, details)
-        self._sleep()
+        if hand.finished:
+            self._sleep()  # let the payout land before the next deal
 
     def _flush(
         self, hand: Hand, decision: dict[str, Any] | None = None, *, publish: bool = True
