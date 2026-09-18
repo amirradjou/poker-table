@@ -80,6 +80,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="ask Claude to explain the leaks in plain language (needs ANTHROPIC_API_KEY)",
     )
     coach.add_argument("--model", default=None, help="model for --narrate (default claude-opus-5)")
+    coach.add_argument("--since", help="only hands played on/after this date (YYYY-MM-DD)")
+    coach.add_argument("--until", help="only hands played before this date (YYYY-MM-DD)")
 
     drill = sub.add_parser("drill", help="quiz yourself on the spots the coach flagged")
     drill.add_argument("file", type=Path)
@@ -201,13 +203,33 @@ def cmd_import(args: argparse.Namespace, out) -> int:
     return 0
 
 
+def filter_by_date(histories, since: str | None, until: str | None):
+    """Keep hands played inside [since, until); hands without a date are kept only if unfiltered."""
+    from datetime import UTC, datetime
+
+    if not since and not until:
+        return histories
+    lo = datetime.fromisoformat(since).replace(tzinfo=UTC) if since else None
+    hi = datetime.fromisoformat(until).replace(tzinfo=UTC) if until else None
+    kept = []
+    for h in histories:
+        played = h.played
+        if played is None:
+            continue
+        if (lo is None or played >= lo) and (hi is None or played < hi):
+            kept.append(h)
+    return kept
+
+
 def cmd_coach(args: argparse.Namespace, out) -> int:
     import json
 
     from poker_table.coach.facts import tag_hands
     from poker_table.coach.report import build_report
 
-    histories = list(read_jsonl(args.file))
+    histories = filter_by_date(list(read_jsonl(args.file)), args.since, args.until)
+    if not histories:
+        raise ValueError("no hands in that date range (imported hands need a header date)")
     if not any(p.name == args.player for h in histories for p in h.players):
         names = sorted({p.name for h in histories for p in h.players})
         raise ValueError(f"no seat named {args.player!r} in {args.file}; seats: {', '.join(names)}")

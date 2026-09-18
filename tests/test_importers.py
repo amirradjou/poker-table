@@ -48,6 +48,8 @@ def test_cash_hands_import_with_cents_as_chips() -> None:
     assert first.players[1].net == 435 - 220  # rake makes it less than the others' losses
     assert sum(p.net for p in first.players) == -20  # the rake
     assert [e.kind for e in first.events][-1] == "hand_end"
+    assert first.played_at == "2026-09-11T00:11:22+00:00"  # 20:11:22 ET (EDT) in UTC
+    assert result.hands[1].played is not None
 
 
 def test_showdown_side_pot_and_mucked_cards() -> None:
