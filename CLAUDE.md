@@ -29,7 +29,11 @@ a hand history with each seat's private reasoning attached.
 - `agents/base.py` — `SeatView` (what a seat may know), `Decision`, `Agent` protocol, `make_view`.
 - `agents/scripted.py` — RandomAgent, CallingStation, TightAggressive (rock via knobs), Maniac.
 - `agents/strength.py` — Chen score, made-hand class, draws (shared by bots and stats).
-- `agents/registry.py` — `make_agents(["tag", "alice:maniac"])` for the CLI.
+- `agents/llm.py` — `LLMAgent`: one `messages.create` per decision, JSON-schema structured
+  output, cached personality system prompt, usage/cost in `Decision.meta`, Chen-score auto-fold
+  gate, API errors → check/fold. Client is injectable (tests use a fake; never call the API in CI).
+- `agents/personalities.py` — maniac / rock / nerd / storyteller prompts + effort + gate knobs.
+- `agents/registry.py` — `make_agents(["tag", "alice:maniac", "llm:nerd", "b:llm:rock@model"])`.
 - `table.py` — `play_hand()`: asks agents, sanitizes slips, records illegal decisions + reasoning.
 - `history.py` — `HandHistory` (JSON/JSONL, `render(reasoning=True)`).
 - `stats.py` — VPIP/PFR/3-bet/F3B/AF/WTSD/W$SD/bluff/illegal/bb-100 + `format_table`.
@@ -47,27 +51,22 @@ a hand history with each seat's private reasoning attached.
 - Add behaviour to `Hand` with a test first (stacked deck + explicit actions), then wire agents.
 
 ## Status / how to continue (as of 2026-09-17)
-Done on branch `feat/engine` (PR open): engine, evaluator, side pots, scripted bots, hand
-histories, stats, league, CLI. 186 tests green. **Not done yet, in this order:**
+Done on branch `feat/engine` (PR #1): engine, evaluator, side pots, scripted bots, LLM seats
+(structured output, personalities, cost accounting, auto-fold gate), table talk, hand
+histories, stats, league, CLI. 195 tests green. **Not done yet, in this order:**
 
-1. **LLM seats** (`agents/llm.py`): load the `claude-api` skill first. Use the Anthropic SDK with
-   a single forced tool `act` whose input schema is
-   `{action: fold|check|call|bet|raise, amount?: int, table_talk?: str, reasoning: str}`; prompt
-   body = `view.describe()`; system prompt = personality. Register kinds like `llm:maniac`,
-   `llm:rock`, `llm:nerd`, `llm:storyteller` in `agents/registry.py` (needs `ANTHROPIC_API_KEY`,
-   fail with a clear error otherwise). Record model, input/output tokens and cost per decision
-   in `DecisionRecord` (add fields) so `stats.py` can show cost per hand. Keep `table.py`'s
-   sanitizer as the only place illegal actions are handled. Add a "cheap where it doesn't
-   matter" gate: fold-to-a-raise-with-junk preflop via `chen_score` without a model call.
-   Mock the client in tests; never call the API in CI.
-2. **Table talk visibility**: `DecisionRecord.table_talk` is recorded but not shown to other
-   seats yet — add a `talk` list to `SeatView` built from previous decisions in the hand.
-3. **Tune TightAggressive**: VPIP is ~8% 5-handed (too tight); loosen `_open_threshold` /
-   "call a raise" rule and re-check `tests/test_scripted.py`.
-4. **Web UI / human seat** (later): FastAPI + websocket, a `HumanAgent` that awaits input.
-5. **Register in HQ**: add `poker-table` to `~/Projects/hq/projects.yaml` (track `hobby`,
+1. **Live smoke test of the LLM seat** — no API key on this machine yet. Run
+   `ANTHROPIC_API_KEY=... uv run poker-table play -n 2 --seats llm:nerd,tag --show` and check
+   the request shape (`output_config.format` json_schema + `effort`) is accepted; fix
+   `agents/llm.py::_call` if the API rejects anything. Load the `claude-api` skill before
+   touching that file.
+2. **Human seat in the terminal** (`agents/human.py`): prompts on stdin with `view.describe()`,
+   parses `f/c/k/b 12/r 12`; register as kind `human`. Then a `poker-table sit` command.
+3. **Web UI** (later): FastAPI + websocket streaming `SeatView`s and hand histories; humans sit
+   through the browser; replay viewer.
+4. **Register in HQ**: add `poker-table` to `~/Projects/hq/projects.yaml` (track `hobby`,
    local `~/Projects/Fun/poker-table`) and write `roadmaps/poker-table.md`.
-6. Phase 2 poker-coach: see README.
+5. Phase 2 poker-coach: see README.
 
 ## Gotchas / decisions
 - `uv` lives in `~/.local/bin`, which is not on PATH in non-login shells.
