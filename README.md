@@ -7,9 +7,12 @@ your recurring leaks.
 
 ## Status
 
-Engine, evaluator, side pots, scripted bots, LLM seats with personalities, table talk, hand
-histories, stats, league and CLI are in (Python 3.12, `uv`). A human seat and the web UI are
-next — see `CLAUDE.md`.
+Engine, evaluator, side pots, scripted bots, LLM seats with personalities, table talk, a human
+seat, hand histories, stats, league, CLI and a browser replay viewer are in (Python 3.12,
+`uv`). Live tables in the browser are next — see `CLAUDE.md`.
+
+![Replay viewer: a table diagram with each seat's cards, the board, and the action log with
+private reasoning](docs/viewer.png)
 
 ```sh
 uv sync
@@ -17,6 +20,8 @@ uv sync
 uv run poker-table play -n 500 --seats tag,rock,maniac,station,random -o hands.jsonl
 uv run poker-table replay hands.jsonl --hand 7 -r     # one hand with every seat's reasoning
 uv run poker-table stats hands.jsonl                  # VPIP, PFR, 3-bet, AF, WTSD, W$SD, bluff %
+uv run poker-table serve hands.jsonl --open           # replay viewer + leaderboard in the browser
+uv run poker-table play -n 20 --seats me:human,tag,maniac   # pull up a chair (terminal)
 
 # LLM seats (needs ANTHROPIC_API_KEY): kind is llm:<personality>[@model]
 uv run poker-table play -n 20 --seats llm:nerd,llm:maniac,tag,station --show -o llm.jsonl
