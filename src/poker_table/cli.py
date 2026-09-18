@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from poker_table import __version__
+from poker_table.agents.human import HumanAgent
 from poker_table.agents.registry import available_kinds, make_agents
 from poker_table.history import HandHistory, read_jsonl, write_jsonl
 from poker_table.league import LeagueConfig, run_league
@@ -26,6 +27,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     play = sub.add_parser("play", help="play a session between agents and print the leaderboard")
     play.add_argument("-n", "--hands", type=int, default=100, help="hands to play (default 100)")
+    play.description = (
+        "Play a session. Seat yourself with the kind 'human' (e.g. --seats you:human,tag,maniac):"
+        " each of your turns prints the table and reads a command (? for help)."
+    )
     play.add_argument(
         "-s",
         "--seats",
@@ -81,11 +86,13 @@ def cmd_play(args: argparse.Namespace, out) -> int:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.touch()
 
+    human_seated = any(isinstance(a, HumanAgent) for a in agents)
+
     def on_hand(history: HandHistory) -> None:
         if args.out is not None:
             write_jsonl(args.out, [history], append=True)
-        if args.show:
-            print(history.render(reasoning=True), file=out)
+        if args.show or human_seated:
+            print(history.render(reasoning=args.show), file=out)
             print(file=out)
         elif not args.quiet and int(history.hand_id) % 100 == 0:
             print(f"... {history.hand_id} hands", file=out)
