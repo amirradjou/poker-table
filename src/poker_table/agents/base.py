@@ -60,6 +60,7 @@ class SeatView:
     stack: int
     street_bet: int
     current_bet: int
+    small_blind: int
     big_blind: int
     button: int
     legal: LegalActions
@@ -191,6 +192,7 @@ def make_view(hand: Hand, seat_index: int, *, talk: tuple[tuple[str, str], ...] 
         stack=seat.stack,
         street_bet=seat.street_bet,
         current_bet=hand.current_bet,
+        small_blind=hand.small_blind,
         big_blind=hand.big_blind,
         button=hand.button,
         legal=hand.legal_actions() if hand.actor is seat else _no_actions(hand),

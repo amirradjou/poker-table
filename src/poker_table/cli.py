@@ -66,6 +66,16 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument("--open", action="store_true", help="open the browser")
+    serve.add_argument(
+        "--live",
+        action="store_true",
+        help="also play a session in the background and stream it to the page",
+    )
+    serve.add_argument("-n", "--hands", type=int, default=100, help="hands to play with --live")
+    serve.add_argument("-s", "--seats", default=DEFAULT_SEATS, help="seats for --live ('human' ok)")
+    serve.add_argument("--seed", type=int, default=0)
+    serve.add_argument("--blinds", default="1/2")
+    serve.add_argument("--stack", type=int, default=200)
     return parser
 
 
@@ -143,9 +153,30 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
 
     from poker_table.web.app import create_app
 
-    app = create_app(args.file)
+    live = None
+    if args.live:
+        from poker_table.league import LeagueConfig
+        from poker_table.web.live import LiveSession, WebHumanAgent
+
+        small, big = parse_blinds(args.blinds)
+        specs = [s for s in args.seats.split(",") if s.strip()]
+        agents = [
+            WebHumanAgent(a.name) if isinstance(a, HumanAgent) else a
+            for a in make_agents(specs, seed=args.seed)
+        ]
+        config = LeagueConfig(
+            hands=args.hands, small_blind=small, big_blind=big, buy_in=args.stack, seed=args.seed
+        )
+        args.file.parent.mkdir(parents=True, exist_ok=True)
+        args.file.touch()
+        live = LiveSession(agents, config, args.file)
+    app = create_app(args.file, live)
     url = f"http://{args.host}:{args.port}/"
     print(f"poker-table viewer on {url} (Ctrl-C to stop)", file=out)
+    if live is not None:
+        seats = ", ".join(a.name for a in live.agents)
+        print(f"live: {args.hands} hands between {seats}, appending to {args.file}", file=out)
+        live.start()
     if args.open:
         import webbrowser
 
