@@ -29,3 +29,7 @@ htmlcov/
 !.vscode/extensions.json
 .DS_Store
 *.swp
+
+# Claude Code project files: local only, never committed
+.claude/
+CLAUDE.md
