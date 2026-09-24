@@ -10,12 +10,13 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from poker_table.coach.drills import DrillLog, DrillSession, spots_from
 from poker_table.coach.facts import Fact, tag_hands
 from poker_table.coach.report import Report, build_report
-from poker_table.engine import EventKind
-from poker_table.history import HandHistory, read_jsonl
+from poker_table.engine import ActionType, EventKind
+from poker_table.history import HandHistory, filter_by_date, parse_action, read_jsonl, weeks_of
 from poker_table.stats import compute_stats, leaderboard
-from poker_table.web.live import MAX_PACE, LiveSession
+from poker_table.web.live import MAX_PACE, LiveSession, live_view_payload
 
 STATIC = Path(__file__).parent / "static"
 
@@ -27,7 +28,8 @@ class HandStore:
         self.path = path
         self.hands: list[HandHistory] = []
         self.by_id: dict[str, HandHistory] = {}
-        self._reports: dict[tuple[str, int, int], Report] = {}
+        self._reports: dict[tuple[str, int, int, str, str], Report] = {}
+        self._drills: dict[tuple[str, int], DrillSession] = {}
         self.reload()
 
     def reload(self) -> int:
@@ -42,13 +44,24 @@ class HandStore:
                 seen.setdefault(p.name, None)
         return list(seen)
 
-    def report(self, player: str, samples: int) -> Report:
-        """The coach report for ``player``, cached until more hands arrive."""
-        key = (player, len(self.hands), samples)
+    def report(self, player: str, samples: int, since: str = "", until: str = "") -> Report:
+        """The coach report for ``player`` (optionally one period), cached until hands arrive."""
+        key = (player, len(self.hands), samples, since, until)
         if key not in self._reports:
-            facts = tag_hands(self.hands, player, samples=samples)
-            self._reports[key] = build_report(self.hands, player, facts)
+            hands = filter_by_date(self.hands, since or None, until or None)
+            facts = tag_hands(hands, player, samples=samples)
+            self._reports[key] = build_report(hands, player, facts)
         return self._reports[key]
+
+    def drill(self, player: str, samples: int = 200) -> DrillSession:
+        """The drill sitting for ``player``; spots come from the (cached) full report."""
+        key = (player, len(self.hands))
+        if key not in self._drills:
+            report = self.report(player, samples)
+            spots = spots_from(self.hands, report.facts)
+            log = DrillLog.load(self.path.with_suffix(f".{player}.drills.json"))
+            self._drills[key] = DrillSession(spots, log)
+        return self._drills[key]
 
     def step_of(self, fact: Fact) -> int:
         """Index of the fact's decision among the hand's viewer steps (state just before it)."""
@@ -125,6 +138,12 @@ class PaceRequest(BaseModel):
     pace: float
 
 
+class DrillAnswer(BaseModel):
+    player: str
+    key: str
+    action: str  # "fold", "check", "call", "bet 12", "raise 30"
+
+
 def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
     store = HandStore(Path(path))
     app = FastAPI(title="poker-table", docs_url=None, redoc_url=None)
@@ -138,10 +157,20 @@ def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
     @app.get("/api/session")
     def session() -> dict[str, Any]:
         store.reload()
-        return {"file": store.path.name, "hands": len(store.hands), "players": store.players()}
+        heroes = {h.hero for h in store.hands if h.hero}
+        return {
+            "file": store.path.name,
+            "hands": len(store.hands),
+            "players": store.players(),
+            "hero": heroes.pop() if len(heroes) == 1 else None,
+            "weeks": weeks_of(store.hands),
+        }
 
     @app.get("/api/hands")
-    def hands(offset: int = 0, limit: int = 100) -> dict[str, Any]:
+    def hands(offset: int = 0, limit: int = 100, ids: str = "") -> dict[str, Any]:
+        if ids:  # a chosen subset, e.g. the example hands of one leak, in the order given
+            chosen = [store.by_id[i] for i in ids.split(",") if i in store.by_id]
+            return {"total": len(chosen), "hands": [summarize(h) for h in chosen]}
         newest_first = list(reversed(store.hands))
         page = newest_first[offset : offset + limit]
         return {"total": len(store.hands), "hands": [summarize(h) for h in page]}
@@ -190,12 +219,16 @@ def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
         return {"ok": True, "action": str(action)}
 
     @app.get("/api/coach")
-    def coach(player: str, samples: int = 200) -> dict[str, Any]:
+    def coach(player: str, samples: int = 200, since: str = "", until: str = "") -> dict[str, Any]:
         if player not in store.players():
             raise HTTPException(404, f"no seat named {player!r}")
-        report = store.report(player, max(20, min(samples, 2000)))
+        try:
+            report = store.report(player, max(20, min(samples, 2000)), since, until)
+        except ValueError as exc:  # a malformed date
+            raise HTTPException(400, str(exc)) from None
         data = report.to_dict()
         data.pop("facts")
+        data["since"], data["until"] = since, until
         for leak, source in zip(data["leaks"], report.leaks, strict=True):
             for example, fact in zip(leak["examples"], source.examples, strict=True):
                 example["step"] = store.step_of(fact)
@@ -229,6 +262,38 @@ def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
             "model": narration.model,
             "cost_usd": round(narration.cost_usd, 4),
         }
+
+    @app.get("/api/drill/next")
+    def drill_next(player: str, restart: bool = False) -> dict[str, Any]:
+        if player not in store.players():
+            raise HTTPException(404, f"no seat named {player!r}")
+        session = store.drill(player)
+        if restart:
+            session.restart()
+        spot = session.next()
+        out: dict[str, Any] = {"progress": session.progress(), "spot": None}
+        if spot is not None:
+            out["spot"] = live_view_payload(spot.view) | {
+                "key": spot.key,
+                "tag": spot.fact.tag,
+                "hand_id": spot.fact.hand_id,
+            }
+        return out
+
+    @app.post("/api/drill/answer")
+    def drill_answer(body: DrillAnswer) -> dict[str, Any]:
+        if body.player not in store.players():
+            raise HTTPException(404, f"no seat named {body.player!r}")
+        session = store.drill(body.player)
+        try:
+            action = parse_action(body.action)
+        except ValueError as exc:
+            raise HTTPException(400, f"bad action: {exc}") from None
+        try:
+            verdict = session.answer(body.key, ActionType(action.type))
+        except LookupError as exc:
+            raise HTTPException(409, str(exc)) from None
+        return verdict | {"progress": session.progress()}
 
     @app.get("/api/bankroll")
     def bankroll() -> dict[str, Any]:

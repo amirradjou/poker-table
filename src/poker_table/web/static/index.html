@@ -19,6 +19,7 @@
     <button id="tab-hands" aria-pressed="true">Hands</button>
     <button id="tab-board" aria-pressed="false">Leaderboard</button>
     <button id="tab-coach" aria-pressed="false">Coach</button>
+    <button id="tab-drill" aria-pressed="false">Drill</button>
   </nav>
 </header>
 
@@ -26,6 +27,19 @@
   <aside id="list">
     <ol id="hand-list"></ol>
     <button class="more hidden" id="more">Show older hands</button>
+  </aside>
+
+  <aside id="drill-side" class="drill-side hidden">
+    <h2>Drill the spots the coach flagged</h2>
+    <div class="seat-picker" id="drill-picker"></div>
+    <div class="progress" id="drill-progress"></div>
+    <div class="verdict hidden" id="drill-verdict"></div>
+    <div class="drill-actions">
+      <button type="button" class="primary" id="drill-next">Next spot</button>
+      <button type="button" id="drill-restart" title="Ask the spots answered this sitting again">Start again</button>
+    </div>
+    <p class="hint">Same commands as at the table: fold, check or call, bet or raise to an amount.
+      Wrong answers come back first; right ones return in 1, 3, 7, 14, 30 days.</p>
   </aside>
 
   <section class="hand" id="hand-view">
@@ -73,6 +87,7 @@
   <section class="coach-view hidden" id="coach-view">
     <h2>Recurring leaks, by the charts and the math</h2>
     <div class="seat-picker" id="seat-picker"></div>
+    <div class="seat-picker week-picker hidden" id="week-picker"></div>
     <div class="coach" id="coach"><span class="empty-note">Pick a seat.</span></div>
   </section>
 

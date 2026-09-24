@@ -10,7 +10,7 @@ from pathlib import Path
 from poker_table import __version__
 from poker_table.agents.human import HumanAgent
 from poker_table.agents.registry import available_kinds, make_agents
-from poker_table.history import HandHistory, read_jsonl, write_jsonl
+from poker_table.history import HandHistory, filter_by_date, read_jsonl, write_jsonl
 from poker_table.league import LeagueConfig, run_league
 from poker_table.stats import compute_stats, format_table
 
@@ -62,7 +62,8 @@ def build_parser() -> argparse.ArgumentParser:
     replay.add_argument("-r", "--reasoning", action="store_true", help="include private reasoning")
 
     imp = sub.add_parser(
-        "import", help="convert site hand-history exports (PokerStars text) to JSONL"
+        "import",
+        help="convert site hand-history exports (PokerStars, GGPoker, 888poker text) to JSONL",
     )
     imp.add_argument("files", type=Path, nargs="+", help="text files exported by the site")
     imp.add_argument("-o", "--out", type=Path, required=True, help="JSONL file to write")
@@ -70,7 +71,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     coach = sub.add_parser("coach", help="find one player's recurring leaks in a JSONL file")
     coach.add_argument("file", type=Path)
-    coach.add_argument("-p", "--player", required=True, help="seat name to coach")
+    coach.add_argument(
+        "-p", "--player", help="seat name to coach (default: the hero of imported hands)"
+    )
     coach.add_argument("--samples", type=int, default=300, help="equity samples per decision")
     coach.add_argument("--top", type=int, default=5, help="leaks to show")
     coach.add_argument("--json", type=Path, help="also write the full report (with facts) here")
@@ -82,10 +85,20 @@ def build_parser() -> argparse.ArgumentParser:
     coach.add_argument("--model", default=None, help="model for --narrate (default claude-opus-5)")
     coach.add_argument("--since", help="only hands played on/after this date (YYYY-MM-DD)")
     coach.add_argument("--until", help="only hands played before this date (YYYY-MM-DD)")
+    coach.add_argument(
+        "--margins",
+        default="",
+        help=(
+            "postflop thresholds, e.g. call=0.05,fold=0.1,strong=0.85,bluff_share=0.3 "
+            "(defaults: call 0.03, fold 0.05, strong 0.8, bluff_share 0.25, float_share 0.15)"
+        ),
+    )
 
     drill = sub.add_parser("drill", help="quiz yourself on the spots the coach flagged")
     drill.add_argument("file", type=Path)
-    drill.add_argument("-p", "--player", required=True, help="seat name to drill")
+    drill.add_argument(
+        "-p", "--player", help="seat name to drill (default: the hero of imported hands)"
+    )
     drill.add_argument("-n", "--count", type=int, default=10, help="spots per session")
     drill.add_argument("--samples", type=int, default=300, help="equity samples per decision")
 
@@ -209,38 +222,38 @@ def cmd_import(args: argparse.Namespace, out) -> int:
     return 0
 
 
-def filter_by_date(histories, since: str | None, until: str | None):
-    """Keep hands played inside [since, until); hands without a date are kept only if unfiltered."""
-    from datetime import UTC, datetime
-
-    if not since and not until:
-        return histories
-    lo = datetime.fromisoformat(since).replace(tzinfo=UTC) if since else None
-    hi = datetime.fromisoformat(until).replace(tzinfo=UTC) if until else None
-    kept = []
-    for h in histories:
-        played = h.played
-        if played is None:
-            continue
-        if (lo is None or played >= lo) and (hi is None or played < hi):
-            kept.append(h)
-    return kept
+def resolve_player(histories, player: str | None, path: Path) -> str:
+    """The seat to coach: the one asked for, else the hero every imported hand agrees on."""
+    names = sorted({p.name for h in histories for p in h.players})
+    if player is not None:
+        if player not in names:
+            raise ValueError(f"no seat named {player!r} in {path}; seats: {', '.join(names)}")
+        return player
+    heroes = {h.hero for h in histories if h.hero}
+    if len(heroes) == 1:
+        return heroes.pop()
+    if not heroes:
+        raise ValueError(
+            f"these hands have no hero; pick one with --player (seats: {', '.join(names)})"
+        )
+    raise ValueError(
+        f"several heroes in {path} ({', '.join(sorted(heroes))}); pick one with --player"
+    )
 
 
 def cmd_coach(args: argparse.Namespace, out) -> int:
     import json
 
-    from poker_table.coach.facts import tag_hands
+    from poker_table.coach.facts import Margins, tag_hands
     from poker_table.coach.report import build_report
 
     histories = filter_by_date(list(read_jsonl(args.file)), args.since, args.until)
     if not histories:
         raise ValueError("no hands in that date range (imported hands need a header date)")
-    if not any(p.name == args.player for h in histories for p in h.players):
-        names = sorted({p.name for h in histories for p in h.players})
-        raise ValueError(f"no seat named {args.player!r} in {args.file}; seats: {', '.join(names)}")
-    facts = tag_hands(histories, args.player, samples=args.samples)
-    report = build_report(histories, args.player, facts)
+    player = resolve_player(histories, args.player, args.file)
+    margins = Margins.parse(args.margins)
+    facts = tag_hands(histories, player, samples=args.samples, margins=margins)
+    report = build_report(histories, player, facts)
     print(report.render(top=args.top), file=out)
     if args.narrate:
         from poker_table.agents.llm import DEFAULT_MODEL
@@ -262,9 +275,10 @@ def cmd_drill(args: argparse.Namespace, out) -> int:
     from poker_table.coach.facts import tag_hands
 
     histories = list(read_jsonl(args.file))
-    facts = tag_hands(histories, args.player, samples=args.samples)
+    player = resolve_player(histories, args.player, args.file)
+    facts = tag_hands(histories, player, samples=args.samples)
     spots = spots_from(histories, facts)
-    log = DrillLog.load(args.file.with_suffix(f".{args.player}.drills.json"))
+    log = DrillLog.load(args.file.with_suffix(f".{player}.drills.json"))
     run_drill(spots, log, count=args.count, output_fn=lambda s: print(s, file=out))
     return 0
 

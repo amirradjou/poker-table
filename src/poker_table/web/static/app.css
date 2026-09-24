@@ -252,8 +252,34 @@ section.coach-view h2 { color: var(--white); font-weight: 400; font-size: 18px; 
 .coach ol.leaks > li > h3 { margin: 0 0 4px; font-size: 17px; }
 .coach ol.leaks > li > h3::before { content: counter(leak) ". "; color: var(--ink-soft); }
 .coach .rate { color: var(--ink-soft); font-weight: 400; }
+.coach .leak-link { font-size: 13px; padding: 1px 8px; margin-left: 6px; vertical-align: middle; }
 .coach .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
 .coach .chips span { background: var(--paper-2); border-radius: 12px; padding: 1px 10px; font-size: 14px; }
+.coach .chips span.street-chip { background: transparent; border: 1px solid #d3cab2; }
+.week-picker button { font-size: 14px; padding: 3px 10px; }
+
+/* drill side panel */
+.drill-side { background: var(--paper-2); border-right: 3px solid var(--rail); padding: 14px; }
+.drill-side h2 { font-size: 16px; font-weight: 700; margin: 0 0 10px; }
+.drill-side .seat-picker { margin-bottom: 10px; }
+.drill-side .seat-picker button { font-size: 14px; padding: 3px 10px; }
+.drill-side .progress { font-size: 14px; color: var(--ink-soft); margin-bottom: 10px; }
+.drill-side .progress strong { color: var(--ink); }
+.drill-side .boxes { display: flex; gap: 3px; margin-top: 6px; height: 10px; }
+.drill-side .boxes span { flex: 1; background: #d3cab2; border-radius: 3px; position: relative; }
+.drill-side .boxes span i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--felt); }
+.drill-side .boxes-legend { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-soft); }
+.drill-side .verdict { background: var(--paper); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; border-left: 4px solid var(--gold); }
+.drill-side .verdict.right { border-left-color: var(--felt); }
+.drill-side .verdict.wrong { border-left-color: var(--red); }
+.drill-side .verdict b { display: block; margin-bottom: 4px; }
+.drill-side .verdict .table-said { color: var(--ink-soft); font-size: 14px; margin-top: 4px; }
+.drill-side .drill-actions { display: flex; gap: 8px; }
+.drill-side button.primary { background: var(--felt); color: var(--white); border-color: var(--felt); }
+.drill-side .hint { font-size: 13px; color: var(--ink-soft); margin: 12px 0 0; }
+.drill-side .done { background: var(--paper); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+aside li.subset { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 14px; background: var(--paper); border-bottom: 1px solid #d3cab2; font-size: 14px; }
+aside li.subset button { padding: 2px 8px; font-size: 13px; }
 .coach ul.examples { margin: 0; padding-left: 0; list-style: none; }
 .coach ul.examples li { padding: 3px 0; }
 .coach ul.examples a { color: var(--felt); font-weight: 700; text-decoration: none; margin-right: 6px; }

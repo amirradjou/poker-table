@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Iterator
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -73,6 +73,7 @@ class HandHistory:
     showdown: dict[int, str]
     version: int = FORMAT_VERSION
     played_at: str = ""  # ISO 8601 UTC; empty when unknown (older files)
+    hero: str = ""  # whose hand this is: the imported file's hero, or the one human seat
 
     @property
     def played(self) -> datetime | None:
@@ -87,6 +88,7 @@ class HandHistory:
             raise ValueError("hand is not finished")
         stamp = (played_at or datetime.now(UTC)).astimezone(UTC).isoformat(timespec="seconds")
         net = hand.net()
+        humans = [s.name for s in hand.seats if s.kind == "human"]
         players = [
             PlayerRecord(
                 seat=s.index,
@@ -126,6 +128,7 @@ class HandHistory:
             payouts=dict(hand.payouts),
             showdown={i: r.describe() for i, r in hand.showdown_ranks.items()},
             played_at=stamp,
+            hero=humans[0] if len(humans) == 1 else "",
         )
 
     # -- (de)serialisation --
@@ -156,6 +159,7 @@ class HandHistory:
             showdown={int(k): v for k, v in data["showdown"].items()},
             version=data.get("version", FORMAT_VERSION),
             played_at=data.get("played_at", ""),
+            hero=data.get("hero", ""),
         )
 
     @classmethod
@@ -263,6 +267,48 @@ def hole_cards(history: HandHistory, seat: int) -> tuple[Card, Card]:
 
 def board_cards(history: HandHistory) -> list[Card]:
     return [Card.parse(c) for c in history.board]
+
+
+def filter_by_date(
+    histories: Iterable[HandHistory], since: str | None, until: str | None
+) -> list[HandHistory]:
+    """Hands played inside [since, until) (ISO dates); undated hands pass only when unfiltered."""
+    histories = list(histories)
+    if not since and not until:
+        return histories
+    lo = datetime.fromisoformat(since).replace(tzinfo=UTC) if since else None
+    hi = datetime.fromisoformat(until).replace(tzinfo=UTC) if until else None
+    kept = []
+    for h in histories:
+        played = h.played
+        if played is None:
+            continue
+        if (lo is None or played >= lo) and (hi is None or played < hi):
+            kept.append(h)
+    return kept
+
+
+def weeks_of(histories: Iterable[HandHistory]) -> list[dict[str, str]]:
+    """The ISO weeks the hands fall in: label plus the since/until dates that select each."""
+    seen: dict[tuple[int, int], int] = {}
+    for h in histories:
+        played = h.played
+        if played is None:
+            continue
+        year, week, _ = played.isocalendar()
+        seen[(year, week)] = seen.get((year, week), 0) + 1
+    out = []
+    for (year, week), count in sorted(seen.items()):
+        monday = datetime.fromisocalendar(year, week, 1).date()
+        out.append(
+            {
+                "label": f"{year}-W{week:02d}",
+                "since": monday.isoformat(),
+                "until": (monday + timedelta(days=7)).isoformat(),
+                "hands": str(count),
+            }
+        )
+    return out
 
 
 def write_jsonl(path: Path | str, histories: Iterable[HandHistory], *, append: bool = False) -> int:

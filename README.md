@@ -9,8 +9,10 @@ your recurring leaks.
 
 Engine, evaluator, side pots, scripted bots, LLM seats with personalities, table talk, a human
 seat, hand histories, stats, league, CLI and a browser replay viewer are in (Python 3.12,
-`uv`), including live tables in the browser. Phase 2 (poker-coach) has its math layer, leak
-reports, Claude narration and drills. See `CLAUDE.md` for what is next.
+`uv`), including live tables you can watch or sit at in the browser. Phase 2 (poker-coach)
+imports PokerStars, GGPoker and 888poker histories and finds your recurring leaks, who you
+leak against, how it trends week by week, with Claude's notes and spaced-repetition drills.
+See `CLAUDE.md` for what is next.
 
 ![Watch mode: bots playing a hand live, with avatars, chip stacks, a thinking indicator and
 table talk](docs/watch.gif)
@@ -37,6 +39,12 @@ uv run poker-table play -n 20 --seats me:human,tag,maniac   # pull up a chair (t
 # watch bots play live in the browser (--pace = seconds per decision), or sit down yourself
 uv run poker-table serve live.jsonl --live -n 200 --seats tag,maniac,llm:nerd --pace 0.8 --open
 uv run poker-table serve live.jsonl --live -n 20 --seats me:human,tag,maniac --open
+
+# poker-coach on your own hands: import a site's text export (PokerStars, GGPoker, 888poker)
+uv run poker-table import ~/Downloads/HH*.txt -o real.jsonl
+uv run poker-table coach real.jsonl --since 2026-09-01      # leaks, trend, who you leak against
+uv run poker-table drill real.jsonl -n 10                   # quiz the flagged spots (spaced repetition)
+uv run poker-table serve real.jsonl --open                  # Coach tab: leaks link to the replays
 
 # LLM seats (needs ANTHROPIC_API_KEY): kind is llm:<personality>[@model]
 uv run poker-table play -n 20 --seats llm:nerd,llm:maniac,tag,station --show -o llm.jsonl

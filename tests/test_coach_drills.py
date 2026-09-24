@@ -2,6 +2,8 @@ import io
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from poker_table.agents import CallingStation, Maniac, TightAggressive
 from poker_table.cli import main
 from poker_table.coach.drills import DrillLog, accepted_actions, run_drill, spots_from
@@ -82,6 +84,81 @@ def test_run_drill_with_nothing_due_and_eof(tmp_path: Path) -> None:
         spots, DrillLog.load(tmp_path / "e.json"), input_fn=closed, output_fn=shown.append
     )
     assert result.asked == 0 and (tmp_path / "e.json").exists()
+
+
+def test_drill_session_hands_out_spots_once_per_sitting(tmp_path: Path) -> None:
+    from poker_table.coach.drills import DrillSession
+
+    _, _, spots = maniac_spots()
+    log = DrillLog.load(tmp_path / "d.json")
+    session = DrillSession(spots, log, today=date(2026, 9, 18))
+    first = session.next()
+    assert first is not None and session.current is first
+    verdict = session.answer(first.key, ActionType.FOLD)
+    assert verdict["correct"] == (ActionType.FOLD in first.accepted)
+    assert verdict["accepted"] == sorted(a.value for a in first.accepted)
+    assert verdict["at_the_table"] == first.fact.action and verdict["score"]["asked"] == 1
+    assert (tmp_path / "d.json").exists()
+    second = session.next()
+    assert second is not None and second.key != first.key  # not the same spot again, even if wrong
+    with pytest.raises(LookupError, match="already answered"):
+        session.answer(first.key, ActionType.FOLD)
+    with pytest.raises(LookupError, match="unknown spot"):
+        session.answer("nope", ActionType.FOLD)
+    p = session.progress()
+    still_due = 0 if verdict["correct"] else 1  # a wrong answer is due again today
+    assert p["spots"] == len(spots) and p["asked"] == 1
+    assert p["remaining"] == p["due"] - still_due
+    assert sum(p["boxes"]) == len(spots)
+    session.restart()
+    assert session.progress()["asked"] == 0 and session.next() is not None
+
+
+def test_drill_api(tmp_path: Path) -> None:
+    import io
+
+    from fastapi.testclient import TestClient
+
+    from poker_table.web.app import create_app
+
+    out = tmp_path / "h.jsonl"
+    assert (
+        main(
+            ["play", "-n", "30", "--seats", "tag,station,maniac", "-o", str(out), "-q"],
+            out=io.StringIO(),
+        )
+        == 0
+    )
+    client = TestClient(create_app(out))
+    first = client.get("/api/drill/next?player=maniac").json()
+    assert first["spot"] is not None and first["progress"]["remaining"] >= 1
+    spot = first["spot"]
+    assert {"key", "tag", "legal", "players", "steps", "seat"} <= set(spot)
+    assert spot["players"][spot["seat"]]["hole"][0] is not None
+    assert all(
+        p["hole"] == [None, None] for i, p in enumerate(spot["players"]) if i != spot["seat"]
+    )
+    assert "accepted" not in spot  # the answer is not in the question
+    verdict = client.post(
+        "/api/drill/answer", json={"player": "maniac", "key": spot["key"], "action": "fold"}
+    ).json()
+    assert {"correct", "accepted", "detail", "box", "due", "score", "progress"} <= set(verdict)
+    assert (tmp_path / "h.maniac.drills.json").exists()
+    again = client.post(
+        "/api/drill/answer", json={"player": "maniac", "key": spot["key"], "action": "fold"}
+    )
+    assert again.status_code == 409
+    assert (
+        client.post(
+            "/api/drill/answer", json={"player": "maniac", "key": spot["key"], "action": "shove"}
+        ).status_code
+        == 400
+    )
+    assert client.get("/api/drill/next?player=nobody").status_code == 404
+    second = client.get("/api/drill/next?player=maniac").json()
+    assert second["spot"] is None or second["spot"]["key"] != spot["key"]
+    fresh = client.get("/api/drill/next?player=maniac&restart=1").json()
+    assert fresh["progress"]["asked"] == 0
 
 
 def test_cli_drill(tmp_path: Path, monkeypatch) -> None:

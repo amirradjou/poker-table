@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from poker_table.agents import CallingStation, Maniac, RandomAgent, TightAggressive
 from poker_table.cli import main
 from poker_table.coach.facts import tag_hands
@@ -105,6 +107,42 @@ def test_weekly_trend_when_hands_span_weeks() -> None:
     undated = [replace(h, played_at="") for h in stamped]
     plain = build_report(undated, "maniac", tag_hands(undated, "maniac", samples=30))
     assert plain.trend and all("first half" in t for t in plain.trend)
+
+
+def test_report_names_the_villains_you_leak_against() -> None:
+    histories = session(80)
+    report = build_report(histories, "station", tag_hands(histories, "station", samples=30))
+    assert report.opponents, "a station leaks against everyone"
+    names = [o.name for o in report.opponents]
+    assert "station" not in names and set(names) <= {"tag", "maniac", "random"}
+    top = report.opponents[0]
+    assert top.leaks <= top.decisions and top.worst_count >= 1 and top.hands == 80
+    assert "vs " in top.describe() and "VPIP" in top.describe()
+    data = report.to_dict()
+    assert data["opponents"][0]["name"] == top.name and data["opponents"][0]["text"]
+    assert "Against whom" in report.render()
+    # facts remember who was in the pot
+    facts = report.facts
+    assert all(isinstance(f.opponents, tuple) for f in facts)
+    assert any(len(f.opponents) >= 2 for f in facts)
+    assert isinstance(facts[0].to_dict()["opponents"], list)
+
+
+def test_margins_change_the_verdicts() -> None:
+    from poker_table.coach.facts import DEFAULT_MARGINS, Margins
+
+    assert Margins.parse("") == DEFAULT_MARGINS
+    custom = Margins.parse("call=0.2, fold=0.0, strong=0.5")
+    assert (custom.call, custom.fold, custom.strong) == (0.2, 0.0, 0.5)
+    assert custom.bluff_share == DEFAULT_MARGINS.bluff_share
+    with pytest.raises(ValueError, match="unknown margin"):
+        Margins.parse("nope=1")
+    histories = session(60)
+    strict = tag_hands(histories, "station", samples=40, margins=Margins(call=0.0))
+    lenient = tag_hands(histories, "station", samples=40, margins=Margins(call=0.5))
+    bad_strict = sum(f.ok is False for f in strict if f.tag == "call_vs_bet")
+    bad_lenient = sum(f.ok is False for f in lenient if f.tag == "call_vs_bet")
+    assert bad_strict > bad_lenient
 
 
 def test_played_at_is_stamped_and_filterable(tmp_path: Path) -> None:
