@@ -94,6 +94,20 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    data = sub.add_parser(
+        "dataset", help="export decisions as labelled training data (for a Laya seat, say)"
+    )
+    data.add_argument("file", type=Path)
+    data.add_argument("-o", "--out", type=Path, required=True, help="JSONL file to write")
+    data.add_argument("-p", "--player", help="seat to export (default: the hero of imported hands)")
+    data.add_argument(
+        "--source",
+        choices=("coach", "policy", "both"),
+        default="coach",
+        help="coach = what the charts and the maths say was right; policy = what the seat did",
+    )
+    data.add_argument("--samples", type=int, default=200, help="equity samples per decision")
+
     drill = sub.add_parser("drill", help="quiz yourself on the spots the coach flagged")
     drill.add_argument("file", type=Path)
     drill.add_argument(
@@ -137,6 +151,7 @@ def cmd_play(args: argparse.Namespace, out) -> int:
     small, big = parse_blinds(args.blinds)
     specs = [s for s in args.seats.split(",") if s.strip()]
     agents = make_agents(specs, seed=args.seed)
+    check_seats_ready(agents)
     config = LeagueConfig(
         hands=args.hands,
         small_blind=small,
@@ -168,9 +183,46 @@ def cmd_play(args: argparse.Namespace, out) -> int:
         if args.carry:
             print("rebuys: " + ", ".join(f"{k}={v}" for k, v in result.rebuys.items()), file=out)
     print(format_table(result.stats), file=out)
+    for line in model_seat_notes(agents):
+        print(line, file=out)
     if args.out is not None and not args.quiet:
         print(f"hand histories appended to {args.out}", file=out)
     return 0
+
+
+def check_seats_ready(agents) -> None:
+    """Fail before the first hand if a seat cannot run, rather than folding its way through."""
+    from poker_table.agents.laya import INSTALL_HINT, LayaAgent
+
+    for agent in agents:
+        if isinstance(agent, LayaAgent) and not agent.loadable:
+            raise ValueError(f"seat {agent.name!r}: {INSTALL_HINT}")
+
+
+def model_seat_notes(agents) -> list[str]:
+    """What each model-backed seat actually did — a gated seat's row is its fallback's row."""
+    from poker_table.agents.laya import LayaAgent
+
+    notes = []
+    for agent in agents:
+        if not isinstance(agent, LayaAgent):
+            continue
+        u = agent.usage
+        asked = u.decisions + u.gated
+        if not asked:
+            if u.errors:
+                notes.append(f"{agent.name}: every decision failed ({u.errors} errors)")
+            continue
+        note = (
+            f"{agent.name}: {u.decisions}/{asked} decisions were the model's "
+            f"({u.gated} handed to the chart below {agent.confidence:.0%} confidence"
+            + (f", {u.errors} errors" if u.errors else "")
+            + ")"
+        )
+        if u.avg_latency_ms:
+            note += f", {u.avg_latency_ms:.0f} ms each"
+        notes.append(note)
+    return notes
 
 
 def cmd_stats(args: argparse.Namespace, out) -> int:
@@ -270,6 +322,25 @@ def cmd_coach(args: argparse.Namespace, out) -> int:
     return 0
 
 
+def cmd_dataset(args: argparse.Namespace, out) -> int:
+    from poker_table.coach import dataset
+    from poker_table.coach.facts import tag_hands
+
+    histories = list(read_jsonl(args.file))
+    player = resolve_player(histories, args.player, args.file)
+    samples: list[dataset.Sample] = []
+    if args.source in ("coach", "both"):
+        facts = tag_hands(histories, player, samples=args.samples)
+        samples += list(dataset.from_coach(histories, facts))
+    if args.source in ("policy", "both"):
+        samples += list(dataset.from_policy(histories, player))
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    dataset.write_jsonl(args.out, samples)
+    print(f"{player}: {dataset.summarize(samples)}", file=out)
+    print(f"written to {args.out}", file=out)
+    return 0
+
+
 def cmd_drill(args: argparse.Namespace, out) -> int:
     from poker_table.coach.drills import DrillLog, run_drill, spots_from
     from poker_table.coach.facts import tag_hands
@@ -299,6 +370,7 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
             WebHumanAgent(a.name) if isinstance(a, HumanAgent) else a
             for a in make_agents(specs, seed=args.seed)
         ]
+        check_seats_ready(agents)
         config = LeagueConfig(
             hands=args.hands, small_blind=small, big_blind=big, buy_in=args.stack, seed=args.seed
         )
@@ -337,6 +409,8 @@ def main(argv: Sequence[str] | None = None, out=None) -> int:
                 return cmd_import(args, out)
             case "coach":
                 return cmd_coach(args, out)
+            case "dataset":
+                return cmd_dataset(args, out)
             case "drill":
                 return cmd_drill(args, out)
     except (ValueError, OSError) as exc:

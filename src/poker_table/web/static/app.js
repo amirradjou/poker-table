@@ -25,6 +25,7 @@ const KINDS = {
   station: { glyph: "●", color: "#7a8f3a", label: "bot · station" },
   random: { glyph: "⚄", color: "#8a5fb5", label: "bot · random" },
   human: { glyph: "☺", color: "#d4a72c", label: "human" },
+  laya: { glyph: "◈", color: "#2a6f8f", label: "laya", model: true },
 };
 const DENOMS = [[100, "black"], [25, "green"], [5, "red"], [1, "white"]];
 
@@ -57,7 +58,7 @@ function cardEl(text, small) {
 function avatarEl(p) {
   const info = kindInfo(p.kind);
   const el = document.createElement("span");
-  el.className = "avatar" + (info.llm ? " llm" : "") + (p.kind === "human" ? " human" : "");
+  el.className = "avatar" + (info.llm ? " llm" : "") + (info.model ? " model" : "") + (p.kind === "human" ? " human" : "");
   el.style.setProperty("--c", info.color);
   el.innerHTML = `<span class="initials">${esc(initials(p.name))}</span>` + (info.glyph ? `<span class="glyph">${info.glyph}</span>` : "");
   return el;
@@ -198,7 +199,8 @@ function render() {
     const info = kindInfo(s.kind);
     const who = document.createElement("div"); who.className = "who";
     who.appendChild(avatarEl(s));
-    const label = info.llm && modelOf[i] ? `${info.label} · ${modelOf[i].replace(/^claude-/, "")}` : info.label;
+    const named = (info.llm || info.model) && modelOf[i];
+  const label = named ? `${info.label} · ${modelOf[i].replace(/^claude-|^laya:/, "")}` : info.label;
     who.innerHTML += `<div class="id"><div class="name">${esc(s.name)}</div><div class="pos">${s.position}${label ? " · " + esc(label) : ""}</div></div>`;
     el.appendChild(who);
     const reveal = showCards || st.showdown || (st.done && s.won);
@@ -212,8 +214,8 @@ function render() {
     if (acting && hand.streaming && !(turn && turn.seat === i)) {
       const th = document.createElement("div"); th.className = "thinking"; th.innerHTML = "<i></i><i></i><i></i>";
       el.appendChild(th);
-      if (info.llm) { const tk = document.createElement("div"); tk.className = "ticker"; tk.dataset.since = liveActing ? liveActing.since : now; el.appendChild(tk); }
-    } else if (lastDecision[i] && hand.streaming && info.llm) {
+      if (info.llm || info.model) { const tk = document.createElement("div"); tk.className = "ticker"; tk.dataset.since = liveActing ? liveActing.since : now; el.appendChild(tk); }
+    } else if (lastDecision[i] && hand.streaming && (info.llm || info.model)) {
       const tk = document.createElement("div"); tk.className = "ticker settled";
       const d = lastDecision[i];
       tk.textContent = `${(d.latency_ms / 1000).toFixed(1)} s` + (d.cost_usd !== undefined ? ` · $${d.cost_usd.toFixed(4)}` : "");

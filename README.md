@@ -11,8 +11,9 @@ Engine, evaluator, side pots, scripted bots, LLM seats with personalities, table
 seat, hand histories, stats, league, CLI and a browser replay viewer are in (Python 3.12,
 `uv`), including live tables you can watch or sit at in the browser. Phase 2 (poker-coach)
 imports PokerStars, GGPoker and 888poker histories and finds your recurring leaks, who you
-leak against, how it trends week by week, with Claude's notes and spaced-repetition drills.
-See `CLAUDE.md` for what is next.
+leak against, how it trends week by week, with Claude's notes and spaced-repetition drills —
+drillable in the browser too. A [Laya](docs/laya.md) seat brings an open decision model to the
+table beside the scripted bots and the LLM personalities.
 
 ![Watch mode: bots playing a hand live, with avatars, chip stacks, a thinking indicator and
 table talk](docs/watch.gif)
@@ -51,9 +52,16 @@ uv run poker-table play -n 20 --seats llm:nerd,llm:maniac,tag,station --show -o 
 uv run poker-table play -n 20 --seats "ada:llm:storyteller@claude-sonnet-5,rock" --show
 ```
 
-Seat kinds: `random`, `station`, `tag`, `rock`, `maniac`, and `llm:maniac`, `llm:rock`,
-`llm:nerd`, `llm:storyteller` (default model `claude-opus-5`). Every LLM decision records the
-model, tokens and an estimated cost; the leaderboard shows `$/hand` per seat.
+Seat kinds: `random`, `station`, `tag`, `rock`, `maniac`, `laya`, and `llm:maniac`, `llm:rock`,
+`llm:nerd`, `llm:storyteller` (default model `claude-opus-5`). Every model decision records the
+model, tokens, latency and an estimated cost; the leaderboard shows `$/hand` and `ms` per seat.
+
+```sh
+# a Laya seat: an open 421M decision model, no tokens, no cost (uv sync --extra laya)
+uv run poker-table play -n 50 --seats laya,tag,station -o laya.jsonl
+uv run poker-table dataset laya.jsonl -p tag -o train.jsonl --source both   # its training set
+```
+See [docs/laya.md](docs/laya.md) for what the base checkpoint actually does at the table.
 
 ## What it is
 

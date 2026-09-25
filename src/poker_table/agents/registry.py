@@ -6,6 +6,8 @@ from collections.abc import Callable, Sequence
 
 from poker_table.agents.base import Agent
 from poker_table.agents.human import HumanAgent
+from poker_table.agents.laya import DEFAULT_MODEL as LAYA_MODEL
+from poker_table.agents.laya import LayaAgent
 from poker_table.agents.llm import DEFAULT_MODEL, LLMAgent
 from poker_table.agents.personalities import PERSONALITIES
 from poker_table.agents.scripted import CallingStation, Maniac, RandomAgent, TightAggressive
@@ -25,7 +27,7 @@ SCRIPTED: dict[str, Factory] = {
 
 
 def available_kinds() -> list[str]:
-    return sorted(SCRIPTED) + [f"llm:{p}" for p in sorted(PERSONALITIES)]
+    return sorted(SCRIPTED) + ["laya"] + [f"llm:{p}" for p in sorted(PERSONALITIES)]
 
 
 def _build(kind: str, name: str, seed: int) -> Agent:
@@ -34,11 +36,18 @@ def _build(kind: str, name: str, seed: int) -> Agent:
     if kind.startswith("llm:"):
         personality, _, model = kind[4:].partition("@")
         return LLMAgent(name, personality, model=model or DEFAULT_MODEL)
+    if kind == "laya" or kind.startswith("laya@"):
+        # laya@checkpoint, optionally laya@checkpoint#subfolder (the repo bundles several)
+        _, _, spec = kind.partition("@")
+        model, _, subfolder = spec.partition("#")
+        return LayaAgent(name, model=model or LAYA_MODEL, subfolder=subfolder or None, seed=seed)
     raise ValueError(f"unknown agent kind {kind!r}; choose from {', '.join(available_kinds())}")
 
 
 def _default_name(kind: str) -> str:
-    return kind[4:].partition("@")[0] if kind.startswith("llm:") else kind
+    if kind.startswith("llm:"):
+        return kind[4:].partition("@")[0]
+    return "laya" if kind.startswith("laya") else kind
 
 
 def make_agent(spec: str, *, seed: int = 0, taken: Sequence[str] = ()) -> Agent:
@@ -48,7 +57,11 @@ def make_agent(spec: str, *, seed: int = 0, taken: Sequence[str] = ()) -> Agent:
     Unnamed agents are named after their kind, numbered when it repeats.
     """
     parts = [p.strip() for p in spec.split(":")]
-    named = len(parts) > 1 and (parts[1].lower() in SCRIPTED or parts[1].lower() == "llm")
+    named = len(parts) > 1 and (
+        parts[1].lower() in SCRIPTED
+        or parts[1].lower() == "llm"
+        or parts[1].lower().startswith("laya")
+    )
     name = parts[0] if named else ""
     kind = ":".join(parts[1:] if named else parts).lower()
     if not kind:

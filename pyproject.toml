@@ -12,6 +12,10 @@ dependencies = [
     "uvicorn>=0.53.0",
 ]
 
+[project.optional-dependencies]
+# The Laya seat: an open decision model (pulls torch, so it is not a core dependency).
+laya = ["laya>=0.3.20"]
+
 [project.scripts]
 poker-table = "poker_table.cli:main"
 
