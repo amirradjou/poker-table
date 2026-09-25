@@ -284,3 +284,24 @@ def test_facts_use_the_narrowed_range() -> None:
     assert call.equity is not None and fold.equity is not None
     assert fold.equity < 0.25  # AK high vs a range that raised Q94 and bet the T
     assert fold.ok is True
+
+
+def test_a_hand_with_antes_replays_through_the_engine() -> None:
+    hand = Hand(
+        [Player("hero", 200), Player("villain", 200)],
+        button=0,
+        small_blind=1,
+        big_blind=2,
+        ante=2,
+        seed=0,
+        deck=stacked({0: "Ah Kh", 1: "7c 2d"}, "8s 7d 2c Qh 3s", button=0),
+    )
+    for action in (Action.raise_to(6), Action.call(), Action.check(), Action.check()):
+        hand.apply(action)
+    while not hand.finished:
+        hand.apply(Action.check())
+    history = HandHistory.from_played(PlayedHand(hand))
+    views = [view for view, _ in replay(history)]
+    assert [v.ante for v in views] == [2] * len(views)
+    assert views[0].pot == 2 + 2 + 3  # the antes are in the pot the hero is playing for
+    assert "hero antes 2" in views[0].describe()

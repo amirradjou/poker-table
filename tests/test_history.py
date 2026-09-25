@@ -126,3 +126,31 @@ def test_helpers() -> None:
     assert parse_action("fold") == Action.fold()
     assert parse_action("check") == Action.check()
     assert parse_action("call") == Action.call()
+
+
+def test_an_ante_survives_the_record_and_the_rendering() -> None:
+    deck = stacked({0: "Ac Ad", 1: "Kc Kd"}, "2h 5s 8h 9s Jh", button=0)
+    hand = Hand(
+        [Player("alice", 100), Player("bob", 100)],
+        button=0,
+        small_blind=1,
+        big_blind=2,
+        ante=5,
+        seed=11,
+        deck=deck,
+    )
+    hand.apply(Action.call())
+    hand.apply(Action.check())
+    while not hand.finished:
+        hand.apply(Action.check())
+    history = HandHistory.from_played(PlayedHand(hand))
+    assert history.ante == 5
+    assert HandHistory.from_json(history.to_json()).ante == 5
+    text = history.render()
+    assert "NLHE 1/2 ante 5" in text
+    assert text.count("posts the ante 5") == 2
+    assert "Total pot 14" in text  # two antes and two big blinds
+    # an older file without the field still loads
+    assert (
+        HandHistory.from_dict({k: v for k, v in history.to_dict().items() if k != "ante"}).ante == 0
+    )

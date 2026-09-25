@@ -97,6 +97,7 @@ class LiveSession:
             "button": hand.button,
             "small_blind": hand.small_blind,
             "big_blind": hand.big_blind,
+            "ante": hand.ante,
             "players": [
                 {
                     "seat": s.index,
@@ -275,7 +276,11 @@ def live_view_payload(view: SeatView) -> dict[str, Any]:
     for e in view.events:
         if e.kind in (EventKind.HAND_START, EventKind.DEAL_HOLE):
             continue
-        if e.seat is not None and e.kind in (EventKind.POST_BLIND, EventKind.ACTION):
+        if e.seat is not None and e.kind in (
+            EventKind.POST_ANTE,
+            EventKind.POST_BLIND,
+            EventKind.ACTION,
+        ):
             contributed[e.seat] += e.amount
         steps.append(event_to_step(e, names))
     legal = view.legal
@@ -286,6 +291,7 @@ def live_view_payload(view: SeatView) -> dict[str, Any]:
         "button": view.button,
         "small_blind": view.small_blind,
         "big_blind": view.big_blind,
+        "ante": view.ante,
         "players": [
             {
                 "seat": p.seat,

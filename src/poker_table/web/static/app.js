@@ -118,7 +118,7 @@ async function openHand(id, { autoplay = false, at = "start" } = {}) {
   $("empty").classList.add("hidden");
   $("replay").classList.remove("hidden");
   $("hand-title").textContent = `Hand #${hand.hand_id}`;
-  $("hand-sub").textContent = `blinds ${hand.small_blind}/${hand.big_blind}, seed ${hand.seed}`;
+  $("hand-sub").textContent = `blinds ${hand.small_blind}/${hand.big_blind}${hand.ante ? ` ante ${hand.ante}` : ""}, seed ${hand.seed}`;
   $("scrub").max = hand.steps.length;
   buildLog();
   buildSummary();
@@ -135,6 +135,7 @@ function stateAt(n) {
   for (let i = 0; i < n; i++) {
     const e = hand.steps[i];
     switch (e.kind) {
+      case "post_ante":
       case "post_blind": paid(seats[e.seat], e.amount); if (e.all_in) seats[e.seat].allIn = true; break;
       case "action": {
         const s = seats[e.seat];
@@ -318,6 +319,8 @@ function buildLog() {
 function logItem(e) {
   const li = document.createElement("li");
   switch (e.kind) {
+    case "post_ante":
+      li.textContent = `${e.name} antes ${e.amount}${e.all_in ? " and is all-in" : ""}`; break;
     case "post_blind":
       li.textContent = `${e.name} posts ${e.amount}${e.all_in ? " and is all-in" : ""}`; break;
     case "action": {
