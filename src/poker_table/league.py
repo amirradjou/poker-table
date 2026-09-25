@@ -179,8 +179,9 @@ class TournamentResult:
         return sorted(self.finishes, key=lambda name: self.finishes[name])
 
     def render(self) -> str:
+        plural = "" if self.hands == 1 else "s"
         head = (
-            f"{self.hands} hands, {self.config.starting_stack} chips each, "
+            f"{self.hands} hand{plural}, {self.config.starting_stack} chips each, "
             f"reached level {self.level} ({self.config.schedule[self.level - 1]})"
         )
         if not self.complete:

@@ -11,7 +11,14 @@ from poker_table import __version__
 from poker_table.agents.human import HumanAgent
 from poker_table.agents.registry import available_kinds, make_agents
 from poker_table.history import HandHistory, filter_by_date, read_jsonl, write_jsonl
-from poker_table.league import LeagueConfig, run_league
+from poker_table.league import (
+    DEFAULT_SCHEDULE,
+    LeagueConfig,
+    Level,
+    TournamentConfig,
+    run_league,
+    run_tournament,
+)
 from poker_table.stats import compute_stats, format_table
 
 DEFAULT_SEATS = "tag,rock,maniac,station,random"
@@ -26,7 +33,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     play = sub.add_parser("play", help="play a session between agents and print the leaderboard")
-    play.add_argument("-n", "--hands", type=int, default=100, help="hands to play (default 100)")
+    play.add_argument(
+        "-n",
+        "--hands",
+        type=int,
+        help="hands to play (default 100; with --tournament, the hand limit, default 5000)",
+    )
     play.description = (
         "Play a session. Seat yourself with the kind 'human' (e.g. --seats you:human,tag,maniac):"
         " each of your turns prints the table and reads a command (? for help)."
@@ -41,10 +53,26 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     play.add_argument("--seed", type=int, default=0, help="league seed (default 0)")
-    play.add_argument("--blinds", default="1/2", help="small/big blind, e.g. 1/2 (default)")
+    play.add_argument("--blinds", help="small/big blind, e.g. 1/2 (default)")
+    play.add_argument("--ante", type=int, help="chips every seat posts before the blinds")
     play.add_argument("--stack", type=int, default=200, help="buy-in in chips (default 200)")
     play.add_argument(
         "--carry", action="store_true", help="carry stacks between hands and rebuy when busted"
+    )
+    play.add_argument(
+        "--tournament",
+        action="store_true",
+        help="play a freezeout instead: rising blinds, no rebuys, until one seat has every chip",
+    )
+    play.add_argument(
+        "--levels",
+        help=(
+            "tournament blind schedule, e.g. '1/2,2/4,5/10+1' (sb/bb+ante); "
+            "the default doubles every level and antes from level 4"
+        ),
+    )
+    play.add_argument(
+        "--level-hands", type=int, default=20, help="hands per tournament level (default 20)"
     )
     play.add_argument("-o", "--out", type=Path, help="append every hand history to this JSONL file")
     play.add_argument(
@@ -147,42 +175,98 @@ def parse_blinds(text: str) -> tuple[int, int]:
     return int(small), int(big)
 
 
-def cmd_play(args: argparse.Namespace, out) -> int:
-    small, big = parse_blinds(args.blinds)
-    specs = [s for s in args.seats.split(",") if s.strip()]
-    agents = make_agents(specs, seed=args.seed)
-    check_seats_ready(agents)
-    config = LeagueConfig(
-        hands=args.hands,
-        small_blind=small,
-        big_blind=big,
-        buy_in=args.stack,
-        top_up=not args.carry,
-        seed=args.seed,
-    )
+def parse_levels(text: str) -> tuple[Level, ...]:
+    """``"1/2,2/4,5/10+1"`` -> a blind schedule; ``+n`` on a level is its ante."""
+    levels = []
+    for part in text.split(","):
+        stakes, _, ante = part.strip().partition("+")
+        small, big = parse_blinds(stakes)
+        levels.append(Level(small, big, int(ante) if ante else 0))
+    if not levels:
+        raise ValueError("a schedule needs at least one level, e.g. 1/2")
+    return tuple(levels)
+
+
+def hand_writer(args: argparse.Namespace, out, *, every_hand: bool):
+    """The per-hand callback both session shapes share: append to disk, print as asked."""
     if args.out is not None:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.touch()
 
-    human_seated = any(isinstance(a, HumanAgent) for a in agents)
-
     def on_hand(history: HandHistory) -> None:
         if args.out is not None:
             write_jsonl(args.out, [history], append=True)
-        if args.show or human_seated:
+        if every_hand:
             print(history.render(reasoning=args.show), file=out)
             print(file=out)
         elif not args.quiet and int(history.hand_id) % 100 == 0:
             print(f"... {history.hand_id} hands", file=out)
 
+    return on_hand
+
+
+def cmd_play(args: argparse.Namespace, out) -> int:
+    specs = [s for s in args.seats.split(",") if s.strip()]
+    agents = make_agents(specs, seed=args.seed)
+    check_seats_ready(agents)
+    if args.tournament:
+        return play_tournament(args, agents, out)
+
+    small, big = parse_blinds(args.blinds or "1/2")
+    config = LeagueConfig(
+        hands=args.hands if args.hands is not None else 100,
+        small_blind=small,
+        big_blind=big,
+        ante=args.ante or 0,
+        buy_in=args.stack,
+        top_up=not args.carry,
+        seed=args.seed,
+    )
+    human_seated = any(isinstance(a, HumanAgent) for a in agents)
+    on_hand = hand_writer(args, out, every_hand=args.show or human_seated)
     result = run_league(agents, config, on_hand=on_hand)
     if not args.quiet:
-        seats = ", ".join(f"{a.name} ({type(a).__name__})" for a in agents)
-        header = f"{config.hands} hands · blinds {small}/{big} · buy-in {config.buy_in}"
-        print(f"{header} · seats: {seats}", file=out)
+        stakes = f"blinds {small}/{big}" + (f" ante {config.ante}" if config.ante else "")
+        header = f"{config.hands} hands · {stakes} · buy-in {config.buy_in}"
+        print(f"{header} · seats: {seat_list(agents)}", file=out)
         if args.carry:
             print("rebuys: " + ", ".join(f"{k}={v}" for k, v in result.rebuys.items()), file=out)
     print(format_table(result.stats), file=out)
+    for line in model_seat_notes(agents):
+        print(line, file=out)
+    if args.out is not None and not args.quiet:
+        print(f"hand histories appended to {args.out}", file=out)
+    return 0
+
+
+def seat_list(agents) -> str:
+    return ", ".join(f"{a.name} ({type(a).__name__})" for a in agents)
+
+
+def play_tournament(args: argparse.Namespace, agents, out) -> int:
+    config = TournamentConfig(
+        starting_stack=args.stack,
+        schedule=parse_levels(args.levels) if args.levels else DEFAULT_SCHEDULE,
+        hands_per_level=args.level_hands,
+        max_hands=args.hands if args.hands is not None else 5000,
+        seed=args.seed,
+    )
+    if args.blinds or args.ante:
+        print("note: a tournament takes its blinds and antes from --levels", file=out)
+    human_seated = any(isinstance(a, HumanAgent) for a in agents)
+    on_hand = hand_writer(args, out, every_hand=args.show or human_seated)
+    result = run_tournament(agents, config, on_hand=on_hand)
+    if not args.quiet:
+        first, last = config.schedule[0], config.schedule[-1]
+        print(
+            f"freezeout · {config.starting_stack} chips each · levels {first} to {last}, "
+            f"{config.hands_per_level} hands each · seats: {seat_list(agents)}",
+            file=out,
+        )
+    print(result.render(), file=out)
+    if not args.quiet:
+        print(file=out)
+        print(format_table(result.stats), file=out)
     for line in model_seat_notes(agents):
         print(line, file=out)
     if args.out is not None and not args.quiet:

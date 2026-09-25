@@ -1,4 +1,5 @@
 import io
+import re
 from pathlib import Path
 
 import pytest
@@ -67,4 +68,48 @@ def test_bad_seat_kind_is_a_clean_error() -> None:
 
 def test_bad_blinds_is_a_clean_error() -> None:
     code, _ = run("play", "--blinds", "2")
+    assert code == 2
+
+
+def test_play_tournament_prints_finishing_places(tmp_path: Path) -> None:
+    out = tmp_path / "freezeout.jsonl"
+    code, text = run(
+        "play",
+        "--tournament",
+        "--seats",
+        "tag,rock,maniac,station",
+        "--seed",
+        "7",
+        "--level-hands",
+        "12",
+        "-o",
+        str(out),
+    )
+    assert code == 0
+    assert "freezeout · 200 chips each · levels 1/2 to 800/1600+200, 12 hands each" in text
+    assert "place  name" in text and "won with 800" in text
+    standings = re.findall(r"^\s+(\d+)\s+(\w+)\s+(\d+)\s", text, re.M)
+    assert [place for place, _, _ in standings] == ["1", "2", "3", "4"]
+    assert "bb/100" in text  # the usual leaderboard is printed too
+    played = re.search(r"^(\d+) hands?, 200 chips", text, re.M)
+    assert played is not None and out.read_text().count("\n") == int(played.group(1))
+
+
+def test_play_tournament_with_a_hand_limit_and_a_custom_schedule() -> None:
+    code, text = run(
+        "play", "--tournament", "--seats", "tag,station", "-n", "3", "--levels", "5/10+2", "-q"
+    )
+    assert code == 0
+    assert "3 hands, 200 chips each, reached level 1 (5/10+2)" in text
+    assert "no winner" in text and "still in with" in text
+
+
+def test_play_with_an_ante() -> None:
+    code, text = run("play", "-n", "12", "--seats", "tag,station", "--ante", "1", "--show", "-q")
+    assert code == 0
+    assert "NLHE 1/2 ante 1" in text and text.count("posts the ante 1") == 24
+
+
+def test_a_bad_level_schedule_is_a_clean_error() -> None:
+    code, _ = run("play", "--tournament", "--levels", "1-2")
     assert code == 2
