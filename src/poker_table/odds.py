@@ -210,11 +210,9 @@ def winning_outs(
     card. A hand that is already ahead has no outs by this definition; it has the pot.
     """
     hole, board = tuple(hole), tuple(board)
-    if len(board) >= 5 or not opponents:
-        return ()
-    if len(board) >= 3 and all(
-        evaluate([*hole, *board]) > evaluate([*seat, *board]) for seat in opponents
-    ):
+    if not 3 <= len(board) < 5 or not opponents:
+        return ()  # outs are counted from the flop on; before that everything is to come
+    if all(evaluate([*hole, *board]) > evaluate([*seat, *board]) for seat in opponents):
         return ()  # already the best hand: nothing to draw to
     live = unseen_cards(hole, board, [c for seat in opponents for c in seat])
     found = []
@@ -303,7 +301,13 @@ class Spot:
 
     @property
     def ev_call(self) -> float:
-        """Chips won or lost by calling instead of folding, if the betting ends here."""
+        """Chips won or lost by calling instead of folding, if the betting ends here.
+
+        Zero when there is nothing to call: checking and folding cost the same, so there is
+        no price to weigh the hand against.
+        """
+        if self.to_call <= 0:
+            return 0.0
         return self.equity * (self.pot + self.to_call) - self.to_call
 
     @property

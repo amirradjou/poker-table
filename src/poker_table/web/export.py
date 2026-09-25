@@ -26,6 +26,7 @@ from poker_table.web.app import (
     coach_payload,
     hand_payload,
     hands_payload,
+    odds_payload,
     session_payload,
     stats_payload,
 )
@@ -48,12 +49,18 @@ def _write(path: Path, payload: Any) -> int:
 
 
 def export_site(
-    hands: Path | str, out: Path | str, *, samples: int = 200, players: list[str] | None = None
+    hands: Path | str,
+    out: Path | str,
+    *,
+    samples: int = 200,
+    players: list[str] | None = None,
+    odds: bool = False,
 ) -> dict[str, Any]:
     """Write the viewer and one JSON file per API response into ``out``.
 
     ``players`` limits which seats get a coach report (each one replays every hand, so the
-    default — every seat — is the slow part of a big export).
+    default — every seat — is the slow part of a big export). ``odds`` adds the probability
+    panel, which costs about half a second per hand and is therefore asked for, not assumed.
     """
     store = HandStore(Path(hands))
     if not store.hands:
@@ -84,6 +91,12 @@ def export_site(
     bytes_written += _write(out / "data" / "bankroll.json", bankroll_payload(store))
     bytes_written += _write(out / "data" / "stats.json", stats_payload(store))
 
+    if odds:
+        for history in store.hands:
+            bytes_written += _write(
+                out / "data" / "odds" / f"{file_id(history.hand_id)}.json", odds_payload(history)
+            )
+
     coached = players if players is not None else store.players()
     for player in coached:
         if player not in store.players():
@@ -95,5 +108,6 @@ def export_site(
         "dir": str(out),
         "hands": len(store.hands),
         "coached": list(coached),
+        "odds": odds,
         "bytes": bytes_written,
     }

@@ -75,10 +75,12 @@
         <input type="range" id="scrub" min="0" value="0" aria-label="Step">
         <button id="toggle-think" aria-pressed="true">Show thinking</button>
         <button id="toggle-cards" aria-pressed="true">Show all cards</button>
+        <button id="toggle-odds" aria-pressed="true" title="Win chances, outs and pot odds at each decision">Odds</button>
         <label class="pace-wrap hidden" id="pace-wrap" title="Seconds between bot decisions">pace
           <input type="range" id="pace" min="0.2" max="3" step="0.1" value="0.8"><span id="pace-value">0.8 s</span></label>
         <span class="street" id="street"></span>
       </div>
+      <div class="odds hidden" id="odds"></div>
       <div class="log" id="log"><ol id="log-list"></ol></div>
       <div class="summary" id="summary"></div>
     </div>

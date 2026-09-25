@@ -176,6 +176,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="seats to build a coach report for when exporting (default: every seat)",
     )
+    serve.add_argument(
+        "--export-odds",
+        action="store_true",
+        help="also export the odds panel (about half a second of maths per hand)",
+    )
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument("--open", action="store_true", help="open the browser")
@@ -531,11 +536,12 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
         from poker_table.web.export import export_site
 
         players = [p for p in args.export_coach.split(",") if p.strip()] or None
-        written = export_site(args.file, args.export, players=players)
+        written = export_site(args.file, args.export, players=players, odds=args.export_odds)
         size = written["bytes"] / 1_000_000
         print(
             f"{written['hands']} hands written to {written['dir']} ({size:.1f} MB), "
-            f"coach reports for {', '.join(written['coached']) or 'nobody'}",
+            f"coach reports for {', '.join(written['coached']) or 'nobody'}"
+            + (", with the odds" if written["odds"] else ", no odds (--export-odds adds them)"),
             file=out,
         )
         # A browser refuses fetch() from a file:// page, so the preview goes through any

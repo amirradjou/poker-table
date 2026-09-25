@@ -10,8 +10,9 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from poker_table.cards import Card
 from poker_table.coach.drills import DrillLog, DrillSession, spots_from
-from poker_table.coach.facts import Fact, tag_hands
+from poker_table.coach.facts import Fact, replay, tag_hands
 from poker_table.coach.report import Report, build_report
 from poker_table.engine import ActionType, EventKind
 from poker_table.history import HandHistory, filter_by_date, parse_action, read_jsonl, weeks_of
@@ -30,6 +31,7 @@ class HandStore:
         self.by_id: dict[str, HandHistory] = {}
         self._reports: dict[tuple[str, int, int, str, str], Report] = {}
         self._drills: dict[tuple[str, int], DrillSession] = {}
+        self._odds: dict[str, dict[str, Any]] = {}
         self.reload()
 
     def reload(self) -> int:
@@ -62,6 +64,12 @@ class HandStore:
             log = DrillLog.load(self.path.with_suffix(f".{player}.drills.json"))
             self._drills[key] = DrillSession(spots, log)
         return self._drills[key]
+
+    def odds(self, hand_id: str) -> dict[str, Any]:
+        """The per-decision probabilities for one hand, computed once and kept."""
+        if hand_id not in self._odds:
+            self._odds[hand_id] = odds_payload(self.by_id[hand_id])
+        return self._odds[hand_id]
 
     def step_of(self, fact: Fact) -> int:
         """Index of the fact's decision among the hand's viewer steps (state just before it)."""
@@ -147,6 +155,74 @@ def coach_payload(
         for example, fact in zip(leak["examples"], source.examples, strict=True):
             example["step"] = store.step_of(fact)
     return data
+
+
+ODDS_SAMPLES = 800
+
+
+def odds_payload(history: HandHistory, *, samples: int = ODDS_SAMPLES) -> dict[str, Any]:
+    """The probability calculation at every decision of one hand, both ways round.
+
+    ``blind`` is what the seat itself could work out — its cards against the hands still in,
+    unseen. ``known`` is what a replay can also say, because the file has everyone's cards:
+    the same spot against the actual holdings, enumerated where that is cheap. A hand
+    imported from a site keeps ``known`` empty for the seats whose cards were never shown.
+    """
+    from poker_table.odds import calculate
+
+    holes = {p.seat: [Card.parse(c) for c in p.hole] for p in history.players}
+    steps = [i for i, step in enumerate(steps_for(history)) if step["kind"] == "action"]
+    spots: list[dict[str, Any]] = []
+    try:
+        decisions = list(replay(history))
+    except ValueError:  # a hand that will not replay (an import we cannot rebuild)
+        return {"hand_id": history.hand_id, "spots": []}
+    for index, (view, action) in enumerate(decisions):
+        if index >= len(steps):
+            break
+        others = [p.seat for p in view.players if p.seat != view.seat and not p.folded]
+        price = {"pot": view.pot, "to_call": view.to_call}
+        blind = calculate(view.hole, view.board, max(1, len(others)), samples=samples, **price)
+        shown = [tuple(holes[seat]) for seat in others if len(holes.get(seat, [])) == 2]
+        known = (
+            calculate(view.hole, view.board, shown, samples=samples, **price)
+            if shown and len(shown) == len(others)
+            else None
+        )
+        spots.append(
+            {
+                "step": steps[index],
+                "seat": view.seat,
+                "name": view.name,
+                "street": view.street.value,
+                "action": str(action),
+                "pot": view.pot,
+                "to_call": view.to_call,
+                "pot_odds": round(blind.pot_odds, 4),
+                "required": round(blind.required_equity, 4),
+                "ratio": blind.ratio,
+                "ev_call": round(blind.ev_call, 2),
+                "blind": _chance_row(blind),
+                "known": _chance_row(known) if known is not None else None,
+            }
+        )
+    return {"hand_id": history.hand_id, "spots": spots}
+
+
+def _chance_row(spot: Any) -> dict[str, Any]:
+    c = spot.chances
+    return {
+        "equity": round(c.equity, 4),
+        "win": round(c.win, 4),
+        "tie": round(c.tie, 4),
+        "exact": c.exact,
+        "trials": c.trials,
+        "error": round(c.error, 4),
+        "opponents": spot.opponents,
+        "outs": [str(c) for c in (spot.outs or ())] if spot.outs is not None else None,
+        "improving": len(spot.improving),
+        "hit": round(spot.hit() or 0.0, 4) if spot.outs is not None else None,
+    }
 
 
 def summarize(history: HandHistory) -> dict[str, Any]:
@@ -239,6 +315,13 @@ def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
         if history is None:
             raise HTTPException(404, f"no hand {hand_id!r}")
         return hand_payload(history)
+
+    @app.get("/api/odds/{hand_id}")
+    def odds(hand_id: str) -> dict[str, Any]:
+        history = store.by_id.get(hand_id)
+        if history is None:
+            raise HTTPException(404, f"no hand {hand_id!r}")
+        return store.odds(hand_id)
 
     @app.get("/api/live")
     def live_status() -> dict[str, Any]:

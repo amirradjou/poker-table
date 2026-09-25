@@ -91,6 +91,7 @@ function staticFile(path) {
   if (route === "/api/hands") return "data/hands.json";
   if (route.startsWith("/api/hands/")) return `data/hands/${fileId(decodeURIComponent(route.slice(11)))}.json`;
   if (route === "/api/coach") return `data/coach/${fileId(params.get("player"))}.json`;
+  if (route.startsWith("/api/odds/")) return `data/odds/${fileId(decodeURIComponent(route.slice(10)))}.json`;
   return null;
 }
 
@@ -143,6 +144,73 @@ async function loadList(reset) {
   $("more").classList.toggle("hidden", listOffset >= listTotal);
 }
 
+let oddsData = null, showOdds = true;
+
+// The probabilities are computed per hand on demand (and cached server side), so they are
+// fetched after the hand is drawn rather than blocking it.
+async function loadOdds(id) {
+  oddsData = null;
+  renderOdds();
+  if (!showOdds) return;
+  try {
+    const data = await api(`/api/odds/${id}`);
+    if (hand && hand.hand_id === data.hand_id) { oddsData = data; renderOdds(); }
+  } catch { oddsData = null; renderOdds(); }
+}
+
+// The spot being decided at the current position, else the last one decided.
+function spotAt(n) {
+  if (!oddsData || !oddsData.spots.length) return null;
+  let found = null;
+  for (const s of oddsData.spots) if (s.step <= n) found = s;
+  return found || oddsData.spots[0];
+}
+
+function equityRow(row, label, note, exact) {
+  const pct = Math.round(row.equity * 100);
+  return `<div class="row${exact ? " exact" : ""}"><span class="what">${label}</span>` +
+    `<span class="bar"><i style="width:${pct}%"></i></span><b>${pct}%</b>` +
+    `<span class="note">${note}</span></div>`;
+}
+
+function renderOdds() {
+  const el = $("odds");
+  // A hand still being dealt has no decisions to look back on, and odds from the hand before
+  // it would be worse than none.
+  const ready = showOdds && hand && !hand.streaming;
+  el.classList.toggle("hidden", !ready);
+  if (!ready) return;
+  const stale = !oddsData || oddsData.hand_id !== hand.hand_id;
+  const spot = stale ? null : spotAt(step);
+  if (!spot) { el.innerHTML = '<span class="note">Working out the chances…</span>'; return; }
+  const past = spot.step < step;
+  const blind = spot.blind;
+  const price = spot.to_call
+    ? `pot ${spot.pot}, to call ${spot.to_call}`
+    : `pot ${spot.pot}, nothing to call`;
+  let html = `<div class="head"><strong>${esc(spot.name)}</strong>` +
+    `<span>${past ? `${esc(spot.action)} on the ${spot.street}` : `to act on the ${spot.street}`}</span>` +
+    `<span class="price">${price}</span></div>`;
+  const spread = blind.exact ? "exact" : `±${(blind.error * 100).toFixed(1)}%`;
+  let note = `against ${blind.opponents} unknown hand${blind.opponents === 1 ? "" : "s"} · ${spread}`;
+  if (blind.improving && spot.street !== "river") note += ` · ${blind.improving} cards would better the hand`;
+  html += equityRow(blind, "as they see it", note, false);
+  // What a replay also knows: the actual cards. Held back while the cards are.
+  if (spot.known && showCards) {
+    const k = spot.known;
+    let kn = k.exact ? `against their actual cards · exact, ${k.trials} run-outs` : `against their actual cards · ±${(k.error * 100).toFixed(1)}%`;
+    if (k.outs && k.outs.length) kn += ` · ${k.outs.length} outs (${k.hit ? Math.round(k.hit * 100) + "% by the river" : ""})`;
+    html += equityRow(k, "with every hand", kn, k.exact);
+  }
+  if (spot.to_call) {
+    const good = spot.ev_call >= 0;
+    html += `<div class="foot">pot odds ${spot.ratio} — a call needs <strong>${Math.round(spot.required * 100)}%</strong>` +
+      `; at the ${Math.round(blind.equity * 100)}% they can see, calling is ` +
+      `<span class="${good ? "good" : "bad"}">${spot.ev_call > 0 ? "+" : ""}${spot.ev_call}</span> chips against folding</div>`;
+  }
+  el.innerHTML = html;
+}
+
 async function openHand(id, { autoplay = false, at = "start" } = {}) {
   stopAuto();
   hand = await api(`/api/hands/${id}`);
@@ -159,6 +227,7 @@ async function openHand(id, { autoplay = false, at = "start" } = {}) {
   buildLog();
   buildSummary();
   render();
+  loadOdds(id);
   history.replaceState(null, "", `#${id}`);
   if (autoplay) startAuto();
 }
@@ -288,6 +357,7 @@ function render() {
     else if (bottom > log.scrollTop + log.clientHeight) log.scrollTop = bottom - log.clientHeight;
   } else log.scrollTop = 0;
   $("log").classList.toggle("no-think", !showThink);
+  renderOdds();
 }
 
 // ---- motion ----
@@ -917,6 +987,11 @@ $("last").onclick = () => go(Infinity);
 $("scrub").oninput = (e) => go(+e.target.value);
 $("toggle-think").onclick = (e) => { showThink = !showThink; e.target.setAttribute("aria-pressed", showThink); render(); };
 $("toggle-cards").onclick = (e) => { showCards = !showCards; e.target.setAttribute("aria-pressed", showCards); render(); };
+$("toggle-odds").onclick = (e) => {
+  showOdds = !showOdds;
+  e.target.setAttribute("aria-pressed", showOdds);
+  if (showOdds && !oddsData && hand) loadOdds(hand.hand_id); else renderOdds();
+};
 $("tab-hands").onclick = () => setTab("hands");
 $("tab-board").onclick = () => setTab("board");
 $("tab-coach").onclick = () => setTab("coach");
