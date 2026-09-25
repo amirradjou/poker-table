@@ -99,8 +99,22 @@ class SeatView:
                     raiser = e.seat
         return raiser
 
-    def describe(self) -> str:
-        """A compact text rendering, used for logs and as the prompt body for LLM seats."""
+    def odds(self, *, samples: int = 1200, seed: int = 0):
+        """The probability calculation this seat is allowed to make.
+
+        Own cards, the board, and the number of hands still to beat — never anyone else's
+        cards, because a view does not have them. Sampled, so it costs a few milliseconds.
+        """
+        from poker_table.odds import for_view  # imported here: odds needs no agent
+
+        return for_view(self, samples=samples, seed=seed)
+
+    def describe(self, *, numbers: bool = False) -> str:
+        """A compact text rendering, used for logs and as the prompt body for LLM seats.
+
+        ``numbers`` adds the probability calculation — what the seat could work out for
+        itself with a calculator, and what a model at the table should not have to guess.
+        """
         lines = [
             f"Hand {self.hand_id} · {self.street.value} · you are {self.name} ({self.position})",
             f"Your cards: {cards_str(self.hole)}",
@@ -126,6 +140,10 @@ class SeatView:
             lines.append("Table talk:")
             lines += [f'  {who}: "{text}"' for who, text in self.talk]
         lines.append(f"Legal: {self.legal.describe()}")
+        if numbers:
+            spot = self.odds()
+            lines.append("The numbers (your cards against the hands still in, unseen):")
+            lines += [f"  {line}" for line in spot.lines()]
         return "\n".join(lines)
 
 

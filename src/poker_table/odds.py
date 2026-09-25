@@ -397,7 +397,7 @@ def calculate(
     )
 
 
-def for_view(view, *, samples: int = 400, seed: int = 0) -> Spot:
+def for_view(view, *, samples: int = 1200, seed: int = 0) -> Spot:
     """The calculation a seat is allowed to make: its own cards against unknown hands.
 
     A ``SeatView`` never carries another seat's cards, so this is always the blind version —

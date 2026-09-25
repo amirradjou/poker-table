@@ -96,11 +96,15 @@ def _street_lines(view: SeatView) -> list[str]:
     return lines
 
 
-def compact_state(view: SeatView) -> str:
+def compact_state(view: SeatView, *, numbers: bool = False) -> str:
     """The spot in a few short lines.
 
     Laya's usable input is a few hundred tokens, so this is deliberately much terser than
     ``SeatView.describe()`` — the facts a player needs and nothing else.
+
+    ``numbers`` adds one line of probability (equity against the unseen hands, and the price).
+    It is off by default because it changes what the model reads, and the measurements in
+    docs/laya.md were taken without it: turn it on and measure again.
     """
     seats = len(view.players)
     street = "preflop" if view.street is Street.PREFLOP else view.street.value
@@ -119,6 +123,13 @@ def compact_state(view: SeatView) -> str:
         f"Still in: {others or 'nobody'}.",
     ]
     lines += _street_lines(view)
+    if numbers:
+        spot = view.odds(samples=600)
+        line = f"Chance you have the best hand at showdown: {spot.equity:.0%}."
+        if spot.to_call:
+            line += f" Calling costs {spot.to_call} to win {spot.pot}, so it needs "
+            line += f"{spot.required_equity:.0%}."
+        lines.append(line)
     if view.talk:
         lines.append("Table talk: " + "; ".join(f'{who} said "{text}"' for who, text in view.talk))
     return "\n".join(lines)
@@ -185,7 +196,9 @@ def option_criteria(view: SeatView, options: dict[str, Action]) -> dict[str, str
     return criteria
 
 
-def build_question(view: SeatView) -> tuple[dict[str, Action], dict[str, Any]]:
+def build_question(
+    view: SeatView, *, numbers: bool = False
+) -> tuple[dict[str, Action], dict[str, Any]]:
     """The options and the Laya ``choice`` question for this decision."""
     options = option_actions(view)
     question = {
@@ -247,6 +260,7 @@ class LayaAgent:
         device: str | None = None,
         client: LayaRunner | None = None,
         confidence: float = DEFAULT_CONFIDENCE,
+        numbers: bool = False,
         fallback: Any | None = None,
         seed: int = 0,
     ) -> None:
@@ -255,6 +269,8 @@ class LayaAgent:
         self.subfolder = subfolder
         self.device = device
         self.confidence = confidence
+        # Off by default: docs/laya.md measured this seat without the probability line.
+        self.numbers = numbers
         self.usage = Usage()
         self._client = client
         # When the model is not sure enough, the chart plays instead of a coin flip.
@@ -277,7 +293,7 @@ class LayaAgent:
 
     def act(self, view: SeatView) -> Decision:
         options, question = build_question(view)
-        state = compact_state(view)
+        state = compact_state(view, numbers=self.numbers)
         started = time.perf_counter()
         try:
             choice = read_choice(self.client.predict(state, question))

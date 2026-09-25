@@ -30,7 +30,7 @@ class HumanAgent:
         self._output = output_fn
 
     def act(self, view: SeatView) -> Decision:
-        self._output("\n" + view.describe())
+        self._output("\n" + view.describe(numbers=True))
         talk = ""
         while True:
             try:

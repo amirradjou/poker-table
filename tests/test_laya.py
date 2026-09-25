@@ -247,3 +247,17 @@ def test_a_seat_that_cannot_run_is_refused_before_the_first_hand() -> None:
         with pytest.raises(ValueError, match="needs the optional dependency"):
             check_seats_ready([unseated])
         assert main(["play", "-n", "1", "--seats", "laya,tag"], out=io.StringIO()) == 2
+
+
+def test_the_laya_seat_can_be_given_the_numbers_but_is_not_by_default() -> None:
+    hand = hand_with({0: "Ah Kd", 1: "7c 2d", 2: "Qs Js"})
+    view = make_view(hand, 0)
+    assert "Chance you have the best hand" not in compact_state(view)
+    with_numbers = compact_state(view, numbers=True)
+    assert "Chance you have the best hand at showdown:" in with_numbers
+    assert "so it needs" in with_numbers  # facing the big blind, there is a price
+    plain, counted = FakeLaya("fold"), FakeLaya("fold")
+    LayaAgent("a", client=plain).act(view)
+    LayaAgent("b", client=counted, numbers=True).act(view)
+    assert "Chance you have the best hand" not in plain.calls[0][0]
+    assert "Chance you have the best hand" in counted.calls[0][0]

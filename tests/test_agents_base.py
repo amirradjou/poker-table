@@ -74,3 +74,26 @@ def test_decision_defaults() -> None:
     assert d.reasoning == "" and d.table_talk == ""
     assert isinstance(d, Decision) and isinstance(make_view, object)
     assert SeatView.__dataclass_params__.frozen
+
+
+def test_a_seat_can_ask_for_the_numbers_without_seeing_another_seat_s_cards() -> None:
+    from poker_table.cards import Deck, parse_cards
+
+    hole = {0: "Ah Kh", 1: "7c 2d", 2: "Qs Js"}
+    order = [(1 + i) % 3 for i in range(3)]
+    deck = Deck.stacked(
+        [parse_cards(hole[i])[0] for i in order]
+        + [parse_cards(hole[i])[1] for i in order]
+        + parse_cards("Qh 7h 2c")
+    )
+    hand = Hand(players(200, 200, 200), button=0, small_blind=1, big_blind=2, seed=0, deck=deck)
+    for action in (Action.call(), Action.call(), Action.check()):
+        hand.apply(action)
+    view = make_view(hand, 0)
+    spot = view.odds(samples=300)
+    assert spot.opponents == 2 and not spot.known_hands and spot.outs is None
+    assert 0.0 < spot.equity < 1.0
+    text = view.describe(numbers=True)
+    assert "The numbers" in text and "Equity" in text
+    assert "7c" not in text and "Qs" not in text  # still nobody else's cards
+    assert "The numbers" not in view.describe()  # off unless asked for
