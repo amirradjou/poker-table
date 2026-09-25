@@ -77,6 +77,7 @@ class HandBuilder:
         self.folded: set[int] = set()
         self.events: list[EventRecord] = []
         self.posts: list[tuple[int, str]] = []
+        self.antes: dict[int, int] = {}
         self._returned = False
 
     # -- who --
@@ -94,12 +95,25 @@ class HandBuilder:
         self.total_bets[seat] += chips
         self.stack_left[seat] -= chips
 
-    def post_blind(self, name: str, kind: str, chips: int) -> None:
-        if kind not in ("small blind", "big blind"):
-            raise ImportError_(f"unsupported post: {kind}")
+    def post(self, name: str, kind: str, chips: int) -> None:
+        """A blind or an ante, in the site's own wording ("the ante", "ante", "big blind")."""
         who = self.seat(name)
         if who is None:
             raise ImportError_("blind posted by an unknown player")
+        if kind in ("the ante", "ante"):
+            # Dead money: in the pot, but it buys no part of the blind, so it must not
+            # land in street_bets or every later raise would be read short.
+            self.antes[who] = self.antes.get(who, 0) + chips
+            self.total_bets[who] += chips
+            self.stack_left[who] -= chips
+            self.events.append(
+                EventRecord(
+                    "post_ante", "preflop", who, None, chips, [], "", self.stack_left[who] <= 0
+                )
+            )
+            return
+        if kind not in ("small blind", "big blind"):
+            raise ImportError_(f"unsupported post: {kind}")
         self.posts.append((who, kind))
         self._put(who, chips)
         self.events.append(
@@ -107,6 +121,21 @@ class HandBuilder:
                 "post_blind", "preflop", who, None, chips, [], "", self.stack_left[who] <= 0
             )
         )
+
+    def _ante(self) -> int:
+        """The one ante every seat posted, or a refusal when the file says otherwise.
+
+        The engine posts the same ante for every seat, so a big blind ante (one seat pays
+        for the table) or a dead ante cannot be replayed faithfully — better to say so than
+        to import a hand whose chips do not add up. A seat all-in for part of its ante is
+        fine: that is what the engine does too.
+        """
+        ante = max(self.antes.values(), default=0)
+        for seat in range(self.n):
+            posted = self.antes.get(seat, 0)
+            if posted < ante and self.stack_left[seat] > 0:
+                raise ImportError_(f"uneven antes: {self.names[seat]} posted {posted} of {ante}")
+        return ante
 
     def deal(self, name: str, hole: list[str]) -> None:
         who = self.seat(name)
@@ -192,6 +221,7 @@ class HandBuilder:
     # -- the record --
 
     def finish(self, hero: str | None, *, infer_uncalled: bool = False) -> HandHistory:
+        ante = self._ante()
         expected_sb = self.button if self.n == 2 else (self.button + 1) % self.n
         expected_bb = (expected_sb + 1) % self.n
         if self.posts != [(expected_sb, "small blind"), (expected_bb, "big blind")]:
@@ -199,7 +229,8 @@ class HandBuilder:
         if infer_uncalled and not self._returned:
             # Sites that never print "uncalled bet returned": the excess of the top
             # contributor over the next one never went into the pot.
-            back = uncalled_amount(self.total_bets)
+            live = {s: c - self.antes.get(s, 0) for s, c in self.total_bets.items()}
+            back = uncalled_amount(live)
             if back is not None:
                 seat, chips = back
                 # place the return before any win events so a replay reads naturally
@@ -254,6 +285,7 @@ class HandBuilder:
             pots=[{"amount": sum(self.payouts.values()), "eligible": sorted(self.payouts)}],
             payouts=self.payouts,
             showdown=showdown,
+            ante=ante,
             played_at=self.played_at,
             hero=hero or "",
         )

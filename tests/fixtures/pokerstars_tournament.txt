@@ -35,3 +35,22 @@ Seat 3: hero showed [Td 9d] and won (3025) with a straight, Six to Ten
 Seat 5: p_five (button) folded before Flop (didn't bet)
 Seat 7: p_seven (small blind) folded before Flop
 Seat 9: p_nine (big blind) showed [8c 8h] and lost with three of a kind, Eights
+
+PokerStars Hand #245000000011: Tournament #3400000001, $0.98+$0.12 USD Hold'em No Limit - Level IX (300/600) - 2026/09/11 19:20:05 ET
+Table '3400000001 12' 9-max Seat #3 is the button
+Seat 1: p_one (4100 in chips)
+Seat 3: hero (2650 in chips)
+Seat 7: p_seven (3200 in chips)
+p_seven: posts small blind 300
+p_one: posts big blind 600
+p_one: posts the ante 600
+*** HOLE CARDS ***
+Dealt to hero [Ac Qs]
+hero: raises 1450 to 2050
+p_seven: folds
+p_one: folds
+Uncalled bet (1450) returned to hero
+hero collected 2100 from pot
+*** SUMMARY ***
+Total pot 2100 | Rake 0
+Seat 3: hero (button) collected (2100)

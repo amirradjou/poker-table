@@ -84,16 +84,19 @@ Seat 1: villain1 ($8.55 in chips)
 Seat 2: hero ($22.30 in chips)
 Seat 4: villain4 ($17.95 in chips)
 Seat 6: villain6 ($5.80 in chips)
+villain1: posts the ante $0.02
+hero: posts the ante $0.02
+villain4: posts the ante $0.02
+villain6: posts the ante $0.02
 villain1: posts small blind $0.05
 hero: posts big blind $0.10
-villain4: posts the ante $0.02
 *** HOLE CARDS ***
 Dealt to hero [Jc Jh]
 villain4: folds
 villain6: folds
 villain1: folds
 Uncalled bet ($0.05) returned to hero
-hero collected $0.10 from pot
+hero collected $0.18 from pot
 *** SUMMARY ***
-Total pot $0.10 | Rake $0.00
-Seat 2: hero (big blind) collected ($0.10)
+Total pot $0.18 | Rake $0.00
+Seat 2: hero (big blind) collected ($0.18)
