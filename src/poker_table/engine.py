@@ -1,4 +1,4 @@
-"""The no-limit hold'em hand: seats, blinds, betting rounds, pots and showdown.
+"""The no-limit hold'em hand: seats, antes and blinds, betting rounds, pots and showdown.
 
 A :class:`Hand` is a state machine driven from the outside: whoever runs the table asks
 ``hand.actor`` who is next, ``hand.legal_actions()`` what they may do, and feeds the
@@ -105,6 +105,18 @@ class Seat:
         self.total_bet += amount
         return amount
 
+    def post_dead(self, amount: int) -> int:
+        """Post dead money (an ante): it builds the pot but buys no part of the blind.
+
+        The chips land in ``total_bet`` — so they are in the pot and count for side-pot
+        eligibility — but not in ``street_bet``, so a seat that anted still owes the whole
+        big blind to play.
+        """
+        amount = min(amount, self.stack)
+        self.stack -= amount
+        self.total_bet += amount
+        return amount
+
 
 @dataclass(frozen=True, slots=True)
 class LegalActions:
@@ -143,6 +155,7 @@ class LegalActions:
 
 class EventKind(StrEnum):
     HAND_START = "hand_start"
+    POST_ANTE = "post_ante"
     POST_BLIND = "post_blind"
     DEAL_HOLE = "deal_hole"
     ACTION = "action"
@@ -185,6 +198,7 @@ class Hand:
         small_blind: int,
         big_blind: int,
         seed: int,
+        ante: int = 0,
         hand_id: str = "1",
         deck: Deck | None = None,
     ) -> None:
@@ -196,6 +210,8 @@ class Hand:
             raise ValueError("every player needs chips to be dealt in")
         if not 0 < small_blind <= big_blind:
             raise ValueError("blinds must satisfy 0 < small_blind <= big_blind")
+        if ante < 0:
+            raise ValueError("the ante cannot be negative")
         names = [p.name for p in players]
         if len(set(names)) != len(names):
             raise ValueError("player names must be unique")
@@ -204,6 +220,7 @@ class Hand:
         self.seed = seed
         self.small_blind = small_blind
         self.big_blind = big_blind
+        self.ante = ante
         self.button = button % len(players)
         self.seats = [Seat(i, p.name, p.stack, kind=p.kind) for i, p in enumerate(players)]
         self.starting_stacks = {s.index: s.stack for s in self.seats}
@@ -220,6 +237,7 @@ class Hand:
         self._actor: int | None = None
 
         self._log(EventKind.HAND_START, text=f"button seat {self.button}")
+        self._post_antes()
         self._post_blinds()
         self._deal_hole_cards()
         self._begin_betting(after=self.bb_index)
@@ -242,6 +260,18 @@ class Hand:
     def bb_index(self) -> int:
         return self._next_index(self.sb_index)
 
+    def _deal_order(self) -> list[int]:
+        """Seats starting left of the button — the order a dealer works round the table."""
+        return [self._next_index(self.button + i) for i in range(self.num_players)]
+
+    def _post_antes(self) -> None:
+        if not self.ante:
+            return
+        for index in self._deal_order():
+            seat = self.seats[index]
+            posted = seat.post_dead(self.ante)
+            self._log(EventKind.POST_ANTE, seat=index, amount=posted, all_in=seat.all_in)
+
     def _post_blinds(self) -> None:
         for index, blind in ((self.sb_index, self.small_blind), (self.bb_index, self.big_blind)):
             seat = self.seats[index]
@@ -251,7 +281,7 @@ class Hand:
 
     def _deal_hole_cards(self) -> None:
         # Deal one card at a time starting left of the button, like a real dealer would.
-        order = [self._next_index(self.button + i) for i in range(self.num_players)]
+        order = self._deal_order()
         first = {i: self.deck.draw() for i in order}
         second = {i: self.deck.draw() for i in order}
         for i in order:

@@ -235,11 +235,13 @@ def test_random_play_always_finishes_and_conserves_chips(seed: int) -> None:
     for _ in range(10):
         n = rng.randint(2, 6)
         stacks = [rng.randint(1, 300) for _ in range(n)]
+        ante = rng.choice([0, 0, 1, 5])  # antes are dead money, so they stress the pot maths
         hand = Hand(
             players(*stacks),
             button=rng.randrange(n),
             small_blind=1,
             big_blind=2,
+            ante=ante,
             seed=rng.randrange(10**6),
         )
         steps = 0
@@ -249,6 +251,8 @@ def test_random_play_always_finishes_and_conserves_chips(seed: int) -> None:
             assert steps < 500
         assert sum(s.stack for s in hand.seats) == sum(stacks)
         assert sum(hand.payouts.values()) == sum(s.total_bet for s in hand.seats)
+        posted = [e.amount for e in hand.events if e.kind is EventKind.POST_ANTE]
+        assert sum(posted) == sum(min(ante, stack) for stack in stacks)  # short stacks ante partly
         assert hand.events[-1].kind is EventKind.HAND_END
         assert len(hand.board) in (0, 3, 4, 5)
         assert all(s.stack >= 0 for s in hand.seats)
