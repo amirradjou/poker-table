@@ -2,7 +2,7 @@ import pytest
 
 from poker_table.agents import CallingStation, TightAggressive
 from poker_table.agents.registry import available_kinds, make_agent, make_agents
-from poker_table.league import LeagueConfig, run_league
+from poker_table.league import LeagueConfig, TournamentConfig, run_league, run_tournament
 
 
 def fresh_agents():
@@ -120,3 +120,90 @@ def test_registry_builds_llm_seats_without_touching_the_network() -> None:
     with pytest.raises(ValueError, match="unknown personality"):
         make_agent("llm:wizard")
     assert "llm:storyteller" in available_kinds()
+
+
+def tournament_agents():
+    return make_agents(["tag", "rock", "maniac", "station", "random"], seed=1)
+
+
+def test_a_tournament_ends_with_one_seat_holding_every_chip() -> None:
+    config = TournamentConfig(seed=7, hands_per_level=15)
+    result = run_tournament(tournament_agents(), config)
+    assert result.complete and result.winner is not None
+    assert sum(result.stacks.values()) == 5 * config.starting_stack
+    assert result.stacks[result.winner] == 5 * config.starting_stack
+    assert sorted(result.finishes.values()) == [1, 2, 3, 4, 5]
+    assert len(result.histories) == result.hands
+    # nobody buys back in: each hand starts every seat where the last one left it
+    seen: dict[str, int] = {}
+    for history in result.histories:
+        for player in history.players:
+            if player.name in seen:
+                assert player.stack == seen[player.name]
+            seen[player.name] = player.stack + player.net
+    # and the seats that busted are exactly the ones missing from the last hands
+    assert set(result.out_at) == set(result.finishes) - {result.winner}
+    assert f"1  {result.winner}" in result.render()
+
+
+def test_the_blinds_and_antes_rise_on_the_schedule() -> None:
+    config = TournamentConfig(seed=7, hands_per_level=10)
+    result = run_tournament(tournament_agents(), config)
+    stakes = [(h.small_blind, h.big_blind, h.ante) for h in result.histories]
+    assert stakes[0] == (1, 2, 0) and stakes[9] == (1, 2, 0)
+    assert stakes[10] == (2, 4, 0)  # level 2 starts at the eleventh hand
+    assert stakes[30] == (5, 10, 1)  # level 4 brings in the ante
+    assert result.level == config.level_number(result.hands - 1)
+    assert str(config.level(0)) == "1/2" and str(config.level(30)) == "5/10+1"
+
+
+def test_two_seats_busting_in_one_hand_are_ranked_by_the_chips_they_had() -> None:
+    result = run_tournament(tournament_agents(), TournamentConfig(seed=3, hands_per_level=10))
+    hand = next(h for h in result.histories if sum(p.net == -p.stack for p in h.players) >= 2)
+    out = sorted((p for p in hand.players if p.net == -p.stack), key=lambda p: -p.stack)
+    assert [p.name for p in out] == ["maniac", "random"]  # 105 chips and 1 chip
+    assert result.finishes["maniac"] < result.finishes["random"]  # the bigger stack outlasted it
+    assert result.out_at["maniac"] == result.out_at["random"]
+
+
+def test_a_tournament_is_reproducible_and_the_button_keeps_moving() -> None:
+    config = TournamentConfig(seed=11, hands_per_level=12)
+    a = run_tournament(tournament_agents(), config)
+    b = run_tournament(tournament_agents(), config)
+    assert fingerprint(a) == fingerprint(b) and a.finishes == b.finishes
+    other = run_tournament(tournament_agents(), TournamentConfig(seed=12, hands_per_level=12))
+    assert fingerprint(a) != fingerprint(other)
+    # the button belongs to a different seat each hand, even as seats disappear
+    for first, second in zip(a.histories, a.histories[1:], strict=False):
+        if len(first.players) == len(second.players):
+            assert first.players[first.button].name != second.players[second.button].name
+
+
+def test_a_hand_limit_stops_a_tournament_and_ranks_the_survivors_by_chips() -> None:
+    result = run_tournament(
+        [TightAggressive("tag"), TightAggressive("rock", tightness=2)],
+        TournamentConfig(seed=5, hands_per_level=50, max_hands=8),
+    )
+    assert result.hands == 8 and not result.complete and result.winner is not None
+    assert result.out_at == {} and sorted(result.finishes.values()) == [1, 2]
+    best, worst = result.standings()
+    assert result.stacks[best] >= result.stacks[worst]
+    assert "no winner" in result.render() and "still in with" in result.render()
+
+
+def test_tournament_validation() -> None:
+    with pytest.raises(ValueError, match="at least two"):
+        run_tournament([TightAggressive("only")])
+    with pytest.raises(ValueError, match="unique"):
+        run_tournament([TightAggressive("x"), CallingStation("x")])
+
+
+def test_a_cash_game_can_have_an_ante() -> None:
+    agents = [TightAggressive("tag"), CallingStation("station")]
+    result = run_league(agents, LeagueConfig(hands=6, seed=1, ante=1))
+    assert all(h.ante == 1 for h in result.histories)
+    for history in result.histories:
+        antes = [e for e in history.events if e.kind == "post_ante"]
+        assert [e.amount for e in antes] == [1, 1]
+        assert sum(p["amount"] for p in history.pots) >= 2  # the antes are always in the pot
+    assert sum(result.bankrolls.values()) == 0

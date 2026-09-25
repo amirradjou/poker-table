@@ -118,6 +118,7 @@ def new_hand(
     small_blind: int,
     big_blind: int,
     seed: int,
+    ante: int = 0,
     hand_id: str = "1",
 ) -> tuple[Hand, dict[int, Agent]]:
     """Seat ``agents`` (in order) with ``stacks`` and deal a new hand."""
@@ -131,6 +132,7 @@ def new_hand(
         button=button,
         small_blind=small_blind,
         big_blind=big_blind,
+        ante=ante,
         seed=seed,
         hand_id=hand_id,
     )
