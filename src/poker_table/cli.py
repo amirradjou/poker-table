@@ -146,6 +146,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     serve = sub.add_parser("serve", help="open the replay viewer and leaderboard in a browser")
     serve.add_argument("file", type=Path, help="JSONL file (may still be growing)")
+    serve.add_argument(
+        "--export",
+        type=Path,
+        metavar="DIR",
+        help="write a static copy of the viewer (page plus JSON) to DIR and exit",
+    )
+    serve.add_argument(
+        "--export-coach",
+        default="",
+        help="seats to build a coach report for when exporting (default: every seat)",
+    )
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument("--open", action="store_true", help="open the browser")
@@ -442,6 +453,22 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
     import uvicorn
 
     from poker_table.web.app import create_app
+
+    if args.export is not None:
+        from poker_table.web.export import export_site
+
+        players = [p for p in args.export_coach.split(",") if p.strip()] or None
+        written = export_site(args.file, args.export, players=players)
+        size = written["bytes"] / 1_000_000
+        print(
+            f"{written['hands']} hands written to {written['dir']} ({size:.1f} MB), "
+            f"coach reports for {', '.join(written['coached']) or 'nobody'}",
+            file=out,
+        )
+        # A browser refuses fetch() from a file:// page, so the preview goes through any
+        # static server; the point of the export is that it needs no *poker-table* server.
+        print(f"preview: python3 -m http.server -d {written['dir']} 8000", file=out)
+        return 0
 
     live = None
     if args.live:

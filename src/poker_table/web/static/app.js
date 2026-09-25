@@ -77,10 +77,46 @@ function chipStackEl(amount) {
   return el;
 }
 
+// A site written by `serve --export` has no server behind it: every GET is answered by a file
+// under data/, and what needs a server (live tables, drills, Claude's notes) is hidden below.
+const STATIC = !!window.POKER_TABLE_STATIC;
+const fileId = (s) => String(s).replace(/[^A-Za-z0-9._-]/g, "_") || "_";  // matches export.py
+
+function staticFile(path) {
+  const [route, query] = path.split("?");
+  const params = new URLSearchParams(query || "");
+  if (route === "/api/session") return "data/session.json";
+  if (route === "/api/bankroll") return "data/bankroll.json";
+  if (route === "/api/stats") return "data/stats.json";
+  if (route === "/api/hands") return "data/hands.json";
+  if (route.startsWith("/api/hands/")) return `data/hands/${fileId(decodeURIComponent(route.slice(11)))}.json`;
+  if (route === "/api/coach") return `data/coach/${fileId(params.get("player"))}.json`;
+  return null;
+}
+
+// data/hands.json holds every summary, newest first — the paging the server did is done here.
+function staticSlice(path, data) {
+  const [route, query] = path.split("?");
+  if (route !== "/api/hands") return data;
+  const params = new URLSearchParams(query || "");
+  const ids = params.get("ids");
+  if (ids) {
+    const by = new Map(data.hands.map(h => [h.hand_id, h]));
+    const chosen = ids.split(",").map(id => by.get(id)).filter(Boolean);
+    return { total: chosen.length, hands: chosen };
+  }
+  const offset = +(params.get("offset") || 0), limit = +(params.get("limit") || 100);
+  return { total: data.total, hands: data.hands.slice(offset, offset + limit) };
+}
+
 async function api(path) {
-  const r = await fetch(path);
+  if (STATIC && path === "/api/live") return { live: false };
+  const file = STATIC ? staticFile(path) : null;
+  if (STATIC && !file) throw new Error(`${path} is not part of a static export`);
+  const r = await fetch(file || path);
   if (!r.ok) throw new Error(`${path}: ${r.status}`);
-  return r.json();
+  const data = await r.json();
+  return STATIC ? staticSlice(path, data) : data;
 }
 
 async function loadSession() {
@@ -770,8 +806,8 @@ async function showCoach() {
   for (const b of picker.children) b.setAttribute("aria-pressed", b.textContent === coachPlayer);
   // a week picker, only when the hands span more than one week
   const weeks = $("week-picker"); weeks.innerHTML = "";
-  weeks.classList.toggle("hidden", s.weeks.length < 2);
-  if (s.weeks.length >= 2) {
+  weeks.classList.toggle("hidden", STATIC || s.weeks.length < 2);
+  if (!STATIC && s.weeks.length >= 2) {
     const all = document.createElement("button"); all.textContent = "All weeks";
     all.setAttribute("aria-pressed", coachWeek === null);
     all.onclick = () => { coachWeek = null; coachNotes = null; showCoach(); };
@@ -820,7 +856,7 @@ function renderCoach(r) {
   const period = r.since || r.until ? ` (${coachWeek ? coachWeek.label : `${r.since} to ${r.until}`})` : "";
   let html = `<div class="lead"><strong>${esc(r.player)}</strong><span>${r.hands} hands${esc(period)}, ${r.decisions} decisions</span>` +
     `<span class="${netCls}">${r.net > 0 ? "+" : ""}${r.net} chips (${r.bb_per_100 > 0 ? "+" : ""}${r.bb_per_100} bb/100)</span>` +
-    `<button id="ask-claude" type="button">Ask Claude to explain</button></div>`;
+    (STATIC ? "</div>" : `<button id="ask-claude" type="button">Ask Claude to explain</button></div>`);
   if (!r.leaks.length) html += '<p class="empty-note">No leaks found by the charts and the math. Play more hands.</p>';
   html += '<ol class="leaks">';
   for (const leak of r.leaks) {
@@ -854,6 +890,7 @@ function renderCoach(r) {
     };
   }
   const ask = $("ask-claude");
+  if (!ask) return;  // a static export has no key to ask with
   ask.onclick = async () => {
     ask.disabled = true; ask.textContent = "Asking…";
     const resp = await fetch("/api/coach/narrate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ player: r.player }) });
@@ -893,6 +930,8 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "Home") go(0);
   else if (e.key === "End") go(Infinity);
 });
+
+if (STATIC) $("tab-drill").classList.add("hidden");  // drills record answers; a file cannot
 
 (async () => {
   await loadSession();

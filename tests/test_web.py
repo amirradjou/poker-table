@@ -173,3 +173,59 @@ def test_an_ante_hand_reaches_the_viewer_as_its_own_step(tmp_path: Path) -> None
         "post_blind",
         "post_blind",
     ]
+
+
+def test_export_writes_a_static_site_answering_the_same_json(tmp_path: Path, hands_file: Path):
+    import json
+
+    from poker_table.web.export import FLAG, export_site
+
+    site = tmp_path / "site"
+    written = export_site(hands_file, site, players=["tag"])
+    assert written["hands"] == 12 and written["coached"] == ["tag"]
+
+    page = (site / "index.html").read_text()
+    assert FLAG in page and 'src="static/app.js"' in page
+    assert (site / "static" / "app.js").exists() and (site / "static" / "app.css").exists()
+    assert not (site / "static" / "index.html").exists()  # the page lives at the root
+
+    client = TestClient(create_app(hands_file))
+    for route, file in [
+        ("/api/session", "session.json"),
+        ("/api/bankroll", "bankroll.json"),
+        ("/api/stats", "stats.json"),
+        ("/api/hands/7", "hands/7.json"),
+        ("/api/coach?player=tag", "coach/tag.json"),
+    ]:
+        served = client.get(route).json()
+        assert json.loads((site / "data" / file).read_text()) == served, route
+
+    # the whole list, newest first: the page does the paging the server used to do
+    listed = json.loads((site / "data" / "hands.json").read_text())
+    assert listed["total"] == 12
+    assert [h["hand_id"] for h in listed["hands"]] == [str(i) for i in range(12, 0, -1)]
+    assert listed["hands"][:5] == client.get("/api/hands?limit=5").json()["hands"]
+    assert len(list((site / "data" / "hands").glob("*.json"))) == 12
+
+
+def test_export_refuses_what_it_cannot_write(tmp_path: Path, hands_file: Path) -> None:
+    from poker_table.web.export import export_site
+
+    with pytest.raises(ValueError, match="no seat named 'nobody'"):
+        export_site(hands_file, tmp_path / "a", players=["nobody"])
+    empty = tmp_path / "empty.jsonl"
+    empty.touch()
+    with pytest.raises(ValueError, match="no hands"):
+        export_site(empty, tmp_path / "b")
+
+
+def test_export_cli(tmp_path: Path, hands_file: Path) -> None:
+    import io
+
+    site = tmp_path / "site"
+    buf = io.StringIO()
+    code = main(["serve", str(hands_file), "--export", str(site), "--export-coach", "tag"], out=buf)
+    assert code == 0 and (site / "data" / "session.json").exists()
+    assert "12 hands written to" in buf.getvalue()
+    assert "coach reports for tag" in buf.getvalue()
+    assert "python3 -m http.server" in buf.getvalue()
