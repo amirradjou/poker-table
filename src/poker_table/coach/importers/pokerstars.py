@@ -161,7 +161,7 @@ def _parse_hand(raw: str, scale: int) -> tuple[HandHistory, str | None]:
         if _RE_RUN_TWICE.match(line):
             raise ImportError_("run it twice")
         if m := _RE_POST.match(line):
-            hand.post_blind(m.group("name"), m.group("kind"), amount(m.group(3), scale))
+            hand.post(m.group("name"), m.group("kind"), amount(m.group(3), scale))
         elif m := _RE_DEALT.match(line):
             if hand.knows(m.group("name")) and (hero is None or m.group("name") == "Hero"):
                 hero = m.group("name")

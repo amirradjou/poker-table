@@ -1,6 +1,6 @@
 import pytest
 
-from poker_table.engine import EventKind, Hand, Player, Street
+from poker_table.engine import Action, EventKind, Hand, Player, Street
 
 
 def players(*stacks: int) -> list[Player]:
@@ -102,3 +102,40 @@ def test_rejects_bad_setups(stacks: tuple[int, ...], kwargs: dict, message: str)
 def test_rejects_duplicate_names() -> None:
     with pytest.raises(ValueError, match="unique"):
         Hand([Player("x", 10), Player("x", 10)], button=0, small_blind=1, big_blind=2, seed=1)
+
+
+def test_every_seat_antes_before_the_blinds() -> None:
+    hand = Hand(players(*[200] * 4), button=0, small_blind=1, big_blind=2, ante=1, seed=1)
+    antes = [e for e in hand.events if e.kind is EventKind.POST_ANTE]
+    assert [(e.seat, e.amount) for e in antes] == [(1, 1), (2, 1), (3, 1), (0, 1)]  # left of button
+    assert hand.pot == 4 + 3  # four antes plus the blinds
+    assert [s.stack for s in hand.seats] == [199, 198, 197, 199]
+    # the ante is dead money: it buys no part of the blind, so UTG still owes the whole 2
+    assert hand.actor is not None and hand.actor.index == 3
+    legal = hand.legal_actions()
+    assert legal.call_amount == 2 and legal.min_raise_to == 4
+    assert [s.street_bet for s in hand.seats] == [0, 1, 2, 0]
+
+
+def test_an_ante_can_put_a_short_stack_all_in_before_the_deal() -> None:
+    hand = Hand(players(200, 200, 1), button=0, small_blind=1, big_blind=2, ante=1, seed=1)
+    short = hand.seats[2]
+    assert short.stack == 0 and short.all_in and not short.can_act
+    assert short.total_bet == 1 and short.street_bet == 0  # it never reached the big blind
+    assert short.hole is not None  # still dealt in, and still in the hand
+    assert hand.current_bet == 2  # the price to play is the big blind it could not post
+    assert hand.pot == 3 + 1  # three antes and the small blind; the short seat posted no blind
+
+
+def test_antes_are_paid_and_the_hand_still_balances() -> None:
+    hand = Hand(players(*[10] * 3), button=0, small_blind=1, big_blind=2, ante=3, seed=5)
+    assert [s.total_bet for s in hand.seats] == [3, 4, 5]
+    while not hand.finished:
+        hand.apply(Action.call() if hand.legal_actions().can_call else Action.check())
+    assert sum(s.stack for s in hand.seats) == 30
+    assert sum(hand.payouts.values()) == sum(s.total_bet for s in hand.seats)
+
+
+def test_a_negative_ante_is_refused() -> None:
+    with pytest.raises(ValueError, match="ante"):
+        Hand(players(100, 100), button=0, small_blind=1, big_blind=2, ante=-1, seed=1)

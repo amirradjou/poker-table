@@ -150,3 +150,26 @@ def test_coach_narrate_without_credentials_is_a_clean_503(hands_file: Path, monk
     r = client.post("/api/coach/narrate", json={"player": "maniac"})
     assert r.status_code == 503 and "Error" in r.json()["detail"]
     assert client.post("/api/coach/narrate", json={"player": "nobody"}).status_code == 404
+
+
+def test_an_ante_hand_reaches_the_viewer_as_its_own_step(tmp_path: Path) -> None:
+    out = tmp_path / "antes.jsonl"
+    assert (
+        main(["play", "-n", "4", "--seats", "tag,station", "--ante", "1", "-o", str(out), "-q"])
+        == 0
+    )
+    client = TestClient(create_app(out))
+    hand = client.get("/api/hands/1").json()
+    assert hand["ante"] == 1
+    antes = [s for s in hand["steps"] if s["kind"] == "post_ante"]
+    # posted starting left of the button, which is seat 0 in the first hand
+    assert [(s["seat"], s["amount"], s["name"]) for s in antes] == [
+        (1, 1, "station"),
+        (0, 1, "tag"),
+    ]
+    assert [s["kind"] for s in hand["steps"]][:4] == [
+        "post_ante",
+        "post_ante",
+        "post_blind",
+        "post_blind",
+    ]

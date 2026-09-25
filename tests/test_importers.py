@@ -24,8 +24,12 @@ def test_detect_and_split() -> None:
 
 def test_cash_hands_import_with_cents_as_chips() -> None:
     result = import_text(CASH)
-    assert [h.hand_id for h in result.hands] == ["245000000001", "245000000002"]
-    assert result.skipped == [("245000000003", "unsupported post: the ante")]
+    assert [h.hand_id for h in result.hands] == [
+        "245000000001",
+        "245000000002",
+        "245000000003",
+    ]
+    assert result.skipped == []
     assert result.hero == "hero"
     first = result.hands[0]
     assert (first.small_blind, first.big_blind) == (5, 10)
@@ -66,9 +70,23 @@ def test_showdown_side_pot_and_mucked_cards() -> None:
     assert [(e.seat, e.action) for e in all_in] == [(4, "raise 200")]
 
 
+def test_an_ante_hand_imports_with_the_ante_as_dead_money() -> None:
+    hand = import_text(CASH).hands[2]
+    assert hand.ante == 2  # $0.02 in cents
+    antes = [e for e in hand.events if e.kind == "post_ante"]
+    assert [(e.seat, e.amount) for e in antes] == [(0, 2), (1, 2), (2, 2), (3, 2)]
+    # the ante buys no part of the blind: everyone folds to the big blind, who is returned
+    # only the uncalled 5 of the blind, and collects the four antes with it
+    assert [(e.seat, e.amount) for e in hand.events if e.kind == "return_uncalled"] == [(1, 5)]
+    assert hand.payouts == {1: 18} and hand.players[1].net == 11
+    assert [p.net for p in hand.players] == [-7, 11, -2, -2]
+    assert "posts the ante 2" in hand.render()
+
+
 def test_tournament_hand_uses_whole_chips() -> None:
     result = import_text(TOURNEY)
-    assert not result.skipped
+    # the second hand is a big blind ante, which the engine cannot post seat for seat
+    assert result.skipped == [("245000000011", "uneven antes: hero posted 0 of 600")]
     hand = result.hands[0]
     assert (hand.small_blind, hand.big_blind) == (25, 50)
     assert hand.players[1].name == "hero" and hand.players[1].stack == 2210
@@ -91,9 +109,9 @@ def test_imported_hands_replay_on_the_engine_and_coach_the_hero() -> None:
     assert ("1", "three_bet", True) in tags  # AKo 3-bet
     assert ("2", "limp", False) in tags  # 72o limp
     report = build_report(hands, "hero", facts)
-    assert report.hands == 3 and report.net == 215 + 440 + 1525
+    assert report.hands == 4 and report.net == 215 + 440 + 11 + 1525
     stats = compute_stats(hands)
-    assert stats["hero"].hands == 3 and stats["hero"].vpip == 1.0
+    assert stats["hero"].hands == 4 and stats["hero"].vpip == 0.75  # the ante hand folded to him
     assert stats["villain4"].bluffs == 0  # cards known from the muck line
     assert HandHistory.from_json(hands[0].to_json()) == hands[0]
     assert "Dealt to hero [Ah Kd]" in hands[0].render()
@@ -126,12 +144,13 @@ def test_cli_import_then_coach(tmp_path: Path) -> None:
     )
     assert code == 0
     text = buf.getvalue()
-    assert "pokerstars_cash.txt: 2 hands, 1 skipped" in text
-    assert "skipped #245000000003: unsupported post: the ante" in text
-    assert "3 hands written" in text and "--player hero" in text
+    assert "pokerstars_cash.txt: 3 hands, 0 skipped" in text
+    assert "pokerstars_tournament.txt: 1 hands, 1 skipped" in text
+    assert "skipped #245000000011: uneven antes: hero posted 0 of 600" in text
+    assert "4 hands written" in text and "--player hero" in text
     buf = io.StringIO()
     assert main(["coach", str(out), "--player", "hero", "--samples", "40"], out=buf) == 0
-    assert "Coach report for hero — 3 hands" in buf.getvalue()
+    assert "Coach report for hero — 4 hands" in buf.getvalue()
     buf = io.StringIO()
     assert main(["stats", str(out)], out=buf) == 0 and "hero" in buf.getvalue()
     buf = io.StringIO()
@@ -225,3 +244,20 @@ def test_888_dialect() -> None:
         ]
     facts = tag_hands(result.hands, "hero", samples=40)
     assert facts and all(f.hand_id in ("1122334455", "1122334456") for f in facts)
+
+
+def test_888_antes_are_dead_money_too() -> None:
+    text = (FIXTURES / "888_cash.txt").read_text()
+    anted = text.replace(
+        "villain4 posts small blind [$0.01]",
+        "\n".join(f"villain{i} posts ante [$0.01]" for i in (1, 3, 4, 5, 6))
+        + "\nhero posts ante [$0.01]\nvillain4 posts small blind [$0.01]",
+        1,
+    )
+    plain, with_antes = import_text(text).hands[0], import_text(anted).hands[0]
+    assert with_antes.ante == 1 and plain.ante == 0
+    assert [e.amount for e in with_antes.events if e.kind == "post_ante"] == [1] * 6
+    # the ante is not part of what anyone called, so the inferred uncalled bet is unchanged
+    returned = [(e.seat, e.amount) for e in with_antes.events if e.kind == "return_uncalled"]
+    assert returned == [(1, 50)]
+    assert [p.net for p in with_antes.players] == [p.net - 1 for p in plain.players]

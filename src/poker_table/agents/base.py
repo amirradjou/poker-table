@@ -62,6 +62,7 @@ class SeatView:
     current_bet: int
     small_blind: int
     big_blind: int
+    ante: int
     button: int
     legal: LegalActions
     players: tuple[PlayerView, ...]
@@ -114,7 +115,8 @@ class SeatView:
         actions = [
             e
             for e in self.events
-            if e.kind in (EventKind.ACTION, EventKind.POST_BLIND, EventKind.STREET)
+            if e.kind
+            in (EventKind.ACTION, EventKind.POST_ANTE, EventKind.POST_BLIND, EventKind.STREET)
         ]
         if actions:
             lines.append("Action so far:")
@@ -130,6 +132,8 @@ class SeatView:
 def describe_event(event: Event, players: tuple[PlayerView, ...]) -> str:
     name = players[event.seat].name if event.seat is not None else ""
     match event.kind:
+        case EventKind.POST_ANTE:
+            return f"{name} antes {event.amount}{' (all-in)' if event.all_in else ''}"
         case EventKind.POST_BLIND:
             return f"{name} posts {event.amount}{' (all-in)' if event.all_in else ''}"
         case EventKind.ACTION:
@@ -194,6 +198,7 @@ def make_view(hand: Hand, seat_index: int, *, talk: tuple[tuple[str, str], ...] 
         current_bet=hand.current_bet,
         small_blind=hand.small_blind,
         big_blind=hand.big_blind,
+        ante=hand.ante,
         button=hand.button,
         legal=hand.legal_actions() if hand.actor is seat else _no_actions(hand),
         players=players,

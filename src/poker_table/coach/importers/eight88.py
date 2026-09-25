@@ -116,7 +116,7 @@ def _parse_hand(raw: str, hand_id: str) -> tuple:
         if _RE_SEAT.match(line):
             continue
         if m := _RE_POST.match(line):
-            hand.post_blind(m.group("name"), m.group("kind"), amount(m.group(3), scale))
+            hand.post(m.group("name"), m.group("kind"), amount(m.group(3), scale))
         elif m := _RE_DEALT.match(line):
             if hand.knows(m.group("name")):
                 hero = hero or m.group("name")

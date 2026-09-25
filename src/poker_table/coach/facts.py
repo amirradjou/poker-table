@@ -132,6 +132,7 @@ def replay(history: HandHistory) -> Iterator[tuple[SeatView, Action]]:
         button=history.button,
         small_blind=history.small_blind,
         big_blind=history.big_blind,
+        ante=history.ante,
         seed=history.seed,
         hand_id=history.hand_id,
         deck=Deck.stacked(stacked),

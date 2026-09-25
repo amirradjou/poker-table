@@ -13,7 +13,9 @@ seat, hand histories, stats, league, CLI and a browser replay viewer are in (Pyt
 imports PokerStars, GGPoker and 888poker histories and finds your recurring leaks, who you
 leak against, how it trends week by week, with Claude's notes and spaced-repetition drills —
 drillable in the browser too. A [Laya](docs/laya.md) seat brings an open decision model to the
-table beside the scripted bots and the LLM personalities.
+table beside the scripted bots and the LLM personalities. Antes and
+[freezeout tournaments](docs/tournaments.md) are in, so the table answers "who survives" as well
+as "who wins chips".
 
 ![Watch mode: bots playing a hand live, with avatars, chip stacks, a thinking indicator and
 table talk](docs/watch.gif)
@@ -26,7 +28,9 @@ replay viewer steps through any finished hand with every seat's private reasonin
 private reasoning](docs/viewer.png)
 
 First numbers: [docs/baseline.md](docs/baseline.md) — five scripted bots over 1,000 seeded
-hands, the leaderboard, and what the coach says about each of them.
+hands, the leaderboard, and what the coach says about each of them. Then
+[docs/tournaments.md](docs/tournaments.md) — the same five over 500 freezeouts, where the order
+changes: the maniac drops from second to fourth and the random bot wins more often than the rock.
 
 ```sh
 uv sync
@@ -36,6 +40,11 @@ uv run poker-table replay hands.jsonl --hand 7 -r     # one hand with every seat
 uv run poker-table stats hands.jsonl                  # VPIP, PFR, 3-bet, AF, WTSD, W$SD, bluff %
 uv run poker-table serve hands.jsonl --open           # replay viewer + leaderboard in the browser
 uv run poker-table play -n 20 --seats me:human,tag,maniac   # pull up a chair (terminal)
+
+# a freezeout: rising blinds and antes, no rebuys, until one seat has every chip
+uv run poker-table play --tournament --seats tag,rock,maniac,station,random
+uv run poker-table play --tournament --levels 2/4,5/10+1,20/40+5 --level-hands 10
+uv run poker-table play -n 200 --seats tag,station --ante 1      # or a cash game with antes
 
 # watch bots play live in the browser (--pace = seconds per decision), or sit down yourself
 uv run poker-table serve live.jsonl --live -n 200 --seats tag,maniac,llm:nerd --pace 0.8 --open
@@ -64,6 +73,9 @@ uv run poker-table dataset laya.jsonl -p tag -o train.jsonl --source both   # it
 See [docs/laya.md](docs/laya.md) for what the base checkpoint actually does at the table.
 
 ## What it is
+
+*Everything from here on is the original brief this was built from; the Status above is what
+exists today.*
 
 - A correct hold'em engine: blinds, betting rounds, side pots, showdown, hand ranking.
 - Seats filled by LLM agents ("the maniac", "the rock", "the math nerd", "the
@@ -156,6 +168,9 @@ stats. Model backends behind one interface.
 - **v5 (poker-coach)** — postflop solver integration, drills with spaced repetition,
   weekly leak reports.
 
-## Status
+## Where the brief stands
 
-Idea stage — nothing runs yet.
+v0 to v2 are done, and v3's tournaments are in (a freezeout with a blind schedule, antes and
+finishing places; the commentary track is not). v4 and v5 are done bar the postflop solver.
+The stack ended up Python rather than Go, FastAPI with a no-build-step viewer rather than
+WebSockets, and JSONL rather than SQLite — see the Status at the top.

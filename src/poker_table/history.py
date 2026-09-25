@@ -71,6 +71,7 @@ class HandHistory:
     pots: list[dict[str, Any]]
     payouts: dict[int, int]
     showdown: dict[int, str]
+    ante: int = 0  # dead money every seat posts before the blinds
     version: int = FORMAT_VERSION
     played_at: str = ""  # ISO 8601 UTC; empty when unknown (older files)
     hero: str = ""  # whose hand this is: the imported file's hero, or the one human seat
@@ -127,6 +128,7 @@ class HandHistory:
             pots=[{"amount": p.amount, "eligible": list(p.eligible)} for p in hand.pots],
             payouts=dict(hand.payouts),
             showdown={i: r.describe() for i, r in hand.showdown_ranks.items()},
+            ante=hand.ante,
             played_at=stamp,
             hero=humans[0] if len(humans) == 1 else "",
         )
@@ -157,6 +159,7 @@ class HandHistory:
             pots=list(data["pots"]),
             payouts={int(k): v for k, v in data["payouts"].items()},
             showdown={int(k): v for k, v in data["showdown"].items()},
+            ante=data.get("ante", 0),
             version=data.get("version", FORMAT_VERSION),
             played_at=data.get("played_at", ""),
             hero=data.get("hero", ""),
@@ -186,8 +189,11 @@ class HandHistory:
     def render(self, *, reasoning: bool = False) -> str:
         """A text hand history in the familiar style, optionally with the private reasoning."""
         names = {p.seat: p.name for p in self.players}
+        stakes = f"{self.small_blind}/{self.big_blind}"
+        if self.ante:
+            stakes += f" ante {self.ante}"
         lines = [
-            f"Hand #{self.hand_id} · NLHE {self.small_blind}/{self.big_blind} · seed {self.seed}",
+            f"Hand #{self.hand_id} · NLHE {stakes} · seed {self.seed}",
             f"Seat {self.button} is the button",
         ]
         for p in self.players:
@@ -198,6 +204,9 @@ class HandHistory:
         for e in self.events:
             name = names.get(e.seat, "") if e.seat is not None else ""
             match e.kind:
+                case EventKind.POST_ANTE.value:
+                    suffix = " and is all-in" if e.all_in else ""
+                    lines.append(f"{name}: posts the ante {e.amount}{suffix}")
                 case EventKind.POST_BLIND.value:
                     which = "small" if blinds_posted == 0 else "big"  # engine posts SB first
                     blinds_posted += 1
