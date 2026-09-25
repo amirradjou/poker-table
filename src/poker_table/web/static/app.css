@@ -100,6 +100,7 @@ section.hand h2 strong { font-weight: 700; }
   font-weight: 700; font-size: 13px; letter-spacing: .02em; box-shadow: inset 0 -3px 0 rgba(0,0,0,.2);
 }
 .avatar.llm { box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--gold), inset 0 -3px 0 rgba(0,0,0,.2); }
+.avatar.model { box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px #7fb4c9, inset 0 -3px 0 rgba(0,0,0,.2); }
 .avatar.human { color: var(--ink); }
 .avatar .glyph {
   position: absolute; right: -6px; bottom: -5px; width: 17px; height: 17px; border-radius: 50%;
