@@ -212,3 +212,21 @@ def test_the_seat_is_free_and_fast_on_the_leaderboard() -> None:
     stats = compute_stats([history])["laya"]
     assert stats.model_calls >= 1 and stats.cost_usd == 0.0
     assert stats.cost_per_hand == 0.0 and stats.illegal_rate == 0.0
+
+
+def test_play_reports_how_much_of_a_laya_seat_was_really_the_model() -> None:
+    from poker_table.agents.scripted import CallingStation as Station
+    from poker_table.cli import model_seat_notes
+
+    sure = LayaAgent("sure", client=FakeLaya("fold", confidence=0.9))
+    unsure = LayaAgent("unsure", client=FakeLaya("fold", confidence=0.01), confidence=0.5)
+    for seat in (sure, unsure):
+        for _ in range(3):
+            hand = hand_with({0: "Ah Kd", 1: "7c 2d", 2: "Qs Js"})
+            seat.act(make_view(hand, 0))
+    notes = model_seat_notes([sure, unsure, Station("s")])
+    assert len(notes) == 2
+    assert "sure: 3/3 decisions were the model's" in notes[0]
+    assert "unsure: 0/3 decisions were the model's" in notes[1]
+    assert "handed to the chart below 50% confidence" in notes[1]
+    assert model_seat_notes([Station("s")]) == []

@@ -182,9 +182,35 @@ def cmd_play(args: argparse.Namespace, out) -> int:
         if args.carry:
             print("rebuys: " + ", ".join(f"{k}={v}" for k, v in result.rebuys.items()), file=out)
     print(format_table(result.stats), file=out)
+    for line in model_seat_notes(agents):
+        print(line, file=out)
     if args.out is not None and not args.quiet:
         print(f"hand histories appended to {args.out}", file=out)
     return 0
+
+
+def model_seat_notes(agents) -> list[str]:
+    """What each model-backed seat actually did — a gated seat's row is its fallback's row."""
+    from poker_table.agents.laya import LayaAgent
+
+    notes = []
+    for agent in agents:
+        if not isinstance(agent, LayaAgent):
+            continue
+        u = agent.usage
+        asked = u.decisions + u.gated
+        if not asked:
+            continue
+        note = (
+            f"{agent.name}: {u.decisions}/{asked} decisions were the model's "
+            f"({u.gated} handed to the chart below {agent.confidence:.0%} confidence"
+            + (f", {u.errors} errors" if u.errors else "")
+            + ")"
+        )
+        if u.avg_latency_ms:
+            note += f", {u.avg_latency_ms:.0f} ms each"
+        notes.append(note)
+    return notes
 
 
 def cmd_stats(args: argparse.Namespace, out) -> int:
