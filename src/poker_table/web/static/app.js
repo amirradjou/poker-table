@@ -135,7 +135,8 @@ function stateAt(n) {
   for (let i = 0; i < n; i++) {
     const e = hand.steps[i];
     switch (e.kind) {
-      case "post_ante":
+      // an ante is dead money: the dealer sweeps it straight into the pot, so it is not a bet
+      case "post_ante": seats[e.seat].stack -= e.amount; pot += e.amount; if (e.all_in) seats[e.seat].allIn = true; break;
       case "post_blind": paid(seats[e.seat], e.amount); if (e.all_in) seats[e.seat].allIn = true; break;
       case "action": {
         const s = seats[e.seat];
