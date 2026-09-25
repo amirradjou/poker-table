@@ -53,7 +53,68 @@ the viewer shows exactly what the model thought of each option.
 
 ## Measured: the base checkpoint
 
-<!-- MEASUREMENTS -->
+Run on this machine (CPU, no GPU) against the published base checkpoint
+`convaiinnovations/laya`, laya 0.3.20, with `uv run python scripts/measure_laya.py`.
+Three questions, three answers.
+
+**1. Does it agree with the coach?** 76 spots the coach flagged in a 60-hand bot session, asked
+with the gate off, scored against `accepted_actions()` — what the charts and the pot-odds maths
+say was right:
+
+| | |
+|---|---|
+| agrees with the coach | **45%** (34 / 76) |
+| always folding would score | **76%** (58 of the 76 answers are "fold") |
+| median latency | 454 ms (CPU; the model card reports ~33 ms on a T4) |
+| mean calibrated confidence | 0.09 |
+
+It is **below the majority-class baseline** — a seat that folded every flagged spot would agree
+with the coach more often. This is the model's own documented position for base checkpoints on
+typed decisions, reproduced here on poker.
+
+**2. What happens at the table with the gate on (default 0.40)?** 40 hands, seed 2026:
+
+```
+name     hands   net  bb/100  vpip  pfr  illegal     ms  $/hand
+laya        40   423   528.8   25%  25%       0%  461.8  0.0000
+tag         40   134   167.5   20%  18%       0%    0.0       -
+rock        40  -196  -245.0    8%   2%       0%    0.0       -
+station     40  -361  -451.2   90%   0%       0%    0.0       -
+```
+
+**That +528.8 bb/100 is not Laya playing.** Its mean confidence (0.09) sits far below the 0.40
+gate, so the chart played 90 of its 92 spots and the model played 2. The row is the fallback's
+row wearing Laya's name — which is exactly why `play` now prints a line saying so.
+
+**3. What happens when it has to decide every spot?** Same 40 hands, gate off:
+
+```
+name     hands   net  bb/100  vpip  pfr  illegal     ms  $/hand
+tag         40   124   155.0   12%  10%       0%    0.0       -
+station     40    92   115.0   80%   0%       0%    0.0       -
+rock        40    -9   -11.2    8%   0%       0%    0.0       -
+laya        40  -207  -258.8   50%  25%       0%  436.8  0.0000
+```
+
+59 decisions, no errors, no illegal actions, 437 ms each, $0 — and last place, behind the
+calling station. It chose fold 35 times, call 12, raise 10, bet 2: it plays half its hands and
+then gives up.
+
+**A calibration caveat, printed by the library itself:** loading the checkpoint warns that it
+"ships invalid temperatures or values outside [0.5, 5] … treat confidence from the affected
+entries as uncalibrated". So the confidences above — and therefore where the gate bites — are
+not trustworthy until a temperature is refit on your own data.
+
+### What to take from this
+
+- The harness works on it exactly as on any other seat: **0% illegal actions** (the options
+  *are* the legal actions), 437 ms per decision on a CPU, **$0.0000 per hand** against an LLM
+  seat's real money, and every probability visible in the replay.
+- The base checkpoint cannot play poker. It is a baseline, and the honest number is
+  −258.8 bb/100 with the gate off, not the flattering row the gate produces.
+- The interesting experiment is therefore the fine-tune below — and the comparison to beat is
+  not the LLM seats, it is `tag`: a few hundred lines of chart that costs nothing and wins.
+
 
 ## Training it on this table's own decisions
 

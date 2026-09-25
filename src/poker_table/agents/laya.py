@@ -19,6 +19,7 @@ the core package does not depend on torch.
 
 from __future__ import annotations
 
+import importlib.util
 import time
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -36,6 +37,17 @@ QUESTION_ID = "action"
 INSTRUCTIONS = (
     "You are a winning no-limit hold'em player. Pick the action that makes the most money "
     "over time from this exact spot."
+)
+
+
+def available() -> bool:
+    """Is the optional dependency installed? (Checked without importing torch.)"""
+    return importlib.util.find_spec("laya") is not None
+
+
+INSTALL_HINT = (
+    "the laya seat needs the optional dependency: "
+    "uv sync --extra laya (or pip install 'poker-table[laya]')"
 )
 
 
@@ -249,15 +261,17 @@ class LayaAgent:
         self.fallback = fallback if fallback is not None else TightAggressive(name, seed=seed)
 
     @property
+    def loadable(self) -> bool:
+        """Can this seat actually run? A seat with an injected client always can."""
+        return self._client is not None or available()
+
+    @property
     def client(self) -> LayaRunner:
         if self._client is None:
             try:
                 import laya  # imported lazily: the core package does not depend on torch
             except ImportError as exc:  # noqa: TRY003 - the install hint is the whole message
-                raise ImportError(
-                    "the laya seat needs the optional dependency: "
-                    "uv sync --extra laya (or pip install 'poker-table[laya]')"
-                ) from exc
+                raise ImportError(INSTALL_HINT) from exc
             self._client = laya.load(self.model, device=self.device, subfolder=self.subfolder)
         return self._client
 

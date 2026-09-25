@@ -230,3 +230,20 @@ def test_play_reports_how_much_of_a_laya_seat_was_really_the_model() -> None:
     assert "unsure: 0/3 decisions were the model's" in notes[1]
     assert "handed to the chart below 50% confidence" in notes[1]
     assert model_seat_notes([Station("s")]) == []
+
+
+def test_a_seat_that_cannot_run_is_refused_before_the_first_hand() -> None:
+    import io
+
+    from poker_table.agents.laya import available
+    from poker_table.cli import check_seats_ready, main
+
+    seated = LayaAgent("laya", client=FakeLaya("fold"))
+    assert seated.loadable
+    check_seats_ready([seated])  # an injected client is always runnable
+    unseated = LayaAgent("laya")
+    assert unseated.loadable is available()
+    if not available():  # on a machine without the extra, the CLI says so instead of playing
+        with pytest.raises(ValueError, match="needs the optional dependency"):
+            check_seats_ready([unseated])
+        assert main(["play", "-n", "1", "--seats", "laya,tag"], out=io.StringIO()) == 2

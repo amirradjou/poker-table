@@ -151,6 +151,7 @@ def cmd_play(args: argparse.Namespace, out) -> int:
     small, big = parse_blinds(args.blinds)
     specs = [s for s in args.seats.split(",") if s.strip()]
     agents = make_agents(specs, seed=args.seed)
+    check_seats_ready(agents)
     config = LeagueConfig(
         hands=args.hands,
         small_blind=small,
@@ -189,6 +190,15 @@ def cmd_play(args: argparse.Namespace, out) -> int:
     return 0
 
 
+def check_seats_ready(agents) -> None:
+    """Fail before the first hand if a seat cannot run, rather than folding its way through."""
+    from poker_table.agents.laya import INSTALL_HINT, LayaAgent
+
+    for agent in agents:
+        if isinstance(agent, LayaAgent) and not agent.loadable:
+            raise ValueError(f"seat {agent.name!r}: {INSTALL_HINT}")
+
+
 def model_seat_notes(agents) -> list[str]:
     """What each model-backed seat actually did — a gated seat's row is its fallback's row."""
     from poker_table.agents.laya import LayaAgent
@@ -200,6 +210,8 @@ def model_seat_notes(agents) -> list[str]:
         u = agent.usage
         asked = u.decisions + u.gated
         if not asked:
+            if u.errors:
+                notes.append(f"{agent.name}: every decision failed ({u.errors} errors)")
             continue
         note = (
             f"{agent.name}: {u.decisions}/{asked} decisions were the model's "
@@ -358,6 +370,7 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
             WebHumanAgent(a.name) if isinstance(a, HumanAgent) else a
             for a in make_agents(specs, seed=args.seed)
         ]
+        check_seats_ready(agents)
         config = LeagueConfig(
             hands=args.hands, small_blind=small, big_blind=big, buy_in=args.stack, seed=args.seed
         )
