@@ -94,6 +94,20 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    data = sub.add_parser(
+        "dataset", help="export decisions as labelled training data (for a Laya seat, say)"
+    )
+    data.add_argument("file", type=Path)
+    data.add_argument("-o", "--out", type=Path, required=True, help="JSONL file to write")
+    data.add_argument("-p", "--player", help="seat to export (default: the hero of imported hands)")
+    data.add_argument(
+        "--source",
+        choices=("coach", "policy", "both"),
+        default="coach",
+        help="coach = what the charts and the maths say was right; policy = what the seat did",
+    )
+    data.add_argument("--samples", type=int, default=200, help="equity samples per decision")
+
     drill = sub.add_parser("drill", help="quiz yourself on the spots the coach flagged")
     drill.add_argument("file", type=Path)
     drill.add_argument(
@@ -270,6 +284,25 @@ def cmd_coach(args: argparse.Namespace, out) -> int:
     return 0
 
 
+def cmd_dataset(args: argparse.Namespace, out) -> int:
+    from poker_table.coach import dataset
+    from poker_table.coach.facts import tag_hands
+
+    histories = list(read_jsonl(args.file))
+    player = resolve_player(histories, args.player, args.file)
+    samples: list[dataset.Sample] = []
+    if args.source in ("coach", "both"):
+        facts = tag_hands(histories, player, samples=args.samples)
+        samples += list(dataset.from_coach(histories, facts))
+    if args.source in ("policy", "both"):
+        samples += list(dataset.from_policy(histories, player))
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    dataset.write_jsonl(args.out, samples)
+    print(f"{player}: {dataset.summarize(samples)}", file=out)
+    print(f"written to {args.out}", file=out)
+    return 0
+
+
 def cmd_drill(args: argparse.Namespace, out) -> int:
     from poker_table.coach.drills import DrillLog, run_drill, spots_from
     from poker_table.coach.facts import tag_hands
@@ -337,6 +370,8 @@ def main(argv: Sequence[str] | None = None, out=None) -> int:
                 return cmd_import(args, out)
             case "coach":
                 return cmd_coach(args, out)
+            case "dataset":
+                return cmd_dataset(args, out)
             case "drill":
                 return cmd_drill(args, out)
     except (ValueError, OSError) as exc:
