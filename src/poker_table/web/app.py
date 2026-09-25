@@ -79,6 +79,76 @@ class HandStore:
         return 0
 
 
+# ----- payloads ---------------------------------------------------------------------------
+#
+# Every GET the viewer makes is built here rather than inside a route, so that `serve --export`
+# can write the same JSON to disk and the static site is answered by identical bytes.
+
+
+def session_payload(store: HandStore) -> dict[str, Any]:
+    heroes = {h.hero for h in store.hands if h.hero}
+    return {
+        "file": store.path.name,
+        "hands": len(store.hands),
+        "players": store.players(),
+        "hero": heroes.pop() if len(heroes) == 1 else None,
+        "weeks": weeks_of(store.hands),
+    }
+
+
+def hands_payload(store: HandStore, offset: int = 0, limit: int = 100, ids: str = "") -> dict:
+    if ids:  # a chosen subset, e.g. the example hands of one leak, in the order given
+        chosen = [store.by_id[i] for i in ids.split(",") if i in store.by_id]
+        return {"total": len(chosen), "hands": [summarize(h) for h in chosen]}
+    newest_first = list(reversed(store.hands))
+    page = newest_first[offset : offset + limit]
+    return {"total": len(store.hands), "hands": [summarize(h) for h in page]}
+
+
+def hand_payload(history: HandHistory) -> dict[str, Any]:
+    return history.to_dict() | {"steps": steps_for(history)}
+
+
+def bankroll_payload(store: HandStore) -> dict[str, Any]:
+    """Cumulative chips won per player after each hand, in seating order of first appearance."""
+    totals: dict[str, int] = {}
+    series: dict[str, list[int]] = {}
+    hand_ids: list[str] = []
+    for history in store.hands:
+        hand_ids.append(history.hand_id)
+        for player in history.players:
+            totals[player.name] = totals.get(player.name, 0) + player.net
+        for name in totals:
+            series.setdefault(name, [0] * (len(hand_ids) - 1)).append(totals[name])
+    return {
+        "hands": hand_ids,
+        "big_blind": store.hands[0].big_blind if store.hands else 0,
+        "series": [{"name": name, "values": values} for name, values in series.items()],
+    }
+
+
+def stats_payload(store: HandStore) -> dict[str, Any]:
+    rows = [s.as_row() for s in leaderboard(compute_stats(store.hands))]
+    for row in rows:
+        for key, value in row.items():
+            if value == float("inf"):
+                row[key] = None
+    return {"hands": len(store.hands), "rows": rows}
+
+
+def coach_payload(
+    store: HandStore, player: str, samples: int = 200, since: str = "", until: str = ""
+) -> dict[str, Any]:
+    report = store.report(player, max(20, min(samples, 2000)), since, until)
+    data = report.to_dict()
+    data.pop("facts")
+    data["since"], data["until"] = since, until
+    for leak, source in zip(data["leaks"], report.leaks, strict=True):
+        for example, fact in zip(leak["examples"], source.examples, strict=True):
+            example["step"] = store.step_of(fact)
+    return data
+
+
 def summarize(history: HandHistory) -> dict[str, Any]:
     winners = [history.players[s].name for s in history.winners()]
     return {
@@ -157,30 +227,18 @@ def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
     @app.get("/api/session")
     def session() -> dict[str, Any]:
         store.reload()
-        heroes = {h.hero for h in store.hands if h.hero}
-        return {
-            "file": store.path.name,
-            "hands": len(store.hands),
-            "players": store.players(),
-            "hero": heroes.pop() if len(heroes) == 1 else None,
-            "weeks": weeks_of(store.hands),
-        }
+        return session_payload(store)
 
     @app.get("/api/hands")
     def hands(offset: int = 0, limit: int = 100, ids: str = "") -> dict[str, Any]:
-        if ids:  # a chosen subset, e.g. the example hands of one leak, in the order given
-            chosen = [store.by_id[i] for i in ids.split(",") if i in store.by_id]
-            return {"total": len(chosen), "hands": [summarize(h) for h in chosen]}
-        newest_first = list(reversed(store.hands))
-        page = newest_first[offset : offset + limit]
-        return {"total": len(store.hands), "hands": [summarize(h) for h in page]}
+        return hands_payload(store, offset, limit, ids)
 
     @app.get("/api/hands/{hand_id}")
     def hand(hand_id: str) -> dict[str, Any]:
         history = store.by_id.get(hand_id)
         if history is None:
             raise HTTPException(404, f"no hand {hand_id!r}")
-        return history.to_dict() | {"steps": steps_for(history)}
+        return hand_payload(history)
 
     @app.get("/api/live")
     def live_status() -> dict[str, Any]:
@@ -223,16 +281,9 @@ def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
         if player not in store.players():
             raise HTTPException(404, f"no seat named {player!r}")
         try:
-            report = store.report(player, max(20, min(samples, 2000)), since, until)
+            return coach_payload(store, player, samples, since, until)
         except ValueError as exc:  # a malformed date
             raise HTTPException(400, str(exc)) from None
-        data = report.to_dict()
-        data.pop("facts")
-        data["since"], data["until"] = since, until
-        for leak, source in zip(data["leaks"], report.leaks, strict=True):
-            for example, fact in zip(leak["examples"], source.examples, strict=True):
-                example["step"] = store.step_of(fact)
-        return data
 
     @app.post("/api/coach/narrate")
     def coach_narrate(body: NarrateRequest) -> dict[str, Any]:
@@ -297,30 +348,11 @@ def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
 
     @app.get("/api/bankroll")
     def bankroll() -> dict[str, Any]:
-        """Cumulative chips won per player after each hand, in seating order of first appearance."""
-        totals: dict[str, int] = {}
-        series: dict[str, list[int]] = {}
-        hand_ids: list[str] = []
-        for history in store.hands:
-            hand_ids.append(history.hand_id)
-            for player in history.players:
-                totals[player.name] = totals.get(player.name, 0) + player.net
-            for name in totals:
-                series.setdefault(name, [0] * (len(hand_ids) - 1)).append(totals[name])
-        return {
-            "hands": hand_ids,
-            "big_blind": store.hands[0].big_blind if store.hands else 0,
-            "series": [{"name": name, "values": values} for name, values in series.items()],
-        }
+        return bankroll_payload(store)
 
     @app.get("/api/stats")
     def stats() -> dict[str, Any]:
-        rows = [s.as_row() for s in leaderboard(compute_stats(store.hands))]
-        for row in rows:
-            for key, value in row.items():
-                if value == float("inf"):
-                    row[key] = None
-        return {"hands": len(store.hands), "rows": rows}
+        return stats_payload(store)
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     return app
