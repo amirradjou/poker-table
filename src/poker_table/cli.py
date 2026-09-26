@@ -120,6 +120,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--ollama", action="store_true", help="also list the models a local Ollama has pulled"
     )
 
+    ev = sub.add_parser("eval", help="score seats on decisions the coach can grade")
+    ev.description = (
+        "Play a seeded bot session, let the coach grade its decisions, and ask each seat the"
+        " same questions: half spots the coach calls mistakes, half it accepts. Prints how"
+        " often each seat agrees, beside the best a one-answer seat could score."
+    )
+    ev.add_argument("-s", "--seats", required=True, help="seats to score, as for play")
+    add_agents_option(ev)
+    ev.add_argument("-n", "--questions", type=int, default=60, help="questions (default 60)")
+    ev.add_argument(
+        "--hands", type=int, default=150, help="seeded bot hands to draw them from (default 150)"
+    )
+    ev.add_argument(
+        "--from", dest="source", type=Path, help="draw questions from this JSONL file instead"
+    )
+    ev.add_argument("--players", help="whose decisions become questions (default: every seat)")
+    ev.add_argument("--seed", type=int, default=7)
+    ev.add_argument("--samples", type=int, default=150, help="equity samples per graded spot")
+    ev.add_argument(
+        "--aids", help="what LLM seats are handed: comma-separated, or 'none' (default: theirs)"
+    )
+    ev.add_argument("--json", type=Path, help="also write the scores and every answer here")
+    ev.add_argument("-v", "--verbose", action="store_true", help="print every answer")
+
     stats = sub.add_parser("stats", help="leaderboard and exploitability stats for a JSONL file")
     stats.add_argument("file", type=Path)
 
@@ -282,6 +306,88 @@ def cmd_agents(args: argparse.Namespace, out) -> int:
         else:
             names = ", ".join(f"ollama/{m}" for m in pulled) or "none pulled"
             print(f"Ollama at {client.host}: {names}", file=out)
+    return 0
+
+
+EVAL_BOTS = "tag,rock,station,maniac,random"  # the session questions are drawn from
+
+
+def cmd_eval(args: argparse.Namespace, out) -> int:
+    import json
+
+    from poker_table.evals import build_questions, format_scores, score
+    from poker_table.league import LeagueConfig, run_league
+
+    if args.source is not None:
+        histories = list(read_jsonl(args.source))
+        where = f"{len(histories)} hands from {args.source}"
+    else:
+        bots = make_agents(EVAL_BOTS.split(","), seed=args.seed)
+        histories = run_league(bots, LeagueConfig(hands=args.hands, seed=args.seed)).histories
+        where = f"{args.hands} seeded hands between {EVAL_BOTS.replace(',', ', ')}"
+    players = (
+        [p.strip() for p in args.players.split(",") if p.strip()]
+        if args.players
+        else sorted({p.name for h in histories for p in h.players})
+    )
+    questions = build_questions(
+        histories, players, count=args.questions, samples=args.samples, seed=args.seed
+    )
+    if not questions:
+        raise ValueError(f"the coach found nothing to grade in {where}")
+    specs = [s for s in args.seats.split(",") if s.strip()]
+    agents = make_agents(specs, seed=args.seed, custom=custom_kinds(args))
+    if any(isinstance(a, HumanAgent) for a in agents):
+        raise ValueError("a human seat cannot be evaluated here; try `poker-table drill`")
+    if args.aids is not None:
+        aids = [] if args.aids.strip() == "none" else [a.strip() for a in args.aids.split(",")]
+        for agent in agents:
+            if isinstance(agent, LLMAgent):
+                agent.use_aids(aids)
+    check_seats_ready(agents)
+    mistakes = sum(q.mistake for q in questions)
+    print(
+        f"{len(questions)} questions ({mistakes} spots the coach calls mistakes, "
+        f"{len(questions) - mistakes} it accepts) from {where}",
+        file=out,
+    )
+    answers: list[dict] = []
+
+    def on_answer(agent_name: str):
+        def record(q, action, right: bool) -> None:
+            answers.append(
+                {
+                    "seat": agent_name,
+                    "question": q.key,
+                    "tag": q.tag,
+                    "mistake": q.mistake,
+                    "answer": str(action),
+                    "right": right,
+                    "accepted": sorted(a.value for a in q.accepted),
+                }
+            )
+            if args.verbose:
+                mark = "ok " if right else "no "
+                accepted = "/".join(sorted(a.value for a in q.accepted))
+                print(
+                    f"  {mark}{agent_name:<12} {q.key:<14} {q.tag:<14} "
+                    f"{str(action):<12} (accepted: {accepted})",
+                    file=out,
+                )
+
+        return record
+
+    scores = [score(agent, questions, on_answer=on_answer(agent.name)) for agent in agents]
+    print(format_scores(scores, questions), file=out)
+    if args.json is not None:
+        payload = {
+            "source": where,
+            "questions": len(questions),
+            "mistakes": mistakes,
+            "scores": [s.row() for s in scores],
+            "answers": answers,
+        }
+        args.json.write_text(json.dumps(payload, indent=1), encoding="utf-8")
     return 0
 
 
@@ -705,6 +811,8 @@ def main(argv: Sequence[str] | None = None, out=None) -> int:
                 return cmd_odds(args, out)
             case "agents":
                 return cmd_agents(args, out)
+            case "eval":
+                return cmd_eval(args, out)
             case "stats":
                 return cmd_stats(args, out)
             case "replay":

@@ -154,9 +154,14 @@ class LLMAgent:
         self.usage = Usage()
         self._client = client
         self.kind = f"llm:{self.personality.key}"
-        self.aids = check_aids(self.personality.aids if aids is None else aids)
-        self.reads = Reads(name) if "reads" in self.aids else None
         self.notes: deque[str] = deque(maxlen=NOTES_KEPT)
+        self.use_aids(self.personality.aids if aids is None else aids)
+
+    def use_aids(self, aids: Iterable[str]) -> None:
+        """Change what this seat is handed (for evals that compare one aid against another)."""
+        self.aids = check_aids(aids)
+        self.reads = Reads(self.name) if "reads" in self.aids else None
+        self.notes.clear()
 
     @property
     def schema(self) -> dict[str, Any]:
