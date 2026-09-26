@@ -10,8 +10,9 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from poker_table.cards import Card
 from poker_table.coach.drills import DrillLog, DrillSession, spots_from
-from poker_table.coach.facts import Fact, tag_hands
+from poker_table.coach.facts import Fact, replay, tag_hands
 from poker_table.coach.report import Report, build_report
 from poker_table.engine import ActionType, EventKind
 from poker_table.history import HandHistory, filter_by_date, parse_action, read_jsonl, weeks_of
@@ -30,6 +31,7 @@ class HandStore:
         self.by_id: dict[str, HandHistory] = {}
         self._reports: dict[tuple[str, int, int, str, str], Report] = {}
         self._drills: dict[tuple[str, int], DrillSession] = {}
+        self._odds: dict[str, dict[str, Any]] = {}
         self.reload()
 
     def reload(self) -> int:
@@ -63,6 +65,12 @@ class HandStore:
             self._drills[key] = DrillSession(spots, log)
         return self._drills[key]
 
+    def odds(self, hand_id: str) -> dict[str, Any]:
+        """The per-decision probabilities for one hand, computed once and kept."""
+        if hand_id not in self._odds:
+            self._odds[hand_id] = odds_payload(self.by_id[hand_id])
+        return self._odds[hand_id]
+
     def step_of(self, fact: Fact) -> int:
         """Index of the fact's decision among the hand's viewer steps (state just before it)."""
         history = self.by_id.get(fact.hand_id)
@@ -77,6 +85,144 @@ class HandStore:
             ):
                 return index
         return 0
+
+
+# ----- payloads ---------------------------------------------------------------------------
+#
+# Every GET the viewer makes is built here rather than inside a route, so that `serve --export`
+# can write the same JSON to disk and the static site is answered by identical bytes.
+
+
+def session_payload(store: HandStore) -> dict[str, Any]:
+    heroes = {h.hero for h in store.hands if h.hero}
+    return {
+        "file": store.path.name,
+        "hands": len(store.hands),
+        "players": store.players(),
+        "hero": heroes.pop() if len(heroes) == 1 else None,
+        "weeks": weeks_of(store.hands),
+    }
+
+
+def hands_payload(store: HandStore, offset: int = 0, limit: int = 100, ids: str = "") -> dict:
+    if ids:  # a chosen subset, e.g. the example hands of one leak, in the order given
+        chosen = [store.by_id[i] for i in ids.split(",") if i in store.by_id]
+        return {"total": len(chosen), "hands": [summarize(h) for h in chosen]}
+    newest_first = list(reversed(store.hands))
+    page = newest_first[offset : offset + limit]
+    return {"total": len(store.hands), "hands": [summarize(h) for h in page]}
+
+
+def hand_payload(history: HandHistory) -> dict[str, Any]:
+    return history.to_dict() | {"steps": steps_for(history)}
+
+
+def bankroll_payload(store: HandStore) -> dict[str, Any]:
+    """Cumulative chips won per player after each hand, in seating order of first appearance."""
+    totals: dict[str, int] = {}
+    series: dict[str, list[int]] = {}
+    hand_ids: list[str] = []
+    for history in store.hands:
+        hand_ids.append(history.hand_id)
+        for player in history.players:
+            totals[player.name] = totals.get(player.name, 0) + player.net
+        for name in totals:
+            series.setdefault(name, [0] * (len(hand_ids) - 1)).append(totals[name])
+    return {
+        "hands": hand_ids,
+        "big_blind": store.hands[0].big_blind if store.hands else 0,
+        "series": [{"name": name, "values": values} for name, values in series.items()],
+    }
+
+
+def stats_payload(store: HandStore) -> dict[str, Any]:
+    rows = [s.as_row() for s in leaderboard(compute_stats(store.hands))]
+    for row in rows:
+        for key, value in row.items():
+            if value == float("inf"):
+                row[key] = None
+    return {"hands": len(store.hands), "rows": rows}
+
+
+def coach_payload(
+    store: HandStore, player: str, samples: int = 200, since: str = "", until: str = ""
+) -> dict[str, Any]:
+    report = store.report(player, max(20, min(samples, 2000)), since, until)
+    data = report.to_dict()
+    data.pop("facts")
+    data["since"], data["until"] = since, until
+    for leak, source in zip(data["leaks"], report.leaks, strict=True):
+        for example, fact in zip(leak["examples"], source.examples, strict=True):
+            example["step"] = store.step_of(fact)
+    return data
+
+
+ODDS_SAMPLES = 800
+
+
+def odds_payload(history: HandHistory, *, samples: int = ODDS_SAMPLES) -> dict[str, Any]:
+    """The probability calculation at every decision of one hand, both ways round.
+
+    ``blind`` is what the seat itself could work out — its cards against the hands still in,
+    unseen. ``known`` is what a replay can also say, because the file has everyone's cards:
+    the same spot against the actual holdings, enumerated where that is cheap. A hand
+    imported from a site keeps ``known`` empty for the seats whose cards were never shown.
+    """
+    from poker_table.odds import calculate
+
+    holes = {p.seat: [Card.parse(c) for c in p.hole] for p in history.players}
+    steps = [i for i, step in enumerate(steps_for(history)) if step["kind"] == "action"]
+    spots: list[dict[str, Any]] = []
+    try:
+        decisions = list(replay(history))
+    except ValueError:  # a hand that will not replay (an import we cannot rebuild)
+        return {"hand_id": history.hand_id, "spots": []}
+    for index, (view, action) in enumerate(decisions):
+        if index >= len(steps):
+            break
+        others = [p.seat for p in view.players if p.seat != view.seat and not p.folded]
+        price = {"pot": view.pot, "to_call": view.to_call}
+        blind = calculate(view.hole, view.board, max(1, len(others)), samples=samples, **price)
+        shown = [tuple(holes[seat]) for seat in others if len(holes.get(seat, [])) == 2]
+        known = (
+            calculate(view.hole, view.board, shown, samples=samples, **price)
+            if shown and len(shown) == len(others)
+            else None
+        )
+        spots.append(
+            {
+                "step": steps[index],
+                "seat": view.seat,
+                "name": view.name,
+                "street": view.street.value,
+                "action": str(action),
+                "pot": view.pot,
+                "to_call": view.to_call,
+                "pot_odds": round(blind.pot_odds, 4),
+                "required": round(blind.required_equity, 4),
+                "ratio": blind.ratio,
+                "ev_call": round(blind.ev_call, 2),
+                "blind": _chance_row(blind),
+                "known": _chance_row(known) if known is not None else None,
+            }
+        )
+    return {"hand_id": history.hand_id, "spots": spots}
+
+
+def _chance_row(spot: Any) -> dict[str, Any]:
+    c = spot.chances
+    return {
+        "equity": round(c.equity, 4),
+        "win": round(c.win, 4),
+        "tie": round(c.tie, 4),
+        "exact": c.exact,
+        "trials": c.trials,
+        "error": round(c.error, 4),
+        "opponents": spot.opponents,
+        "outs": [str(c) for c in (spot.outs or ())] if spot.outs is not None else None,
+        "improving": len(spot.improving),
+        "hit": round(spot.hit() or 0.0, 4) if spot.outs is not None else None,
+    }
 
 
 def summarize(history: HandHistory) -> dict[str, Any]:
@@ -157,30 +303,25 @@ def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
     @app.get("/api/session")
     def session() -> dict[str, Any]:
         store.reload()
-        heroes = {h.hero for h in store.hands if h.hero}
-        return {
-            "file": store.path.name,
-            "hands": len(store.hands),
-            "players": store.players(),
-            "hero": heroes.pop() if len(heroes) == 1 else None,
-            "weeks": weeks_of(store.hands),
-        }
+        return session_payload(store)
 
     @app.get("/api/hands")
     def hands(offset: int = 0, limit: int = 100, ids: str = "") -> dict[str, Any]:
-        if ids:  # a chosen subset, e.g. the example hands of one leak, in the order given
-            chosen = [store.by_id[i] for i in ids.split(",") if i in store.by_id]
-            return {"total": len(chosen), "hands": [summarize(h) for h in chosen]}
-        newest_first = list(reversed(store.hands))
-        page = newest_first[offset : offset + limit]
-        return {"total": len(store.hands), "hands": [summarize(h) for h in page]}
+        return hands_payload(store, offset, limit, ids)
 
     @app.get("/api/hands/{hand_id}")
     def hand(hand_id: str) -> dict[str, Any]:
         history = store.by_id.get(hand_id)
         if history is None:
             raise HTTPException(404, f"no hand {hand_id!r}")
-        return history.to_dict() | {"steps": steps_for(history)}
+        return hand_payload(history)
+
+    @app.get("/api/odds/{hand_id}")
+    def odds(hand_id: str) -> dict[str, Any]:
+        history = store.by_id.get(hand_id)
+        if history is None:
+            raise HTTPException(404, f"no hand {hand_id!r}")
+        return store.odds(hand_id)
 
     @app.get("/api/live")
     def live_status() -> dict[str, Any]:
@@ -223,16 +364,9 @@ def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
         if player not in store.players():
             raise HTTPException(404, f"no seat named {player!r}")
         try:
-            report = store.report(player, max(20, min(samples, 2000)), since, until)
+            return coach_payload(store, player, samples, since, until)
         except ValueError as exc:  # a malformed date
             raise HTTPException(400, str(exc)) from None
-        data = report.to_dict()
-        data.pop("facts")
-        data["since"], data["until"] = since, until
-        for leak, source in zip(data["leaks"], report.leaks, strict=True):
-            for example, fact in zip(leak["examples"], source.examples, strict=True):
-                example["step"] = store.step_of(fact)
-        return data
 
     @app.post("/api/coach/narrate")
     def coach_narrate(body: NarrateRequest) -> dict[str, Any]:
@@ -297,30 +431,11 @@ def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
 
     @app.get("/api/bankroll")
     def bankroll() -> dict[str, Any]:
-        """Cumulative chips won per player after each hand, in seating order of first appearance."""
-        totals: dict[str, int] = {}
-        series: dict[str, list[int]] = {}
-        hand_ids: list[str] = []
-        for history in store.hands:
-            hand_ids.append(history.hand_id)
-            for player in history.players:
-                totals[player.name] = totals.get(player.name, 0) + player.net
-            for name in totals:
-                series.setdefault(name, [0] * (len(hand_ids) - 1)).append(totals[name])
-        return {
-            "hands": hand_ids,
-            "big_blind": store.hands[0].big_blind if store.hands else 0,
-            "series": [{"name": name, "values": values} for name, values in series.items()],
-        }
+        return bankroll_payload(store)
 
     @app.get("/api/stats")
     def stats() -> dict[str, Any]:
-        rows = [s.as_row() for s in leaderboard(compute_stats(store.hands))]
-        for row in rows:
-            for key, value in row.items():
-                if value == float("inf"):
-                    row[key] = None
-        return {"hands": len(store.hands), "rows": rows}
+        return stats_payload(store)
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     return app

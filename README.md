@@ -15,7 +15,8 @@ leak against, how it trends week by week, with Claude's notes and spaced-repetit
 drillable in the browser too. A [Laya](docs/laya.md) seat brings an open decision model to the
 table beside the scripted bots and the LLM personalities. Antes and
 [freezeout tournaments](docs/tournaments.md) are in, so the table answers "who survives" as well
-as "who wins chips".
+as "who wins chips", and a [probability calculator](docs/odds.md) runs in the viewer, on the
+command line and inside the seats' own prompts.
 
 ![Watch mode: bots playing a hand live, with avatars, chip stacks, a thinking indicator and
 table talk](docs/watch.gif)
@@ -66,11 +67,23 @@ Seat kinds: `random`, `station`, `tag`, `rock`, `maniac`, `laya`, and `llm:mania
 model, tokens, latency and an estimated cost; the leaderboard shows `$/hand` and `ms` per seat.
 
 ```sh
+# a probability calculator: with the other hands, or without them
+uv run poker-table odds "9h 8d" -b "Ts 7c 2d Kh" --vs "As Ac" --pot 60 --call 20
+uv run poker-table odds "Ah Kh" -b "Qh 7h 2c" --vs 2 --pot 40 --call 15
+
 # a Laya seat: an open 421M decision model, no tokens, no cost (uv sync --extra laya)
 uv run poker-table play -n 50 --seats laya,tag,station -o laya.jsonl
 uv run poker-table dataset laya.jsonl -p tag -o train.jsonl --source both   # its training set
 ```
 See [docs/laya.md](docs/laya.md) for what the base checkpoint actually does at the table.
+
+The replay shows the same numbers at every decision — what the seat could work out (its cards
+against the hands still in, unseen) next to what the replay also knows (the same spot against
+their actual cards, enumerated). LLM seats are prompted with them, so a model spends its
+thinking on the read rather than on arithmetic. [docs/odds.md](docs/odds.md) has the formulas
+and the checks against the published tables.
+
+![The odds panel under the table: two equity bars, the outs, and the price](docs/odds.png)
 
 ## What it is
 

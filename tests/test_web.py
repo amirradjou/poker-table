@@ -173,3 +173,99 @@ def test_an_ante_hand_reaches_the_viewer_as_its_own_step(tmp_path: Path) -> None
         "post_blind",
         "post_blind",
     ]
+
+
+def test_export_writes_a_static_site_answering_the_same_json(tmp_path: Path, hands_file: Path):
+    import json
+
+    from poker_table.web.export import FLAG, export_site
+
+    site = tmp_path / "site"
+    written = export_site(hands_file, site, players=["tag"])
+    assert written["hands"] == 12 and written["coached"] == ["tag"]
+
+    page = (site / "index.html").read_text()
+    assert FLAG in page and 'src="static/app.js"' in page
+    assert (site / "static" / "app.js").exists() and (site / "static" / "app.css").exists()
+    assert not (site / "static" / "index.html").exists()  # the page lives at the root
+
+    client = TestClient(create_app(hands_file))
+    for route, file in [
+        ("/api/session", "session.json"),
+        ("/api/bankroll", "bankroll.json"),
+        ("/api/stats", "stats.json"),
+        ("/api/hands/7", "hands/7.json"),
+        ("/api/coach?player=tag", "coach/tag.json"),
+    ]:
+        served = client.get(route).json()
+        assert json.loads((site / "data" / file).read_text()) == served, route
+
+    # the whole list, newest first: the page does the paging the server used to do
+    listed = json.loads((site / "data" / "hands.json").read_text())
+    assert listed["total"] == 12
+    assert [h["hand_id"] for h in listed["hands"]] == [str(i) for i in range(12, 0, -1)]
+    assert listed["hands"][:5] == client.get("/api/hands?limit=5").json()["hands"]
+    assert len(list((site / "data" / "hands").glob("*.json"))) == 12
+
+
+def test_export_refuses_what_it_cannot_write(tmp_path: Path, hands_file: Path) -> None:
+    from poker_table.web.export import export_site
+
+    with pytest.raises(ValueError, match="no seat named 'nobody'"):
+        export_site(hands_file, tmp_path / "a", players=["nobody"])
+    empty = tmp_path / "empty.jsonl"
+    empty.touch()
+    with pytest.raises(ValueError, match="no hands"):
+        export_site(empty, tmp_path / "b")
+
+
+def test_export_cli(tmp_path: Path, hands_file: Path) -> None:
+    import io
+
+    site = tmp_path / "site"
+    buf = io.StringIO()
+    code = main(["serve", str(hands_file), "--export", str(site), "--export-coach", "tag"], out=buf)
+    assert code == 0 and (site / "data" / "session.json").exists()
+    assert "12 hands written to" in buf.getvalue()
+    assert "coach reports for tag" in buf.getvalue()
+    assert "python3 -m http.server" in buf.getvalue()
+
+
+def test_odds_for_a_hand_answer_with_and_without_the_other_cards(hands_file: Path) -> None:
+    client = TestClient(create_app(hands_file))
+    data = client.get("/api/odds/3").json()
+    hand = client.get("/api/hands/3").json()
+    assert data["hand_id"] == "3" and data["spots"]
+    actions = [i for i, s in enumerate(hand["steps"]) if s["kind"] == "action"]
+    assert [s["step"] for s in data["spots"]] == actions[: len(data["spots"])]
+    for spot in data["spots"]:
+        assert hand["steps"][spot["step"]]["seat"] == spot["seat"]
+        assert 0.0 <= spot["blind"]["equity"] <= 1.0
+        assert spot["blind"]["opponents"] >= 1
+        assert spot["blind"]["outs"] is None  # blind: the other hands are not known
+        if spot["known"] is not None:  # a league hand knows every seat's cards
+            assert 0.0 <= spot["known"]["equity"] <= 1.0
+        if spot["to_call"]:
+            assert spot["required"] == pytest.approx(
+                spot["to_call"] / (spot["pot"] + spot["to_call"]), abs=1e-4
+            )
+        else:
+            assert spot["ev_call"] == 0.0
+    assert client.get("/api/odds/999").status_code == 404
+
+
+def test_odds_are_exported_only_when_asked_for(tmp_path: Path, hands_file: Path) -> None:
+    from poker_table.web.export import export_site
+
+    plain = export_site(hands_file, tmp_path / "plain", players=[])
+    assert plain["odds"] is False and not (tmp_path / "plain" / "data" / "odds").exists()
+    with_odds = export_site(hands_file, tmp_path / "odds", players=[], odds=True)
+    assert with_odds["odds"] is True
+    files = sorted((tmp_path / "odds" / "data" / "odds").glob("*.json"))
+    assert len(files) == 12
+    import json
+
+    client = TestClient(create_app(hands_file))
+    assert json.loads((tmp_path / "odds" / "data" / "odds" / "5.json").read_text()) == (
+        client.get("/api/odds/5").json()
+    )

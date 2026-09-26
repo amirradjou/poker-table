@@ -113,3 +113,31 @@ def test_play_with_an_ante() -> None:
 def test_a_bad_level_schedule_is_a_clean_error() -> None:
     code, _ = run("play", "--tournament", "--levels", "1-2")
     assert code == 2
+
+
+def test_odds_with_the_other_hands_known() -> None:
+    code, text = run(
+        "odds", "9h 8d", "-b", "Ts 7c 2d Kh", "--vs", "As Ac", "--pot", "60", "--call", "20"
+    )
+    assert code == 0
+    assert "9h 8d on the turn (Ts 7c 2d Kh) against As Ac" in text
+    assert "Equity 18.2% (exact, 44 run-outs)" in text
+    assert "Outs to the best hand: 8" in text
+    assert "pot odds 3.0:1" in text and "less equity than the price asks" in text
+
+
+def test_odds_without_them() -> None:
+    code, text = run("odds", "Ah Ad", "--vs", "1", "--samples", "4000")
+    assert code == 0 and "against 1 unknown hand" in text
+    equity = float(text.split("Equity ")[1].split("%")[0])
+    assert 83 < equity < 87  # aces against one random hand: about 85%
+    assert "4000 samples, ±" in text
+
+    mixed = run("odds", "Ah Ad", "--vs", "Ks Kd,?", "--samples", "2000")[1]
+    assert "against Ks Kd, an unknown hand" in mixed
+
+
+def test_odds_refuses_nonsense() -> None:
+    assert run("odds", "Ah Ah")[0] == 2  # the same card twice
+    assert run("odds", "Ah Kd", "--vs", "Qs")[0] == 2  # one card is not a hand
+    assert run("odds", "Ah Kd", "--vs", "0")[0] == 2

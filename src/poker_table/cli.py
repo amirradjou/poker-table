@@ -80,6 +80,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     play.add_argument("-q", "--quiet", action="store_true", help="only print the leaderboard")
 
+    odds = sub.add_parser("odds", help="win chances, outs and pot odds for one spot")
+    odds.description = (
+        "A probability calculator. Give your two cards, the board so far, and who you are "
+        "against: a number of unknown hands, or their cards. With the other hands known every "
+        "remaining board is counted exactly; otherwise the spot is sampled."
+    )
+    odds.add_argument("hole", help="your two cards, e.g. 'Ah Kd'")
+    odds.add_argument("-b", "--board", default="", help="the board so far, e.g. '8s 7d 2c'")
+    odds.add_argument(
+        "-v",
+        "--vs",
+        default="1",
+        help="opponents: a count ('2'), their cards ('Qs Js,7h 7c'), or a mix ('Qs Js,?')",
+    )
+    odds.add_argument("--pot", type=int, default=0, help="chips in the pot before your call")
+    odds.add_argument("--call", type=int, default=0, help="chips you have to put in")
+    odds.add_argument("--samples", type=int, default=20000, help="samples when it cannot be exact")
+    odds.add_argument("--seed", type=int, default=0)
+
     stats = sub.add_parser("stats", help="leaderboard and exploitability stats for a JSONL file")
     stats.add_argument("file", type=Path)
 
@@ -146,6 +165,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     serve = sub.add_parser("serve", help="open the replay viewer and leaderboard in a browser")
     serve.add_argument("file", type=Path, help="JSONL file (may still be growing)")
+    serve.add_argument(
+        "--export",
+        type=Path,
+        metavar="DIR",
+        help="write a static copy of the viewer (page plus JSON) to DIR and exit",
+    )
+    serve.add_argument(
+        "--export-coach",
+        default="",
+        help="seats to build a coach report for when exporting (default: every seat)",
+    )
+    serve.add_argument(
+        "--export-odds",
+        action="store_true",
+        help="also export the odds panel (about half a second of maths per hand)",
+    )
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument("--open", action="store_true", help="open the browser")
@@ -309,6 +344,60 @@ def model_seat_notes(agents) -> list[str]:
     return notes
 
 
+def parse_opponents(text: str):
+    """``"2"`` -> two unknown hands; ``"Qs Js,?"`` -> one known hand and one unknown."""
+    from poker_table.cards import parse_cards
+
+    text = text.strip()
+    if text.isdigit():
+        count = int(text)
+        if count < 1:
+            raise ValueError("there has to be at least one opponent")
+        return count
+    seats = []
+    for part in text.split(","):
+        part = part.strip()
+        if part in ("?", ""):
+            seats.append(None)
+            continue
+        pair = parse_cards(part)
+        if len(pair) != 2:
+            raise ValueError(f"{part!r} is not two cards")
+        seats.append((pair[0], pair[1]))
+    if not seats:
+        raise ValueError("there has to be at least one opponent")
+    return seats
+
+
+def cmd_odds(args: argparse.Namespace, out) -> int:
+    from poker_table.cards import cards_str, parse_cards
+    from poker_table.odds import calculate
+
+    hole = parse_cards(args.hole)
+    board = parse_cards(args.board)
+    opponents = parse_opponents(args.vs)
+    spot = calculate(
+        hole,
+        board,
+        opponents,
+        pot=args.pot,
+        to_call=args.call,
+        samples=args.samples,
+        seed=args.seed,
+    )
+    against = (
+        f"{spot.opponents} unknown hand{'s' if spot.opponents != 1 else ''}"
+        if isinstance(opponents, int)
+        else ", ".join("an unknown hand" if o is None else cards_str(o) for o in opponents)
+    )
+    street = {0: "preflop", 3: "flop", 4: "turn", 5: "river"}.get(len(board), "")
+    where = f"on the {street} ({cards_str(board)})" if board else "preflop"
+    print(f"{cards_str(hole)} {where} against {against}", file=out)
+    for line in spot.lines():
+        print(f"  {line}", file=out)
+    return 0
+
+
 def cmd_stats(args: argparse.Namespace, out) -> int:
     histories = list(read_jsonl(args.file))
     print(f"{len(histories)} hands from {args.file}", file=out)
@@ -443,6 +532,23 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
 
     from poker_table.web.app import create_app
 
+    if args.export is not None:
+        from poker_table.web.export import export_site
+
+        players = [p for p in args.export_coach.split(",") if p.strip()] or None
+        written = export_site(args.file, args.export, players=players, odds=args.export_odds)
+        size = written["bytes"] / 1_000_000
+        print(
+            f"{written['hands']} hands written to {written['dir']} ({size:.1f} MB), "
+            f"coach reports for {', '.join(written['coached']) or 'nobody'}"
+            + (", with the odds" if written["odds"] else ", no odds (--export-odds adds them)"),
+            file=out,
+        )
+        # A browser refuses fetch() from a file:// page, so the preview goes through any
+        # static server; the point of the export is that it needs no *poker-table* server.
+        print(f"preview: python3 -m http.server -d {written['dir']} 8000", file=out)
+        return 0
+
     live = None
     if args.live:
         from poker_table.league import LeagueConfig
@@ -483,6 +589,8 @@ def main(argv: Sequence[str] | None = None, out=None) -> int:
         match args.command:
             case "play":
                 return cmd_play(args, out)
+            case "odds":
+                return cmd_odds(args, out)
             case "stats":
                 return cmd_stats(args, out)
             case "replay":

@@ -167,6 +167,22 @@ section.hand h2 strong { font-weight: 700; }
 .controls .pace-wrap { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-soft); font-size: 14px; }
 .controls .pace-wrap input[type=range] { flex: 0 0 90px; min-width: 90px; }
 
+/* the probability panel: what the seat could work out, and what a replay also knows */
+.odds { background: var(--paper); border-top: 1px solid #ddd4bf; padding: 10px 16px; font-size: 14px; }
+.odds .head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin-bottom: 6px; }
+.odds .head strong { font-size: 15px; }
+.odds .head .price { color: var(--ink-soft); }
+.odds .row { display: grid; grid-template-columns: 7.5em 8em 3.2em 1fr; gap: 8px; align-items: center; padding: 2px 0; }
+.odds .row .what { color: var(--ink-soft); font-size: 13px; }
+.odds .bar { background: #e6dfcd; border-radius: 3px; height: 12px; overflow: hidden; }
+.odds .bar i { display: block; height: 100%; background: var(--felt); }
+.odds .row.exact .bar i { background: #8a6d2f; }
+.odds .row b { text-align: right; font-variant-numeric: tabular-nums; }
+.odds .note { color: var(--ink-soft); font-size: 13px; }
+.odds .foot { margin-top: 6px; color: var(--ink-soft); }
+.odds .foot .good { color: #2f6b3a; } .odds .foot .bad { color: #9a3b32; }
+@media (max-width: 720px) { .odds .row { grid-template-columns: 1fr; gap: 2px; } .odds .bar { height: 8px; } }
+
 .log { background: var(--paper); border-radius: 0 0 8px 8px; padding: 6px 0 12px; max-height: 44vh; overflow-y: auto; }
 .log ol { list-style: none; margin: 0; padding: 0; }
 .log li { padding: 6px 16px; border-top: 1px solid #ddd4bf; }
