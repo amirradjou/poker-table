@@ -1,0 +1,40 @@
+# Your own seats for poker-table. Seat them by name:
+#   poker-table play --agents agents.toml --seats shark,nit,tag,station
+# Any LLM kind takes another model for one seat: shark@ollama/qwen2.5:7b
+# `poker-table agents --agents agents.toml` checks this file and lists what it defines.
+
+[agents.shark]
+description = "Patient, then ruthless"
+type = "llm"
+model = "claude-sonnet-5"          # or "ollama/qwen2.5:7b" to run on this machine for free
+prompt = """
+You are THE SHARK. You play few hands, and when you play one you play it hard: you raise
+or re-raise, you bet big for value, and you bluff only when the story holds together.
+You study the table and punish whoever is playing badly. You say little.
+"""
+effort = "medium"                  # low | medium | high | xhigh | max (Claude only)
+auto_fold_below = 6                # fold junk facing a raise without asking; false = never
+talkative = false
+# What the seat is handed besides the table (all five when left out):
+#   odds, ranges, reads, notes, playbook
+aids = ["odds", "ranges", "reads", "notes", "playbook"]
+
+[agents.professor]
+description = "The math nerd, on a local model"
+type = "llm"
+extends = "nerd"                   # start from a built-in personality
+model = "ollama/qwen2.5:7b"
+options = { temperature = 0.3 }    # Ollama options, for local models only
+
+[agents.nit]
+description = "Folds nearly everything, bets when it has it"
+type = "bot"
+base = "tag"                       # tag | rock | maniac | station | random
+tightness = 3                      # higher is tighter
+aggression = 0.5                   # below 1 calls where a tag would bet
+
+# A Python class with act(view) -> Decision, from a file next to this one:
+# [agents.bluffer]
+# type = "python"
+# class = "my_bots.py:Bluffer"
+# options = { rate = 0.4 }

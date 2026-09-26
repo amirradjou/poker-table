@@ -141,3 +141,45 @@ def test_odds_refuses_nonsense() -> None:
     assert run("odds", "Ah Ah")[0] == 2  # the same card twice
     assert run("odds", "Ah Kd", "--vs", "Qs")[0] == 2  # one card is not a hand
     assert run("odds", "Ah Kd", "--vs", "0")[0] == 2
+
+
+# ----- your own agents ----------------------------------------------------------------------
+
+
+def test_agents_lists_the_kinds_and_prints_an_example(tmp_path: Path) -> None:
+    code, text = run("agents")
+    assert code == 0 and "tag " in text and "llm:nerd" in text and "Ollama" not in text
+    code, example = run("agents", "--example")
+    assert code == 0 and "[agents.shark]" in example
+    path = tmp_path / "agents.toml"
+    path.write_text(example)
+    code, text = run("agents", "--agents", str(path))
+    assert code == 0 and f"From {path}:" in text
+    assert "shark " in text and "llm on claude-sonnet-5" in text
+    assert "professor" in text and "llm on ollama/qwen2.5:7b" in text
+
+
+def test_play_seats_kinds_from_an_agents_file(tmp_path: Path) -> None:
+    path = tmp_path / "agents.toml"
+    path.write_text('[agents.nit]\ntype = "bot"\nbase = "tag"\ntightness = 4\n')
+    code, text = run(
+        "play", "-n", "20", "--agents", str(path), "--seats", "nit,al:nit,station", "-q"
+    )
+    assert code == 0 and "nit " in text and "al " in text
+    code, _ = run("play", "-n", "2", "--seats", "nit")  # without the file it is unknown
+    assert code == 2
+
+
+def test_a_broken_agents_file_is_a_clean_error(tmp_path: Path, capsys) -> None:
+    path = tmp_path / "agents.toml"
+    path.write_text('[agents.x]\ntype = "bot"\nbase = "shark"\n')
+    code, _ = run("agents", "--agents", str(path))
+    assert code == 2 and "base must be one of" in capsys.readouterr().err
+
+
+def test_an_llm_seat_reports_what_it_cost_and_what_it_was_given() -> None:
+    from poker_table.agents.llm import LLMAgent
+    from poker_table.cli import llm_seat_note
+
+    seat = LLMAgent("x", "rock", aids=["odds"], client=object())
+    assert llm_seat_note(seat) == "x: 0 model calls to claude-opus-5, $0.0000; aids: odds"

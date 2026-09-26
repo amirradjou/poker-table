@@ -53,6 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
             f"(kinds: {', '.join(available_kinds())})"
         ),
     )
+    add_agents_option(play)
     play.add_argument("--seed", type=int, default=0, help="league seed (default 0)")
     play.add_argument("--blinds", help="small/big blind, e.g. 1/2 (default)")
     play.add_argument("--ante", type=int, help="chips every seat posts before the blinds")
@@ -99,6 +100,19 @@ def build_parser() -> argparse.ArgumentParser:
     odds.add_argument("--call", type=int, default=0, help="chips you have to put in")
     odds.add_argument("--samples", type=int, default=20000, help="samples when it cannot be exact")
     odds.add_argument("--seed", type=int, default=0)
+
+    agents = sub.add_parser("agents", help="list the kinds a seat can be, and check agents files")
+    agents.description = (
+        "List every kind --seats accepts: the built-in bots and personalities, and the ones an"
+        " agents file defines. Start a file of your own with --example."
+    )
+    add_agents_option(agents)
+    agents.add_argument(
+        "--example", action="store_true", help="print an example agents file and exit"
+    )
+    agents.add_argument(
+        "--ollama", action="store_true", help="also list the models a local Ollama has pulled"
+    )
 
     stats = sub.add_parser("stats", help="leaderboard and exploitability stats for a JSONL file")
     stats.add_argument("file", type=Path)
@@ -192,6 +206,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     serve.add_argument("-n", "--hands", type=int, default=100, help="hands to play with --live")
     serve.add_argument("-s", "--seats", default=DEFAULT_SEATS, help="seats for --live ('human' ok)")
+    add_agents_option(serve)
     serve.add_argument("--seed", type=int, default=0)
     serve.add_argument("--blinds", default="1/2")
     serve.add_argument("--stack", type=int, default=200)
@@ -202,6 +217,66 @@ def build_parser() -> argparse.ArgumentParser:
         help="seconds between bot decisions with --live, so hands can be watched (default 0.8)",
     )
     return parser
+
+
+def add_agents_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--agents",
+        type=Path,
+        action="append",
+        default=[],
+        metavar="FILE",
+        help="TOML file of your own agent kinds (repeatable); see `poker-table agents --example`",
+    )
+
+
+def custom_kinds(args: argparse.Namespace):
+    from poker_table.agents.custom import load_agent_files
+
+    return load_agent_files(args.agents)
+
+
+def cmd_agents(args: argparse.Namespace, out) -> int:
+    from importlib.resources import files
+
+    from poker_table.agents.custom import describe_kinds
+    from poker_table.agents.ollama import OllamaClient
+
+    if args.example:
+        example = files("poker_table.agents").joinpath("agents.example.toml")
+        print(example.read_text(encoding="utf-8"), end="", file=out)
+        return 0
+    custom = custom_kinds(args)
+    rows = describe_kinds(custom)
+    width = max(len(kind) for kind, _ in rows) + 2
+    print("Built in:", file=out)
+    for kind, text in rows[: len(rows) - len(custom)]:
+        print(f"  {kind:<{width}}{text}", file=out)
+    if custom:
+        sources = ", ".join(str(p) for p in args.agents)
+        print(f"From {sources}:", file=out)
+        for key, kind in custom.items():
+            detail = kind.type
+            if kind.personality is not None:
+                aids = ", ".join(kind.personality.aids) or "none"
+                detail = f"llm on {kind.model}, aids: {aids}"
+            print(f"  {key:<{width}}{kind.description} ({detail})", file=out)
+    example = next(iter(custom), "llm:nerd")
+    print(
+        f"\nSeat them with --seats, e.g. --seats {example},tag,station; "
+        "put another model on an LLM seat with @, e.g. llm:rock@ollama/qwen2.5:7b",
+        file=out,
+    )
+    if args.ollama:
+        client = OllamaClient(timeout=3.0)
+        try:
+            pulled = client.models()
+        except (OSError, RuntimeError) as exc:
+            print(f"Ollama at {client.host}: not reachable ({exc})", file=out)
+        else:
+            names = ", ".join(f"ollama/{m}" for m in pulled) or "none pulled"
+            print(f"Ollama at {client.host}: {names}", file=out)
+    return 0
 
 
 def parse_blinds(text: str) -> tuple[int, int]:
@@ -243,7 +318,7 @@ def hand_writer(args: argparse.Namespace, out, *, every_hand: bool):
 
 def cmd_play(args: argparse.Namespace, out) -> int:
     specs = [s for s in args.seats.split(",") if s.strip()]
-    agents = make_agents(specs, seed=args.seed)
+    agents = make_agents(specs, seed=args.seed, custom=custom_kinds(args))
     check_seats_ready(agents)
     if args.tournament:
         return play_tournament(args, agents, out)
@@ -331,6 +406,9 @@ def model_seat_notes(agents) -> list[str]:
 
     notes = []
     for agent in agents:
+        if isinstance(agent, LLMAgent):
+            notes.append(llm_seat_note(agent))
+            continue
         if not isinstance(agent, LayaAgent):
             continue
         u = agent.usage
@@ -349,6 +427,19 @@ def model_seat_notes(agents) -> list[str]:
             note += f", {u.avg_latency_ms:.0f} ms each"
         notes.append(note)
     return notes
+
+
+def llm_seat_note(agent: LLMAgent) -> str:
+    u = agent.usage
+    parts = [f"{u.calls} model call{'' if u.calls == 1 else 's'} to {agent.model}"]
+    if u.gated:
+        parts.append(f"{u.gated} junk hands folded without asking")
+    if u.errors:
+        parts.append(f"{u.errors} failed (checked or folded instead)")
+    if agent.notes:
+        parts.append(f"{len(agent.notes)} notes in its notebook")
+    aids = ", ".join(sorted(agent.aids)) or "none"
+    return f"{agent.name}: " + ", ".join(parts) + f", ${u.cost_usd:.4f}; aids: {aids}"
 
 
 def parse_opponents(text: str):
@@ -565,7 +656,7 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
         specs = [s for s in args.seats.split(",") if s.strip()]
         agents = [
             WebHumanAgent(a.name) if isinstance(a, HumanAgent) else a
-            for a in make_agents(specs, seed=args.seed)
+            for a in make_agents(specs, seed=args.seed, custom=custom_kinds(args))
         ]
         check_seats_ready(agents)
         config = LeagueConfig(
@@ -598,6 +689,8 @@ def main(argv: Sequence[str] | None = None, out=None) -> int:
                 return cmd_play(args, out)
             case "odds":
                 return cmd_odds(args, out)
+            case "agents":
+                return cmd_agents(args, out)
             case "stats":
                 return cmd_stats(args, out)
             case "replay":

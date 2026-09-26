@@ -67,6 +67,7 @@ class CustomKind:
     description: str
     build: Build
     personality: Personality | None = None  # for llm kinds
+    model: str = ""  # for llm kinds: the model a seat gets unless its spec names another
 
     def make(self, name: str, seed: int = 0, model: str | None = None) -> Agent:
         if model and self.type != "llm":
@@ -212,7 +213,7 @@ def _llm(key: str, table: dict[str, Any], description: str, where: str) -> Custo
         return LLMAgent(name, personality, model=chosen, client=client, max_tokens=max_tokens)
 
     summary = description or f"LLM persona on {model}"
-    return CustomKind(key, "llm", summary, build, personality)
+    return CustomKind(key, "llm", summary, build, personality, model)
 
 
 # ----- bot ----------------------------------------------------------------------------------
