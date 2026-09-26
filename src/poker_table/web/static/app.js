@@ -15,6 +15,11 @@ const STAT_HELP = {
   "$/hand": "estimated model cost per hand",
 };
 const PERCENT = new Set(["vpip", "pfr", "3bet", "f3b", "wtsd", "w$sd", "bluff", "illegal"]);
+// Column heads as players write them: the tracker acronyms in capitals, everything else plain.
+const STAT_NAME = {
+  name: "Seat", hands: "Hands", net: "Net", "bb/100": "bb/100", vpip: "VPIP", pfr: "PFR", "3bet": "3-bet",
+  f3b: "F3B", af: "AF", wtsd: "WTSD", "w$sd": "W$SD", bluff: "Bluff", illegal: "Illegal", ms: "ms", "$/hand": "$/hand",
+};
 const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const EASE = "cubic-bezier(.2,.8,.2,1)";
 // Who sits where: a glyph and a hue per kind. LLM seats share one look (a gold ring marks them).
@@ -123,7 +128,7 @@ async function api(path) {
 
 async function loadSession() {
   const s = await api("/api/session");
-  $("file").textContent = s.hands ? `${s.hands} hands from ${s.file}` : `${s.file} is empty`;
+  $("file").textContent = s.hands ? `${s.hands} hand${s.hands === 1 ? "" : "s"} from ${s.file}` : `${s.file} is empty`;
   return s;
 }
 
@@ -202,7 +207,8 @@ function renderOdds() {
   const el = $("odds");
   // A hand still being dealt has no decisions to look back on, and odds from the hand before
   // it would be worse than none.
-  const ready = showOdds && hand && !hand.streaming;
+  // (nor in a drill, where the chances would give the answer away)
+  const ready = showOdds && hand && !hand.streaming && !hand.drill;
   el.classList.toggle("hidden", !ready);
   if (!ready) return;
   const stale = !oddsData || oddsData.hand_id !== hand.hand_id;
@@ -339,18 +345,23 @@ function render() {
   const n = st.seats.length;
   const now = Date.now();
   const shares = equityAt(step);
+  // The table's shape decides where seats sit (a wide stadium, or a tall one on a phone).
+  const shape = getComputedStyle(table);
+  const rx = parseFloat(shape.getPropertyValue("--seat-rx")) || 44;
+  const ry = parseFloat(shape.getPropertyValue("--seat-ry")) || 50;
+  const W = table.clientWidth, H = table.clientHeight;
   st.seats.forEach((s, i) => {
     const el = document.createElement("div");
     const angle = Math.PI / 2 + (2 * Math.PI * i) / n;  // seat 0 at the bottom, clockwise
-    const x = 50 + 44 * Math.cos(angle), y = 50 + 50 * Math.sin(angle);
+    const x = 50 + rx * Math.cos(angle), y = 50 + ry * Math.sin(angle);
     const acting = st.acting === i && !st.done;
     el.className = "seat" + (y < 50 ? " top" : " bottom") + (x < 50 ? " left" : " right") + (s.folded ? " folded" : "")
       + (acting ? " acting" : "") + (s.won ? " winner" : "");
     el.dataset.seat = i;
     el.style.left = x + "%"; el.style.top = y + "%";
-    // the way to the pot, for the bet and the dealer button
-    el.style.setProperty("--dx", (-Math.cos(angle)).toFixed(3));
-    el.style.setProperty("--dy", (-Math.sin(angle)).toFixed(3));
+    // chips go a little over halfway to the pot: clear of the cards, short of the pot
+    el.style.setProperty("--bx", `${((50 - x) / 100) * W * 0.56}px`);
+    el.style.setProperty("--by", `${((50 - y) / 100) * H * 0.56}px`);
     const info = kindInfo(s.kind);
 
     const reveal = showCards || st.showdown || (st.done && s.won);
@@ -360,11 +371,12 @@ function render() {
     el.appendChild(cards);
 
     const plate = document.createElement("div"); plate.className = "plate";
+    plate.style.setProperty("--c", info.color);
     plate.appendChild(avatarEl(s));
     const named = (info.llm || info.model) && modelOf[i];
     const label = named ? `${info.label}, ${modelOf[i].replace(/^claude-|^laya:/, "")}` : info.label;
     plate.insertAdjacentHTML("beforeend",
-      `<div class="id"><div class="name">${esc(s.name)}</div><div class="pos"><b>${s.position}</b>${label ? esc(label) : ""}</div></div>`);
+      `<div class="id"><div class="name" title="${esc(s.name)}">${esc(s.name)}</div><div class="pos" title="${esc(label)}"><b>${s.position}</b>${label ? esc(label) : ""}</div></div>`);
     const stack = document.createElement("div");
     stack.className = "stack" + (s.allIn ? " allin" : "");
     stack.textContent = s.allIn ? "all-in" : `${s.stack}`;
@@ -582,7 +594,7 @@ async function drawBankroll() {
   // lines
   series.forEach((s, k) => {
     const d = s.values.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
-    svgEl("path", { d, class: "line", stroke: `var(--series-${k + 1})` }, svg);
+    svgEl("path", { d, class: "line", stroke: `var(--series-${k + 1}, var(--ivory-faint))` }, svg);
   });
   // direct end labels when they don't collide (else the legend + tooltip carry identity)
   if (series.length <= 4) {
@@ -593,11 +605,11 @@ async function drawBankroll() {
 
   // legend (always, for >= 2 series) - identity by swatch, text in ink
   const legend = $("bankroll-legend"); legend.innerHTML = "";
-  series.forEach((s, k) => { const el = document.createElement("span"); el.style.setProperty("--c", `var(--series-${k + 1})`); el.textContent = s.name; legend.appendChild(el); });
+  series.forEach((s, k) => { const el = document.createElement("span"); el.style.setProperty("--c", `var(--series-${k + 1}, var(--ivory-faint))`); el.textContent = s.name; legend.appendChild(el); });
 
   // hover: crosshair + one dot per series + tooltip
   const cross = svgEl("line", { class: "crosshair hidden", y1: m.top, y2: H - m.bottom }, svg);
-  const dots = series.map((s, k) => svgEl("circle", { r: 4, class: "dot hidden", fill: `var(--series-${k + 1})` }, svg));
+  const dots = series.map((s, k) => svgEl("circle", { r: 4, class: "dot hidden", fill: `var(--series-${k + 1}, var(--ivory-faint))` }, svg));
   const tip = $("bankroll-tip");
   const show = (evt) => {
     const rect = svg.getBoundingClientRect();
@@ -605,7 +617,7 @@ async function drawBankroll() {
     const i = Math.max(0, Math.min(n - 1, Math.round(((px - m.left) / (W - m.left - m.right)) * (n - 1))));
     cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.classList.remove("hidden");
     dots.forEach((d, k) => { d.setAttribute("cx", x(i)); d.setAttribute("cy", y(series[k].values[i])); d.classList.remove("hidden"); });
-    tip.innerHTML = `<b>hand ${data.hands[i]}</b>` + series.map((s, k) => `<div><i style="background:var(--series-${k + 1})"></i>${s.name} ${s.values[i] > 0 ? "+" : ""}${s.values[i]}</div>`).join("");
+    tip.innerHTML = `<b>hand ${data.hands[i]}</b>` + series.map((s, k) => `<div><i style="background:var(--series-${k + 1}, var(--ivory-faint))"></i>${s.name} ${s.values[i] > 0 ? "+" : ""}${s.values[i]}</div>`).join("");
     tip.classList.remove("hidden");
     const left = (x(i) / W) * rect.width;
     tip.style.left = (left > rect.width / 2 ? left - tip.offsetWidth - 12 : left + 12) + "px";
@@ -631,7 +643,7 @@ async function showBoard() {
   const data = await api("/api/stats");
   $("board-title").textContent = `${data.hands} hands, sorted by chips won`;
   const cols = data.rows.length ? Object.keys(data.rows[0]) : [];
-  const head = cols.map(c => `<th${STAT_HELP[c] ? ` title="${STAT_HELP[c]}"` : ""}>${c}</th>`).join("");
+  const head = cols.map(c => `<th${STAT_HELP[c] ? ` title="${STAT_HELP[c]}"` : ""}>${STAT_NAME[c] || c}</th>`).join("");
   const body = data.rows.map(r => "<tr>" + cols.map(c => {
     const v = r[c];
     let text = v === null || v === undefined ? "–" : PERCENT.has(c) ? `${Math.round(v * 100)}%`
@@ -864,7 +876,7 @@ function showDrillSpot(spot) {
   $("empty").classList.add("hidden");
   $("replay").classList.remove("hidden");
   $("summary").classList.add("hidden");
-  $("hand-title").textContent = `Drill · hand #${spot.hand_id}`;
+  $("hand-title").textContent = `Drill: hand #${spot.hand_id}`;
   $("hand-sub").textContent = `your move on the ${spot.street}`;
   $("scrub").max = spot.steps.length;
   buildLog();
