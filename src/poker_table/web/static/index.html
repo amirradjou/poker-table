@@ -5,17 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>poker-table</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%276%27 fill=%27%23245c3c%27/%3E%3Ctext x=%2716%27 y=%2724%27 font-size=%2722%27 text-anchor=%27middle%27 fill=%27%23efe9da%27%3E%E2%99%A0%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:ital,wght@0,400;0,700;1,400&display=swap">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%2716%27 fill=%27%2311603f%27/%3E%3Ctext x=%2716%27 y=%2723%27 font-size=%2720%27 text-anchor=%27middle%27 fill=%27%23c9a14a%27%3E%E2%99%A0%3C/text%3E%3C/svg%3E">
+<meta name="theme-color" content="#17130f">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;1,400&family=Barlow+Condensed:wght@500;600;700&display=swap">
 <link rel="stylesheet" href="static/app.css">
 </head>
 <body>
 <header>
-  <h1>poker-table</h1>
+  <h1><span class="mark" aria-hidden="true">♠</span>poker-table</h1>
   <span class="file" id="file">loading…</span>
   <span class="live hidden" id="live"></span>
   <nav>
-    <button id="follow" class="hidden" aria-pressed="true" title="Jump to each new hand as it finishes">Follow</button>
+    <button id="follow" class="switch hidden" aria-pressed="true" title="Jump to each new hand as it is dealt">Follow</button>
     <button id="tab-hands" aria-pressed="true">Hands</button>
     <button id="tab-board" aria-pressed="false">Leaderboard</button>
     <button id="tab-coach" aria-pressed="false">Coach</button>
@@ -43,11 +45,17 @@
   </aside>
 
   <section class="hand" id="hand-view">
-    <div class="empty" id="empty">Pick a hand on the left, or start a table and watch it play:
-      <code>uv run poker-table serve live.jsonl --live --seats tag,maniac,station --open</code>
-      — or sit down yourself with <code>--seats me:human,tag,maniac</code>.</div>
+    <div class="empty" id="empty">
+      <div class="felt-empty">
+        <p class="lead">Pick a hand to replay it here.</p>
+        <p>Or deal a live table and watch it play:</p>
+        <code>uv run poker-table serve live.jsonl --live --seats tag,maniac,station --open</code>
+        <p>Take a seat yourself with <code>--seats me:human,tag,maniac</code>.</p>
+      </div>
+    </div>
     <div id="replay" class="hidden">
-      <h2><strong id="hand-title"></strong> <span id="hand-sub"></span></h2>
+      <div class="stage">
+      <h2 class="hand-title"><strong id="hand-title"></strong> <span id="hand-sub"></span></h2>
       <div class="table" id="table">
         <div class="center">
           <div class="pot" id="pot"></div>
@@ -67,22 +75,30 @@
         <div class="talk-list hidden" id="act-talk-list"></div>
       </form>
       <div class="controls">
-        <button id="first" title="Start (Home)">⏮</button>
-        <button id="prev" title="Back (←)">◀</button>
-        <button id="next" title="Forward (→)">▶</button>
-        <button id="last" title="End (End)">⏭</button>
-        <button id="auto" aria-pressed="false" title="Play the hand step by step (Space)">Auto</button>
-        <input type="range" id="scrub" min="0" value="0" aria-label="Step">
-        <button id="toggle-think" aria-pressed="true">Show thinking</button>
-        <button id="toggle-cards" aria-pressed="true">Show all cards</button>
-        <button id="toggle-odds" aria-pressed="true" title="Win chances, outs and pot odds at each decision">Odds</button>
-        <label class="pace-wrap hidden" id="pace-wrap" title="Seconds between bot decisions">pace
-          <input type="range" id="pace" min="0.2" max="3" step="0.1" value="0.8"><span id="pace-value">0.8 s</span></label>
+        <div class="transport">
+          <button class="icon" id="first" title="Start (Home)" aria-label="Start of the hand"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 4h2v12H5zM16 4v12L8 10z"/></svg></button>
+          <button class="icon" id="prev" title="Back (←)" aria-label="Step back"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M14 4v12L5 10z"/></svg></button>
+          <button class="play" id="auto" aria-pressed="false" title="Play the hand step by step (Space)"><svg class="when-off" viewBox="0 0 20 20" aria-hidden="true"><path d="M6 4l10 6-10 6z"/></svg><svg class="when-on" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 4h3.5v12H5zM11.5 4H15v12h-3.5z"/></svg><span>Play</span></button>
+          <button class="icon" id="next" title="Forward (→)" aria-label="Step forward"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 4v12l9-6z"/></svg></button>
+          <button class="icon" id="last" title="End (End)" aria-label="End of the hand"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4v12l8-6zM13 4h2v12h-2z"/></svg></button>
+        </div>
+        <input type="range" id="scrub" min="0" value="0" aria-label="Step through the hand">
         <span class="street" id="street"></span>
+        <div class="switches">
+          <button class="switch" id="toggle-cards" aria-pressed="true" title="Everyone's hole cards, and the win chances that need them">All cards</button>
+          <button class="switch" id="toggle-odds" aria-pressed="true" title="Win chances, outs and pot odds at each decision">Odds</button>
+        </div>
+        <label class="pace-wrap hidden" id="pace-wrap" title="Seconds between bot decisions">Pace
+          <input type="range" id="pace" min="0.2" max="3" step="0.1" value="0.8"><span id="pace-value">0.8 s</span></label>
       </div>
       <div class="odds hidden" id="odds"></div>
-      <div class="log" id="log"><ol id="log-list"></ol></div>
-      <div class="summary" id="summary"></div>
+      </div>
+      <div class="side">
+        <div class="side-head"><h3>The action</h3>
+          <button class="switch" id="toggle-think" aria-pressed="true" title="Each seat's private reasoning, under its action">Reasoning</button></div>
+        <div class="log" id="log"><ol id="log-list"></ol></div>
+        <div class="summary" id="summary"></div>
+      </div>
     </div>
   </section>
 

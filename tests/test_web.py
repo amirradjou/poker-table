@@ -20,7 +20,7 @@ def test_index_and_session(hands_file: Path) -> None:
     assert page.status_code == 200 and "<title>poker-table</title>" in page.text
     assert 'href="static/app.css"' in page.text and 'src="static/app.js"' in page.text
     css = client.get("/static/app.css")
-    assert css.status_code == 200 and "--felt:" in css.text
+    assert css.status_code == 200 and "--baize:" in css.text
     js = client.get("/static/app.js")
     assert js.status_code == 200 and "function stateAt(" in js.text
     session = client.get("/api/session").json()
@@ -269,3 +269,19 @@ def test_odds_are_exported_only_when_asked_for(tmp_path: Path, hands_file: Path)
     assert json.loads((tmp_path / "odds" / "data" / "odds" / "5.json").read_text()) == (
         client.get("/api/odds/5").json()
     )
+
+
+def test_the_table_equities_follow_folds_and_new_cards(hands_file: Path) -> None:
+    client = TestClient(create_app(hands_file))
+    for hand_id in ("1", "5", "9"):
+        data = client.get(f"/api/odds/{hand_id}").json()
+        hand = client.get(f"/api/hands/{hand_id}").json()
+        table = data["table"]
+        assert table and table[0]["step"] == 0
+        assert len(table[0]["equity"]) == len(hand["players"])  # everyone is dealt in
+        for row in table:
+            assert sum(row["equity"].values()) == pytest.approx(1.0, abs=1e-3)
+        # each later entry starts right after a fold or a street card
+        for row in table[1:]:
+            before = hand["steps"][row["step"] - 1]
+            assert before["kind"] == "street" or before["action"] == "fold"

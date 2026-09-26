@@ -176,7 +176,7 @@ def odds_payload(history: HandHistory, *, samples: int = ODDS_SAMPLES) -> dict[s
     try:
         decisions = list(replay(history))
     except ValueError:  # a hand that will not replay (an import we cannot rebuild)
-        return {"hand_id": history.hand_id, "spots": []}
+        return {"hand_id": history.hand_id, "spots": [], "table": []}
     for index, (view, action) in enumerate(decisions):
         if index >= len(steps):
             break
@@ -206,7 +206,49 @@ def odds_payload(history: HandHistory, *, samples: int = ODDS_SAMPLES) -> dict[s
                 "known": _chance_row(known) if known is not None else None,
             }
         )
-    return {"hand_id": history.hand_id, "spots": spots}
+    return {"hand_id": history.hand_id, "spots": spots, "table": _table_equities(history)}
+
+
+def _table_equities(history: HandHistory, *, samples: int = 600) -> list[dict[str, Any]]:
+    """Everyone's share of the pot, re-computed whenever it can change: a fold or a new card.
+
+    Each entry holds from viewer position ``step`` on. Empty when any live seat's cards are
+    unknown — an imported hand only knows the cards that were shown, and a broadcast number
+    against a guess would be worse than none.
+    """
+    from poker_table.odds import table_equities
+
+    holes: dict[int, tuple[Card, Card]] = {}
+    for p in history.players:
+        if len(p.hole) != 2:
+            return []
+        a, b = (Card.parse(c) for c in p.hole)
+        holes[p.seat] = (a, b)
+    live = set(holes)
+    board: list[Card] = []
+    out: list[dict[str, Any]] = []
+
+    def snapshot(step: int) -> None:
+        shares, exact = table_equities(
+            {s: holes[s] for s in sorted(live)}, board, samples=samples, seed=step
+        )
+        out.append(
+            {
+                "step": step,
+                "exact": exact,
+                "equity": {str(s): round(v, 4) for s, v in shares.items()},
+            }
+        )
+
+    snapshot(0)
+    for index, step in enumerate(steps_for(history)):
+        if step["kind"] == "action" and step["action"] == "fold" and step["seat"] in live:
+            live.discard(step["seat"])
+            snapshot(index + 1)
+        elif step["kind"] == "street":
+            board += [Card.parse(c) for c in step["cards"]]
+            snapshot(index + 1)
+    return out
 
 
 def _chance_row(spot: Any) -> dict[str, Any]:

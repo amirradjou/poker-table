@@ -185,6 +185,46 @@ def _chances(tally: list[float], total: int, *, exact: bool) -> Chances:
     return Chances(win=win, tie=tie, lose=lose, equity=equity, exact=exact, trials=total)
 
 
+def table_equities(
+    holes: dict[int, tuple[Card, Card]],
+    board: Sequence[Card] = (),
+    *,
+    samples: int = DEFAULT_SAMPLES,
+    seed: int = 0,
+) -> tuple[dict[int, float], bool]:
+    """Every live hand's share of the pot from here, computed in one pass.
+
+    These are the numbers a broadcast puts next to each player once the hole cards are known:
+    one run-out is dealt and *every* hand is scored on it, so the shares always add up to one.
+    Enumerated when the run-outs times the players stay under ``EXACT_LIMIT`` (the flop and
+    turn), sampled otherwise (preflop). Returns the shares and whether they are exact.
+    """
+    seats = list(holes)
+    if len(seats) < 2:
+        return dict.fromkeys(seats, 1.0), True
+    board = tuple(board)
+    known = [c for hole in holes.values() for c in hole]
+    live = unseen_cards((), board, known)
+    to_come = 5 - len(board)
+    exact = comb(len(live), to_come) * len(seats) <= EXACT_LIMIT
+    if exact:
+        run_outs = itertools.combinations(live, to_come)
+    else:
+        rng = random.Random(seed)
+        run_outs = (rng.sample(live, to_come) for _ in range(samples))
+    shares = dict.fromkeys(seats, 0.0)
+    total = 0
+    for run_out in run_outs:
+        full = (*board, *run_out)
+        ranks = {seat: evaluate([*holes[seat], *full]) for seat in seats}
+        best = max(ranks.values())
+        winners = [seat for seat, rank in ranks.items() if rank == best]
+        for seat in winners:
+            shares[seat] += 1 / len(winners)
+        total += 1
+    return {seat: share / total for seat, share in shares.items()}, exact
+
+
 # ----- outs -------------------------------------------------------------------------------
 
 
