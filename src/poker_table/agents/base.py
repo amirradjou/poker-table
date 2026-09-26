@@ -142,7 +142,7 @@ class SeatView:
         lines.append(f"Legal: {self.legal.describe()}")
         if numbers:
             spot = self.odds()
-            lines.append("The numbers (your cards against the hands still in, unseen):")
+            lines.append("The numbers (your cards against random hands for everyone still in):")
             lines += [f"  {line}" for line in spot.lines()]
         return "\n".join(lines)
 

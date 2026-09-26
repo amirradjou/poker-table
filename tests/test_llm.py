@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from poker_table.agents import LLMAgent, make_view
-from poker_table.agents.llm import ACTION_SCHEMA, estimate_cost
+from poker_table.agents.llm import ACTION_SCHEMA, NOTE_SCHEMA, estimate_cost
 from poker_table.cards import Deck, parse_cards
 from poker_table.engine import Action, Hand, Player
 from poker_table.history import HandHistory
@@ -69,7 +69,7 @@ def test_request_shape_uses_structured_output_and_a_cached_system_prompt() -> No
     assert decision.reasoning == "AA" and decision.table_talk == ""
     request = client.messages.requests[0]
     assert request["model"] == "claude-opus-5"
-    assert request["output_config"]["format"] == {"type": "json_schema", "schema": ACTION_SCHEMA}
+    assert request["output_config"]["format"] == {"type": "json_schema", "schema": NOTE_SCHEMA}
     assert request["output_config"]["effort"] == "high"  # the nerd thinks hard
     assert request["system"][0]["cache_control"] == {"type": "ephemeral"}
     assert "THE MATH NERD" in request["system"][0]["text"]
@@ -205,3 +205,83 @@ def test_table_talk_reaches_the_prompt_once() -> None:
     agent.act(make_view(hand, 0, talk=(("bob", "I have the nuts"),)))
     body = client.messages.requests[0]["messages"][0]["content"]
     assert body.count("I have the nuts") == 1
+
+
+# ----- aids: what a seat is handed beyond the bare table ----------------------------------
+
+
+def test_a_bare_seat_gets_the_table_and_nothing_else() -> None:
+    client = FakeClient({"action": "fold", "amount": 0, "table_talk": "", "reasoning": ""})
+    agent = LLMAgent("alice", "nerd", client=client, aids=())
+    hand = hand_with({0: "Ac Ad", 1: "2c 7d", 2: "3c 8d"})
+    agent.act(make_view(hand, 0))
+    request = client.messages.requests[0]
+    assert request["output_config"]["format"]["schema"] == ACTION_SCHEMA  # no note field
+    system, body = request["system"][0]["text"], request["messages"][0]["content"]
+    assert "How strong players play" not in system and '"note"' not in system
+    assert "The numbers" not in body and "Their likely hands" not in body
+
+
+def test_every_aid_is_on_by_default() -> None:
+    client = FakeClient({"action": "fold", "amount": 0, "table_talk": "", "reasoning": ""})
+    agent = LLMAgent("carol", "storyteller", client=client)
+    hand = hand_with({0: "Ac Ad", 1: "2c 7d", 2: "Kh Qd"})
+    hand.apply(Action.raise_to(6))  # the button opens
+    hand.apply(Action.fold())
+    agent.act(make_view(hand, 2))
+    system = client.messages.requests[0]["system"][0]["text"]
+    body = client.messages.requests[0]["messages"][0]["content"]
+    assert "How strong players play" in system and '"note" is a private line' in system
+    assert "The numbers" in body
+    assert "Their likely hands, read from this hand's action:" in body
+    assert "p0: opened from the BTN" in body and "Your equity against those ranges" in body
+    assert "Ac Ad" not in body  # still never another seat's cards
+
+
+def test_unknown_aids_are_refused() -> None:
+    with pytest.raises(ValueError, match="unknown aid telepathy"):
+        LLMAgent("x", "rock", client=FakeClient(), aids=["odds", "telepathy"])
+
+
+def test_notes_are_kept_and_read_back_in_later_hands() -> None:
+    client = FakeClient(
+        {"action": "call", "amount": 0, "table_talk": "", "reasoning": "", "note": "p1 limps"},
+        {"action": "fold", "amount": 0, "table_talk": "", "reasoning": "", "note": ""},
+    )
+    agent = LLMAgent("alice", "maniac", client=client)
+    first = agent.act(make_view(hand_with({0: "Ac Ad", 1: "2c 7d", 2: "3c 8d"}), 0))
+    assert first.meta["note"] == "p1 limps"
+    agent.act(make_view(hand_with({0: "Kc Kd", 1: "2c 7d", 2: "3c 8d"}), 0))
+    body = client.messages.requests[1]["messages"][0]["content"]
+    assert "Your notes from earlier hands:\n  hand 1: p1 limps" in body
+    assert list(agent.notes) == ["hand 1: p1 limps"]  # an empty note is not kept
+
+
+def test_the_notebook_keeps_the_latest_lines() -> None:
+    from poker_table.agents.llm import NOTES_KEPT
+
+    replies = [
+        {"action": "fold", "amount": 0, "table_talk": "", "reasoning": "", "note": f"n{i}"}
+        for i in range(NOTES_KEPT + 3)
+    ]
+    agent = LLMAgent("alice", "maniac", client=FakeClient(*replies))
+    for _ in replies:
+        agent.act(make_view(hand_with({0: "Ac Ad", 1: "2c 7d", 2: "3c 8d"}), 0))
+    assert len(agent.notes) == NOTES_KEPT and agent.notes[-1].endswith(f"n{NOTES_KEPT + 2}")
+
+
+def test_reads_on_the_table_build_up_over_a_session() -> None:
+    from poker_table.agents import CallingStation, Maniac
+    from poker_table.league import LeagueConfig, run_league
+
+    client = FakeClient()  # always folds: cheap, and the reads still accumulate
+    agent = LLMAgent("llm", "maniac", client=client)  # no gate: it is asked every hand
+    run_league(
+        [agent, Maniac("maniac", seed=1), CallingStation("station")],
+        LeagueConfig(hands=15, seed=3),
+    )
+    first = client.messages.requests[0]["messages"][0]["content"]
+    last = client.messages.requests[-1]["messages"][0]["content"]
+    assert "What you have seen of them" not in first  # nothing seen before hand 1
+    assert "What you have seen of them (14 hands):" in last
+    assert "maniac (14 hands): loose-aggressive." in last

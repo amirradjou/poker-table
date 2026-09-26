@@ -4,6 +4,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+# What a seat is handed beyond the bare table, each one switchable so its worth can be
+# measured (see ``poker-table eval``):
+#   odds      the probability calculator: equity against random hands, outs, pot odds
+#   ranges    each opponent's range read from this hand's action, and equity against it
+#   reads     a HUD from earlier hands: style, VPIP/PFR, aggression, hands they showed
+#   notes     a notebook the model writes to itself and reads back in later hands
+#   playbook  a short primer on sizing and hand selection, in the system prompt
+AIDS: tuple[str, ...] = ("odds", "ranges", "reads", "notes", "playbook")
+
+
+def check_aids(aids) -> frozenset[str]:
+    unknown = set(aids) - set(AIDS)
+    if unknown:
+        raise ValueError(f"unknown aid {', '.join(sorted(unknown))}; choose from {', '.join(AIDS)}")
+    return frozenset(aids)
+
 
 @dataclass(frozen=True, slots=True)
 class Personality:
@@ -14,6 +30,8 @@ class Personality:
     # model call. None disables the gate (the maniac wants to see every flop).
     auto_fold_below: float | None = 5
     talkative: bool = True
+    aids: tuple[str, ...] = AIDS
+    description: str = ""  # one line for listings; the prompt is for the model
 
 
 PERSONALITIES: dict[str, Personality] = {
