@@ -20,6 +20,11 @@ from poker_table.stats import PlayerStats, compute_stats
 from poker_table.table import DecisionRecord, new_hand, play_hand
 
 
+def spent_usd(agents: Iterable[Agent]) -> float:
+    """What the seats' model calls have cost so far (scripted seats cost nothing)."""
+    return sum(getattr(getattr(a, "usage", None), "cost_usd", 0.0) or 0.0 for a in agents)
+
+
 def show_hand(agents: Iterable[Agent], history: HandHistory) -> None:
     """Show the hand just played to every seat that learns across hands (has ``observe``).
 
@@ -43,6 +48,9 @@ class LeagueConfig:
     # every hand comparable. Otherwise stacks carry over and a busted seat rebuys.
     top_up: bool = True
     seed: int = 0
+    # Stop dealing once the seats' model calls have cost this many dollars (None: no cap).
+    # Checked between hands, so the hand that crosses the line is finished, not cut short.
+    budget_usd: float | None = None
 
 
 @dataclass(slots=True)
@@ -51,6 +59,13 @@ class LeagueResult:
     histories: list[HandHistory] = field(default_factory=list)
     bankrolls: dict[str, int] = field(default_factory=dict)
     rebuys: dict[str, int] = field(default_factory=dict)
+    hands: int = 0  # hands actually played: fewer than config.hands when the budget ran out
+    spent_usd: float = 0.0
+
+    @property
+    def over_budget(self) -> bool:
+        budget = self.config.budget_usd
+        return budget is not None and self.spent_usd >= budget
 
     @property
     def stats(self) -> dict[str, PlayerStats]:
@@ -111,6 +126,10 @@ def run_league(
             result.histories.append(history)
         if on_hand is not None:
             on_hand(history)
+        result.hands = n + 1
+        result.spent_usd = spent_usd(agents)
+        if result.over_budget:
+            break
     return result
 
 
@@ -158,6 +177,7 @@ class TournamentConfig:
     # once the blinds stop growing.
     max_hands: int = 5000
     seed: int = 0
+    budget_usd: float | None = None  # stop, unfinished, once model calls cost this much
 
     def level_number(self, hand_number: int) -> int:
         """The 1-based level the ``hand_number``-th hand (0-based) is played at."""
@@ -178,6 +198,8 @@ class TournamentResult:
     hands_dealt: dict[str, int] = field(default_factory=dict)  # hands each seat was dealt into
     out_at: dict[str, int] = field(default_factory=dict)  # name -> level it busted at
     stacks: dict[str, int] = field(default_factory=dict)  # chips at the end
+    spent_usd: float = 0.0
+    over_budget: bool = False
 
     @property
     def winner(self) -> str | None:
@@ -197,7 +219,9 @@ class TournamentResult:
             f"{self.hands} hand{plural}, {self.config.starting_stack} chips each, "
             f"reached level {self.level} ({self.config.schedule[self.level - 1]})"
         )
-        if not self.complete:
+        if self.over_budget:
+            head += f" — stopped at the ${self.config.budget_usd:.2f} budget, no winner"
+        elif not self.complete:
             head += f" — stopped at the {self.config.max_hands}-hand limit, no winner"
         rows = [("place", "name", "hands", "out at")]
         for name in self.standings():
@@ -289,6 +313,10 @@ def run_tournament(
             result.out_at[names[index]] = result.level
         live = [i for i in live if stacks[names[i]] > 0]
         button = (button + 1) % len(agents)
+        result.spent_usd = spent_usd(agents)
+        if config.budget_usd is not None and result.spent_usd >= config.budget_usd:
+            result.over_budget = len(live) > 1
+            break
 
     result.hands = number
     result.stacks = dict(stacks)

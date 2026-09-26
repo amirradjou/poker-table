@@ -285,3 +285,36 @@ def test_reads_on_the_table_build_up_over_a_session() -> None:
     assert "What you have seen of them" not in first  # nothing seen before hand 1
     assert "What you have seen of them (14 hands):" in last
     assert "maniac (14 hands): loose-aggressive." in last
+
+
+# ----- a budget ---------------------------------------------------------------------------
+
+
+def test_a_league_stops_dealing_when_the_budget_is_spent() -> None:
+    from poker_table.agents import CallingStation
+    from poker_table.league import LeagueConfig, run_league
+
+    # Every call costs 1000 input + 50 output tokens on claude-opus-5: $0.00625.
+    agent = LLMAgent("llm", "maniac", client=FakeClient(), aids=())
+    config = LeagueConfig(hands=50, seed=1, budget_usd=0.02)
+    result = run_league([agent, CallingStation("station")], config)
+    assert result.over_budget and result.hands < 50 and len(result.histories) == result.hands
+    assert result.spent_usd == pytest.approx(agent.usage.cost_usd) and result.spent_usd >= 0.02
+    assert result.spent_usd < 0.02 + 0.00625 * 4  # stopped within the hand that crossed it
+    unlimited = run_league(
+        [LLMAgent("llm", "maniac", client=FakeClient(), aids=()), CallingStation("station")],
+        LeagueConfig(hands=5, seed=1),
+    )
+    assert unlimited.hands == 5 and not unlimited.over_budget
+
+
+def test_a_tournament_stops_unfinished_at_the_budget() -> None:
+    from poker_table.agents import CallingStation
+    from poker_table.league import TournamentConfig, run_tournament
+
+    agent = LLMAgent("llm", "maniac", client=FakeClient(), aids=())
+    result = run_tournament(
+        [agent, CallingStation("station")], TournamentConfig(seed=1, budget_usd=0.01)
+    )
+    assert result.over_budget and not result.complete
+    assert "stopped at the $0.01 budget, no winner" in result.render()

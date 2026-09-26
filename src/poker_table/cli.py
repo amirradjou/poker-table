@@ -62,6 +62,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--carry", action="store_true", help="carry stacks between hands and rebuy when busted"
     )
     play.add_argument(
+        "--budget",
+        type=float,
+        metavar="USD",
+        help="stop dealing once the LLM seats have spent this many dollars",
+    )
+    play.add_argument(
         "--tournament",
         action="store_true",
         help="play a freezeout instead: rising blinds, no rebuys, until one seat has every chip",
@@ -332,6 +338,7 @@ def cmd_play(args: argparse.Namespace, out) -> int:
         buy_in=args.stack,
         top_up=not args.carry,
         seed=args.seed,
+        budget_usd=args.budget,
     )
     human_seated = any(isinstance(a, HumanAgent) for a in agents)
     on_hand = hand_writer(args, out, every_hand=args.show or human_seated)
@@ -342,6 +349,12 @@ def cmd_play(args: argparse.Namespace, out) -> int:
         print(f"{header} · seats: {seat_list(agents)}", file=out)
         if args.carry:
             print("rebuys: " + ", ".join(f"{k}={v}" for k, v in result.rebuys.items()), file=out)
+        if result.over_budget:
+            print(
+                f"stopped after {result.hands} of {config.hands} hands: the seats spent "
+                f"${result.spent_usd:.4f} of the ${args.budget:.2f} budget",
+                file=out,
+            )
     print(format_table(result.stats), file=out)
     for line in model_seat_notes(agents):
         print(line, file=out)
@@ -361,6 +374,7 @@ def play_tournament(args: argparse.Namespace, agents, out) -> int:
         hands_per_level=args.level_hands,
         max_hands=args.hands if args.hands is not None else 5000,
         seed=args.seed,
+        budget_usd=args.budget,
     )
     if args.blinds or args.ante:
         print("note: a tournament takes its blinds and antes from --levels", file=out)
