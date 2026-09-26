@@ -10,14 +10,26 @@ every chip — the right thing when the question is "who survives".
 from __future__ import annotations
 
 import random
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 
 from poker_table.agents.base import Agent, SeatView
 from poker_table.engine import Hand
-from poker_table.history import HandHistory
+from poker_table.history import HandHistory, public_view
 from poker_table.stats import PlayerStats, compute_stats
 from poker_table.table import DecisionRecord, new_hand, play_hand
+
+
+def show_hand(agents: Iterable[Agent], history: HandHistory) -> None:
+    """Show the hand just played to every seat that learns across hands (has ``observe``).
+
+    Each one gets :func:`public_view` from its own chair — never folded cards or another
+    seat's reasoning — so what a seat can learn is what a player at the table could.
+    """
+    for agent in agents:
+        observe = getattr(agent, "observe", None)
+        if callable(observe):
+            observe(public_view(history, agent.name))
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +103,7 @@ def run_league(
             on_hand_start(hand)
         played = play_hand(hand, seated, on_view=on_view, on_decision=on_decision)
         history = HandHistory.from_played(played)
+        show_hand(agents, history)
         for player in history.players:
             result.bankrolls[player.name] += player.net
         stacks = [s.stack for s in hand.seats]
@@ -257,6 +270,7 @@ def run_tournament(
             on_hand_start(hand)
         played = play_hand(hand, players, on_view=on_view, on_decision=on_decision)
         history = HandHistory.from_played(played)
+        show_hand(seated, history)
         for seat, index in enumerate(live):
             stacks[names[index]] = hand.seats[seat].stack
         if keep_histories:
