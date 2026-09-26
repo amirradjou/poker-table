@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600" width="1000" height="600" role="img" aria-labelledby="title desc">
+  <title id="title">poker-table: how a hand flows through the code</title>
+  <desc id="desc">A league deals hands on the engine. The engine asks each seat for a decision through a view that never shows other seats' cards. Finished hands become JSONL hand histories, as do imported real hands. Stats, the coach and the browser viewer all read those histories. The odds calculator serves the seats and the viewer.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#958c80"/>
+    </marker>
+    <marker id="brass" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#caa24c"/>
+    </marker>
+    <style>
+      .box { fill: #231d18; stroke: #3a3129; stroke-width: 1.5; }
+      .felt { fill: #13663f; stroke: #0b442b; stroke-width: 2; }
+      .h { font: 600 21px "Barlow Condensed", "Arial Narrow", system-ui, sans-serif; fill: #eee5d3; letter-spacing: .3px; }
+      .t { font: 14px "Barlow", system-ui, sans-serif; fill: #a89d8b; }
+      .tf { font: 14px "Barlow", system-ui, sans-serif; fill: #d9efe2; }
+      .lbl { font: 13px "Barlow", system-ui, sans-serif; fill: #958c80; }
+      .lb { font: 13px "Barlow", system-ui, sans-serif; fill: #caa24c; }
+      .flow { stroke: #958c80; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+      .loop { stroke: #caa24c; stroke-width: 2; fill: none; marker-end: url(#brass); }
+    </style>
+  </defs>
+
+  <rect width="1000" height="600" rx="16" fill="#1c1713"/>
+  <text x="40" y="52" class="h" style="font-size:28px">How a hand flows</text>
+  <text x="40" y="78" class="t">Every module reads or writes plain data: a SeatView going in, a hand history coming out.</text>
+
+  <!-- play -->
+  <rect x="40" y="118" width="210" height="96" rx="10" class="box"/>
+  <text x="58" y="148" class="h">league</text>
+  <text x="58" y="172" class="t">cash games and freezeouts</text>
+  <text x="58" y="193" class="t">deals, moves the button</text>
+
+  <rect x="320" y="118" width="230" height="96" rx="10" class="felt"/>
+  <text x="338" y="148" class="h">engine</text>
+  <text x="338" y="172" class="tf">betting, side pots, antes</text>
+  <text x="338" y="193" class="tf">seeded, so every hand replays</text>
+
+  <rect x="630" y="100" width="330" height="132" rx="10" class="box"/>
+  <text x="648" y="130" class="h">seats</text>
+  <text x="648" y="154" class="t">scripted bots, LLM seats (Claude),</text>
+  <text x="648" y="175" class="t">Laya, and you at the terminal or in a browser</text>
+  <text x="648" y="206" class="lb">a SeatView never holds another seat's cards</text>
+
+  <rect x="630" y="262" width="330" height="74" rx="10" class="box"/>
+  <text x="648" y="292" class="h">odds</text>
+  <text x="648" y="316" class="t">equity, outs, pot odds, EV of a call</text>
+
+  <!-- record -->
+  <rect x="40" y="300" width="210" height="82" rx="10" class="box"/>
+  <text x="58" y="330" class="h">importers</text>
+  <text x="58" y="352" class="t">PokerStars, GGPoker and</text>
+  <text x="58" y="372" class="t">888poker text exports</text>
+
+  <rect x="320" y="286" width="230" height="96" rx="10" class="box"/>
+  <text x="338" y="316" class="h">hand history</text>
+  <text x="338" y="340" class="t">JSONL, one hand a line,</text>
+  <text x="338" y="361" class="t">with every seat's reasoning</text>
+
+  <!-- read -->
+  <rect x="40" y="452" width="210" height="104" rx="10" class="box"/>
+  <text x="58" y="482" class="h">stats</text>
+  <text x="58" y="506" class="t">bb/100, VPIP, PFR, AF,</text>
+  <text x="58" y="527" class="t">illegal rate, ms, $/hand</text>
+
+  <rect x="320" y="452" width="230" height="104" rx="10" class="box"/>
+  <text x="338" y="482" class="h">coach</text>
+  <text x="338" y="506" class="t">facts from charts and equity</text>
+  <text x="338" y="527" class="t">leaks, drills, Claude's notes</text>
+
+  <rect x="630" y="452" width="330" height="104" rx="10" class="box"/>
+  <text x="648" y="482" class="h">viewer</text>
+  <text x="648" y="506" class="t">replay, live tables (SSE), leaderboard, coach</text>
+  <text x="648" y="527" class="t">or exported as a static site for Pages</text>
+
+  <!-- arrows: the decision loop in brass -->
+  <path d="M250 166 H312" class="flow"/>
+  <text x="262" y="156" class="lbl">deals</text>
+  <path d="M550 146 H622" class="loop"/>
+  <text x="560" y="136" class="lb">view</text>
+  <path d="M630 190 H558" class="loop"/>
+  <text x="566" y="210" class="lb">action</text>
+
+  <path d="M435 214 V278" class="flow"/>
+  <text x="444" y="252" class="lbl">finished hand</text>
+  <path d="M250 341 H312" class="flow"/>
+
+  <path d="M795 262 V240" class="flow"/>
+  <path d="M960 300 H976 V504 H968" class="flow"/>
+
+  <path d="M370 382 C 300 420, 180 420, 145 444" class="flow"/>
+  <path d="M435 382 V444" class="flow"/>
+  <path d="M500 382 C 560 420, 700 420, 760 444" class="flow"/>
+</svg>

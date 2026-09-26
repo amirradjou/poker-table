@@ -35,6 +35,18 @@ hands, the leaderboard, and what the coach says about each of them. Then
 [docs/tournaments.md](docs/tournaments.md) — the same five over 500 freezeouts, where the order
 changes: the maniac drops from second to fourth and the random bot wins more often than the rock.
 
+Try it without installing anything: **[the demo](https://amirradjou.github.io/poker-table/)**
+is the viewer exported as a static site from 300 seeded bot hands. Or run a live table in
+Docker. Tagged releases go to PyPI ([docs/releasing.md](docs/releasing.md)), and from the first
+one `pipx install poker-table` works too.
+
+```sh
+docker compose up -d                  # a live table at http://localhost:8765
+docker run --rm $(docker build -q .) play -n 200 --seats tag,maniac,station
+```
+
+From a clone:
+
 ```sh
 uv sync
 # scripted bots only — no API key needed
@@ -109,19 +121,15 @@ It is also a natural place to learn cost-per-decision engineering, because a loo
 agent that thinks hard on every street will bankrupt you in API spend before it
 bankrupts you in chips.
 
-## How it works (planned)
+## How it works
 
-```
-engine (deterministic, seeded decks)
-   │  each decision: legal actions + public state + seat's hole cards + hand history
-   ▼
-seat adapter ──► model call with a strict action schema
-                 { action: fold|check|call|bet|raise, amount?, table_talk? }
-   ▼
-validator (illegal action ⇒ auto-check/fold + penalty stat)
-   ▼
-hand history + reasoning trace + stats ──► leaderboard, replay viewer
-```
+![How a hand flows: a league deals on the engine, the engine asks each seat through a view that
+never holds another seat's cards, finished hands become JSONL histories, and stats, the coach
+and the viewer read them](docs/architecture.svg)
+
+Illegal actions are never fatal: slips such as bet-for-raise or an amount off the range are
+mapped to the nearest legal action, and anything else becomes a check or a fold that counts
+against the seat.
 
 - **Personalities are prompts + parameters**, so "who wins" is a question about
   prompts and models, and the league answers it.
