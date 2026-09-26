@@ -172,10 +172,7 @@ class LLMAgent:
         )
 
     def _prompt(self, view: SeatView) -> str:
-        lines = [view.describe(numbers=True)]
-        if view.talk:
-            lines.append("Table talk this hand:")
-            lines += [f'  {who}: "{text}"' for who, text in view.talk]
+        lines = [view.describe(numbers=True)]  # already carries this hand's table talk
         lines.append("Decide now.")
         return "\n".join(lines)
 

@@ -196,3 +196,12 @@ class _Folder:
         from poker_table.agents import Decision
 
         return Decision(Action.fold())
+
+
+def test_table_talk_reaches_the_prompt_once() -> None:
+    client = FakeClient({"action": "fold", "amount": 0, "table_talk": "", "reasoning": ""})
+    agent = LLMAgent("alice", "rock", client=client)
+    hand = hand_with({0: "Ac Ad", 1: "2c 7d", 2: "3c 8d"})
+    agent.act(make_view(hand, 0, talk=(("bob", "I have the nuts"),)))
+    body = client.messages.requests[0]["messages"][0]["content"]
+    assert body.count("I have the nuts") == 1
