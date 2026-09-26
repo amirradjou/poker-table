@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 from poker_table.agents.base import Decision, SeatView
+from poker_table.agents.ollama import OllamaClient, is_local
 from poker_table.agents.personalities import Personality, check_aids, get_personality
 from poker_table.agents.reads import Reads
 from poker_table.agents.strength import chen_score
@@ -112,6 +113,8 @@ class Usage:
 
 
 def estimate_cost(model: str, usage: Any) -> float:
+    if is_local(model):
+        return 0.0  # a model on this machine costs electricity, not dollars
     price_in, price_out = PRICES.get(model, PRICES[DEFAULT_MODEL])
     uncached = getattr(usage, "input_tokens", 0) or 0
     cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
@@ -126,7 +129,11 @@ def estimate_cost(model: str, usage: Any) -> float:
 
 
 class LLMAgent:
-    """A seat driven by a Claude model with a personality."""
+    """A seat driven by a language model with a personality.
+
+    Claude through the Anthropic API by default; a model named ``ollama/<name>`` runs on a
+    local Ollama instead (see ``agents/ollama.py``), free and with no API key.
+    """
 
     def __init__(
         self,
@@ -163,9 +170,12 @@ class LLMAgent:
     @property
     def client(self) -> MessagesClient:
         if self._client is None:
-            import anthropic  # imported lazily so scripted-only sessions never need a key
+            if is_local(self.model):
+                self._client = OllamaClient()
+            else:
+                import anthropic  # imported lazily so scripted-only sessions never need a key
 
-            self._client = anthropic.Anthropic()
+                self._client = anthropic.Anthropic()
         return self._client
 
     @property

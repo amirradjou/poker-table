@@ -9,6 +9,7 @@ from pathlib import Path
 
 from poker_table import __version__
 from poker_table.agents.human import HumanAgent
+from poker_table.agents.llm import LLMAgent
 from poker_table.agents.registry import available_kinds, make_agents
 from poker_table.history import HandHistory, filter_by_date, read_jsonl, write_jsonl
 from poker_table.league import (
@@ -312,10 +313,16 @@ def play_tournament(args: argparse.Namespace, agents, out) -> int:
 def check_seats_ready(agents) -> None:
     """Fail before the first hand if a seat cannot run, rather than folding its way through."""
     from poker_table.agents.laya import INSTALL_HINT, LayaAgent
+    from poker_table.agents.ollama import is_local
 
     for agent in agents:
         if isinstance(agent, LayaAgent) and not agent.loadable:
             raise ValueError(f"seat {agent.name!r}: {INSTALL_HINT}")
+        if isinstance(agent, LLMAgent) and is_local(agent.model):
+            try:
+                agent.client.check(agent.model)
+            except ValueError as exc:
+                raise ValueError(f"seat {agent.name!r}: {exc}") from None
 
 
 def model_seat_notes(agents) -> list[str]:
