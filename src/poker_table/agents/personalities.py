@@ -43,6 +43,7 @@ PERSONALITIES: dict[str, Personality] = {
         "at you with real strength, you notice.",
         effort="low",
         auto_fold_below=None,
+        description="raises light, barrels, trash-talks; never auto-folds",
     ),
     "rock": Personality(
         "rock",
@@ -52,6 +53,7 @@ PERSONALITIES: dict[str, Personality] = {
         effort="low",
         auto_fold_below=8,
         talkative=False,
+        description="premium hands only, straightforward, quiet",
     ),
     "nerd": Personality(
         "nerd",
@@ -61,6 +63,7 @@ PERSONALITIES: dict[str, Personality] = {
         "math says you should. Your table talk quotes percentages.",
         effort="high",
         auto_fold_below=4,
+        description="pot odds, equity and ranges; quotes percentages",
     ),
     "storyteller": Personality(
         "storyteller",
@@ -70,6 +73,7 @@ PERSONALITIES: dict[str, Personality] = {
         "chat warmly with the table without ever revealing your actual cards.",
         effort="medium",
         auto_fold_below=5,
+        description="balanced, and narrates every hand in character",
     ),
 }
 
