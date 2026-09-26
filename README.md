@@ -18,15 +18,17 @@ table beside the scripted bots and the LLM personalities. Antes and
 as "who wins chips", and a [probability calculator](docs/odds.md) runs in the viewer, on the
 command line and inside the seats' own prompts.
 
-![Watch mode: bots playing a hand live, with avatars, chip stacks, a thinking indicator and
-table talk](docs/watch.gif)
+![Watch mode: six bots playing a hand live at a lamp-lit table, with nameplates, chip stacks,
+a thinking indicator and table talk](docs/watch.gif)
 
-Live tables play out card by card — dealing, chips sliding to the pot and to the winner, table
-talk as notes by the seat, and a thinking indicator (with a cost ticker for LLM seats). The
-replay viewer steps through any finished hand with every seat's private reasoning:
+Live tables play out card by card under the lamp — dealing, chips sliding to the pot and on to
+the winner, table talk beside the seat, and a thinking indicator (with a cost ticker for LLM
+seats). The replay viewer steps through any finished hand with every seat's private reasoning
+in a column beside the table, and, like a poker broadcast, puts each player's chance of winning
+under their nameplate once the cards are known:
 
-![Replay viewer: a table diagram with each seat's cards, the board, and the action log with
-private reasoning](docs/viewer.png)
+![Replay viewer: the maniac bets into the calling station, 82% to 18%, while the odds panel shows
+the station thinks it has 59% and the price asks for 37%](docs/viewer.png)
 
 First numbers: [docs/baseline.md](docs/baseline.md) — five scripted bots over 1,000 seeded
 hands, the leaderboard, and what the coach says about each of them. Then
