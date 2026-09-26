@@ -154,3 +154,57 @@ def test_an_ante_survives_the_record_and_the_rendering() -> None:
     assert (
         HandHistory.from_dict({k: v for k, v in history.to_dict().items() if k != "ante"}).ante == 0
     )
+
+
+def folded_hand_with_reasoning() -> HandHistory:
+    """Three seats: alice folds preflop, bob and carol get it all in and show down."""
+    deck = stacked({0: "7c 2d", 1: "Ac Ad", 2: "Kc Kd"}, "2h 5s 8h 9s Jh", button=0)
+    hand = Hand(
+        [Player("alice", 100), Player("bob", 100), Player("carol", 100)],
+        button=0,
+        small_blind=1,
+        big_blind=2,
+        seed=3,
+        hand_id="p1",
+        deck=deck,
+    )
+    from poker_table.agents.base import Decision
+
+    class Scripted:
+        def __init__(self, name, actions, reasoning=""):
+            self.name, self.actions, self.reasoning = name, list(actions), reasoning
+
+        def act(self, view):
+            return Decision(self.actions.pop(0), reasoning=self.reasoning, meta={"model": "x"})
+
+    agents = {
+        0: Scripted("alice", [Action.fold()], "junk"),
+        1: Scripted("bob", [Action.raise_to(8), Action.call()], "aces, trap"),
+        2: Scripted("carol", [Action.raise_to(100)], "kings, shove"),
+    }
+    return HandHistory.from_played(play_hand(hand, agents))
+
+
+def test_a_public_view_keeps_only_what_the_seat_could_see() -> None:
+    from poker_table.history import public_view
+
+    history = folded_hand_with_reasoning()
+    seen = public_view(history, "alice")
+    assert seen.players[0].hole == ["7c", "2d"]  # her own cards
+    assert seen.players[1].hole == ["Ac", "Ad"] and seen.players[2].hole == ["Kc", "Kd"]  # shown
+    other = [d for d in seen.decisions if d.seat != 0]
+    assert other and all(d.reasoning == "" and d.meta == {} for d in other)
+    assert [d.reasoning for d in seen.decisions if d.seat == 0] == ["junk"]
+    dealt = [e.seat for e in seen.events if e.kind == "deal_hole"]
+    assert dealt == [0]
+
+
+def test_a_folded_hand_stays_face_down_to_everyone_else() -> None:
+    from poker_table.history import public_view
+
+    history = folded_hand_with_reasoning()
+    seen = public_view(history, "bob")
+    assert seen.players[0].hole == []  # alice folded: nobody saw her cards
+    assert "7c" not in seen.to_json() and "junk" not in seen.to_json()
+    assert seen.players[1].hole == ["Ac", "Ad"]
+    assert history.players[0].hole == ["7c", "2d"]  # the original is untouched
