@@ -192,3 +192,37 @@ def test_a_seat_sees_the_price_it_is_being_offered() -> None:
 def test_refuses_an_impossible_spot(kwargs: dict, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         chances(cards(kwargs["hole"]), cards(kwargs["board"]), kwargs["opponents"])
+
+
+# ----- the broadcast numbers: every hand at once ------------------------------------------
+
+
+def test_table_equities_agree_with_the_calculator_and_add_up_to_one() -> None:
+    from poker_table.odds import table_equities
+
+    holes = {0: hand("Ah Ad"), 1: hand("Kh Kd"), 2: hand("9s 8s")}
+    shares, exact = table_equities(holes, cards("2c 7d Js"))
+    assert exact and sum(shares.values()) == pytest.approx(1.0)
+    # the same spot from seat 0's side, as the calculator counts it
+    alone = chances(cards("Ah Ad"), cards("2c 7d Js"), [hand("Kh Kd"), hand("9s 8s")])
+    assert shares[0] == pytest.approx(alone.equity)
+
+
+def test_table_equities_settle_on_the_river_and_split_a_chop() -> None:
+    from poker_table.odds import table_equities
+
+    shares, exact = table_equities({0: hand("Ah Ad"), 1: hand("Kh Kd")}, cards("2c 7d Js 3h 4c"))
+    assert exact and shares == {0: 1.0, 1: 0.0}
+    chop, _ = table_equities({0: hand("2c 3d"), 1: hand("2h 3s")}, cards("Ah Kh Qs Js Tc"))
+    assert chop == {0: 0.5, 1: 0.5}
+    alone, _ = table_equities({4: hand("7c 2d")})
+    assert alone == {4: 1.0}  # everyone else folded
+
+
+def test_preflop_is_sampled_and_seeded() -> None:
+    from poker_table.odds import table_equities
+
+    holes = {0: hand("Ah Ad"), 1: hand("Kh Kd")}
+    first, exact = table_equities(holes, samples=3000, seed=2)
+    assert not exact and first == table_equities(holes, samples=3000, seed=2)[0]
+    assert abs(first[0] - 0.82) < 0.03  # aces over kings is about 82%
