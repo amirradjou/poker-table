@@ -20,7 +20,7 @@ def test_index_and_session(hands_file: Path) -> None:
     assert page.status_code == 200 and "<title>poker-table</title>" in page.text
     assert 'href="static/app.css"' in page.text and 'src="static/app.js"' in page.text
     css = client.get("/static/app.css")
-    assert css.status_code == 200 and "--felt:" in css.text
+    assert css.status_code == 200 and "--baize:" in css.text
     js = client.get("/static/app.js")
     assert js.status_code == 200 and "function stateAt(" in js.text
     session = client.get("/api/session").json()

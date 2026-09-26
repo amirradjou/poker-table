@@ -19,13 +19,13 @@ const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const EASE = "cubic-bezier(.2,.8,.2,1)";
 // Who sits where: a glyph and a hue per kind. LLM seats share one look (a gold ring marks them).
 const KINDS = {
-  tag: { glyph: "♠", color: "#3b5f8a", label: "bot · tag" },
-  rock: { glyph: "■", color: "#6b6a63", label: "bot · rock" },
-  maniac: { glyph: "⚡", color: "#b3261e", label: "bot · maniac" },
-  station: { glyph: "●", color: "#7a8f3a", label: "bot · station" },
-  random: { glyph: "⚄", color: "#8a5fb5", label: "bot · random" },
-  human: { glyph: "☺", color: "#d4a72c", label: "human" },
-  laya: { glyph: "◈", color: "#2a6f8f", label: "laya", model: true },
+  tag: { glyph: "♠", color: "#4a74a8", label: "tag bot" },
+  rock: { glyph: "■", color: "#7a776d", label: "rock bot" },
+  maniac: { glyph: "⚡", color: "#c0392b", label: "maniac bot" },
+  station: { glyph: "●", color: "#879b3f", label: "calling station" },
+  random: { glyph: "⚄", color: "#9166c2", label: "random bot" },
+  human: { glyph: "☺", color: "#caa24c", label: "human" },
+  laya: { glyph: "◈", color: "#2f7fa3", label: "laya model", model: true },
 };
 const DENOMS = [[100, "black"], [25, "green"], [5, "red"], [1, "white"]];
 
@@ -40,7 +40,7 @@ let prev = { handId: null, street: null, boardLen: 0, done: false };
 
 function kindInfo(kind) {
   if (!kind) return { glyph: "", color: "#8f8b80", label: "" };
-  if (kind.startsWith("llm:")) return { glyph: "✦", color: "#1f7a4d", label: kind.slice(4), llm: true };
+  if (kind.startsWith("llm:")) return { glyph: "✦", color: "#23875a", label: kind.slice(4), llm: true };
   return KINDS[kind] || { glyph: "", color: "#8f8b80", label: kind };
 }
 function initials(name) {
@@ -52,7 +52,8 @@ function cardEl(text, small) {
   if (text === null) { el.className = "card back" + (small ? " small" : ""); return el; }
   const rank = text[0] === "T" ? "10" : text[0], suit = text[1];
   el.className = "card" + ((suit === "h" || suit === "d") ? " red" : "") + (small ? " small" : "");
-  el.innerHTML = `<span>${rank}</span><span class="suit">${SUITS[suit]}</span>`;
+  el.innerHTML = `<span class="rank">${rank}</span><span class="suit">${SUITS[suit]}</span><span class="pip">${SUITS[suit]}</span>`;
+  el.setAttribute("aria-label", text);
   return el;
 }
 function avatarEl(p) {
@@ -134,8 +135,7 @@ async function loadList(reset) {
     const li = document.createElement("li");
     const b = document.createElement("button");
     b.dataset.id = h.hand_id;
-    const net = h.players.filter(p => p.net > 0).map(p => `${esc(p.name)} +${p.net}`).join(", ");
-    b.innerHTML = `<span class="id">#${esc(h.hand_id)}</span><span class="who">${net || "no winner"}</span><span class="pot">${h.pot}</span>`;
+    b.innerHTML = handRowHtml(h);
     b.addEventListener("click", () => openHand(h.hand_id));
     li.appendChild(b);
     $("hand-list").appendChild(li);
@@ -154,8 +154,33 @@ async function loadOdds(id) {
   if (!showOdds) return;
   try {
     const data = await api(`/api/odds/${id}`);
-    if (hand && hand.hand_id === data.hand_id) { oddsData = data; renderOdds(); }
+    if (hand && hand.hand_id === data.hand_id) { oddsData = data; render(); }
   } catch { oddsData = null; renderOdds(); }
+}
+
+// Everyone's share of the pot at position n (a broadcast's win %), or null when it cannot be
+// shown: odds off, cards hidden, a hand still being dealt, or cards the file never knew.
+const prevShare = {};
+function equityAt(n) {
+  if (!showOdds || !showCards || !hand || hand.streaming || hand.drill) return null;
+  if (!oddsData || oddsData.hand_id !== hand.hand_id || !oddsData.table || !oddsData.table.length) return null;
+  let row = null;
+  for (const r of oddsData.table) if (r.step <= n) row = r;
+  return row ? Object.fromEntries(Object.entries(row.equity).map(([k, v]) => [+k, v])) : null;
+}
+function equityEl(seat, share, shares) {
+  const pct = Math.round(share * 100);
+  const lead = share === Math.max(...Object.values(shares)) && share > 0;
+  const el = document.createElement("div");
+  el.className = "equity" + (lead ? " lead" : "") + (share === 0 ? " nil" : "");
+  el.title = "chance to win the pot from here, against everyone's actual cards";
+  el.innerHTML = `<span class="bar"><i style="--p:${pct}%"></i></span><b>${pct}%</b>`;
+  const key = `${hand.hand_id}:${seat}`, before = prevShare[key];
+  if (!REDUCED && before !== undefined && before !== pct) {
+    el.querySelector("i").animate([{ width: before + "%" }, { width: pct + "%" }], { duration: 450, easing: EASE });
+  }
+  prevShare[key] = pct;
+  return el;
 }
 
 // The spot being decided at the current position, else the last one decided.
@@ -186,27 +211,27 @@ function renderOdds() {
   const past = spot.step < step;
   const blind = spot.blind;
   const price = spot.to_call
-    ? `pot ${spot.pot}, to call ${spot.to_call}`
-    : `pot ${spot.pot}, nothing to call`;
+    ? `Pot ${spot.pot}, ${spot.to_call} to call`
+    : `Pot ${spot.pot}, nothing to call`;
   let html = `<div class="head"><strong>${esc(spot.name)}</strong>` +
     `<span>${past ? `${esc(spot.action)} on the ${spot.street}` : `to act on the ${spot.street}`}</span>` +
     `<span class="price">${price}</span></div>`;
   const spread = blind.exact ? "exact" : `±${(blind.error * 100).toFixed(1)}%`;
-  let note = `against ${blind.opponents} unknown hand${blind.opponents === 1 ? "" : "s"} · ${spread}`;
-  if (blind.improving && spot.street !== "river") note += ` · ${blind.improving} cards would better the hand`;
+  let note = `against ${blind.opponents} unknown hand${blind.opponents === 1 ? "" : "s"} (${spread})`;
+  if (blind.improving && spot.street !== "river") note += `; ${blind.improving} cards would better the hand`;
   html += equityRow(blind, "as they see it", note, false);
   // What a replay also knows: the actual cards. Held back while the cards are.
   if (spot.known && showCards) {
     const k = spot.known;
-    let kn = k.exact ? `against their actual cards · exact, ${k.trials} run-outs` : `against their actual cards · ±${(k.error * 100).toFixed(1)}%`;
-    if (k.outs && k.outs.length) kn += ` · ${k.outs.length} outs (${k.hit ? Math.round(k.hit * 100) + "% by the river" : ""})`;
+    let kn = k.exact ? `against their actual cards, exact over ${k.trials} run-out${k.trials === 1 ? "" : "s"}` : `against their actual cards, ±${(k.error * 100).toFixed(1)}%`;
+    if (k.outs && k.outs.length) kn += `; ${k.outs.length} outs, ${Math.round((k.hit || 0) * 100)}% to hit by the river`;
     html += equityRow(k, "with every hand", kn, k.exact);
   }
   if (spot.to_call) {
     const good = spot.ev_call >= 0;
     html += `<div class="foot">pot odds ${spot.ratio} — a call needs <strong>${Math.round(spot.required * 100)}%</strong>` +
       `; at the ${Math.round(blind.equity * 100)}% they can see, calling is ` +
-      `<span class="${good ? "good" : "bad"}">${spot.ev_call > 0 ? "+" : ""}${spot.ev_call}</span> chips against folding</div>`;
+      `<span class="${good ? "good" : "bad"}">${spot.ev_call > 0 ? "+" : ""}${spot.ev_call.toFixed(1)}</span> chips against folding</div>`;
   }
   el.innerHTML = html;
 }
@@ -222,7 +247,8 @@ async function openHand(id, { autoplay = false, at = "start" } = {}) {
   $("empty").classList.add("hidden");
   $("replay").classList.remove("hidden");
   $("hand-title").textContent = `Hand #${hand.hand_id}`;
-  $("hand-sub").textContent = `blinds ${hand.small_blind}/${hand.big_blind}${hand.ante ? ` ante ${hand.ante}` : ""}, seed ${hand.seed}`;
+  $("hand-sub").textContent = `Blinds ${hand.small_blind}/${hand.big_blind}${hand.ante ? `, ante ${hand.ante}` : ""}`;
+  $("hand-sub").title = `seed ${hand.seed}`;
   $("scrub").max = hand.steps.length;
   buildLog();
   buildSummary();
@@ -230,6 +256,22 @@ async function openHand(id, { autoplay = false, at = "start" } = {}) {
   loadOdds(id);
   history.replaceState(null, "", `#${id}`);
   if (autoplay) startAuto();
+}
+
+// One row of the hand list: who won and how much, the pot, and the board at a glance.
+function handRowHtml(h) {
+  const won = h.players.filter(p => p.net > 0).map(p => `${esc(p.name)} <span class="won">+${p.net}</span>`).join(", ");
+  return `<span class="id">#${esc(h.hand_id)}</span><span class="who">${won || "no winner"}</span>` +
+    `<span class="pot" title="pot">${h.pot}</span>` +
+    `<span class="mini">${miniBoard(h.board)}</span>`;
+}
+// The board as a line of text: rank and suit, red suits in red.
+function miniBoard(board) {
+  if (!board || !board.length) return '<span class="none">no flop</span>';
+  return board.map(c => {
+    const rank = c[0] === "T" ? "10" : c[0], suit = c[1];
+    return `<span class="c${suit === "h" || suit === "d" ? " r" : ""}">${rank}${SUITS[suit]}</span>`;
+  }).join("");
 }
 
 // Table state after the first `n` steps: stacks, bets, folds, board, pot.
@@ -252,8 +294,8 @@ function stateAt(n) {
       }
       case "street": board = board.concat(e.cards); street = e.street; seats.forEach(s => s.bet = 0); break;
       case "return_uncalled": seats[e.seat].stack += e.amount; pot -= e.amount; seats[e.seat].bet = Math.max(0, seats[e.seat].bet - e.amount); break;
-      case "showdown": showdown = true; street = "showdown"; break;
-      case "win": seats[e.seat].stack += e.amount; seats[e.seat].won += e.amount; seats[e.seat].allIn = false; pot -= e.amount; break;
+      case "showdown": showdown = true; street = "showdown"; seats.forEach(s => s.bet = 0); break;
+      case "win": seats[e.seat].stack += e.amount; seats[e.seat].won += e.amount; seats[e.seat].allIn = false; pot -= e.amount; seats.forEach(s => s.bet = 0); break;
     }
   }
   // Who acts next: the seat of the next action step (replay) or whoever the table says (live).
@@ -284,52 +326,65 @@ function render() {
   const oldPot = oldPotEl ? rectIn(oldPotEl, table) : null;
 
   $("scrub").value = step;
-  $("street").textContent = st.done ? "hand over" : st.street;
+  $("scrub").style.setProperty("--pct", `${hand.steps.length ? (100 * step) / hand.steps.length : 0}%`);
+  $("summary").classList.toggle("pending", !st.done && !hand.streaming);
+  $("street").textContent = st.done ? "Hand over" : st.street[0].toUpperCase() + st.street.slice(1);
   // board
   const board = $("board"); board.innerHTML = "";
   st.board.forEach(c => board.appendChild(cardEl(c)));
   $("pot").innerHTML = "";
-  if (st.pot) { $("pot").appendChild(chipStackEl(st.pot)); const t = document.createElement("span"); t.className = "pot-label"; t.textContent = `pot ${st.pot}`; $("pot").appendChild(t); }
+  if (st.pot) { $("pot").appendChild(chipStackEl(st.pot)); const t = document.createElement("span"); t.className = "pot-label"; t.textContent = `Pot ${st.pot}`; $("pot").appendChild(t); }
   // seats around the oval (ghost chip flights remove themselves when they land)
   for (const el of table.querySelectorAll(".seat")) el.remove();
   const n = st.seats.length;
   const now = Date.now();
+  const shares = equityAt(step);
   st.seats.forEach((s, i) => {
     const el = document.createElement("div");
     const angle = Math.PI / 2 + (2 * Math.PI * i) / n;  // seat 0 at the bottom, clockwise
-    const x = 50 + 43 * Math.cos(angle), y = 50 + 33 * Math.sin(angle);
+    const x = 50 + 44 * Math.cos(angle), y = 50 + 50 * Math.sin(angle);
     const acting = st.acting === i && !st.done;
-    el.className = "seat" + (y < 50 ? " top" : " bottom") + (s.folded ? " folded" : "")
+    el.className = "seat" + (y < 50 ? " top" : " bottom") + (x < 50 ? " left" : " right") + (s.folded ? " folded" : "")
       + (acting ? " acting" : "") + (s.won ? " winner" : "");
     el.dataset.seat = i;
     el.style.left = x + "%"; el.style.top = y + "%";
+    // the way to the pot, for the bet and the dealer button
+    el.style.setProperty("--dx", (-Math.cos(angle)).toFixed(3));
+    el.style.setProperty("--dy", (-Math.sin(angle)).toFixed(3));
     const info = kindInfo(s.kind);
-    const who = document.createElement("div"); who.className = "who";
-    who.appendChild(avatarEl(s));
-    const named = (info.llm || info.model) && modelOf[i];
-  const label = named ? `${info.label} · ${modelOf[i].replace(/^claude-|^laya:/, "")}` : info.label;
-    who.innerHTML += `<div class="id"><div class="name">${esc(s.name)}</div><div class="pos">${s.position}${label ? " · " + esc(label) : ""}</div></div>`;
-    el.appendChild(who);
+
     const reveal = showCards || st.showdown || (st.done && s.won);
     const cards = document.createElement("div"); cards.className = "cards";
     const hole = s.hole.length ? s.hole : [null, null];  // imported hands may not know them
     if (!s.folded || showCards) hole.forEach(c => cards.appendChild(cardEl(reveal ? c : null, true)));
     el.appendChild(cards);
-    const stack = document.createElement("div"); stack.className = "stack";
+
+    const plate = document.createElement("div"); plate.className = "plate";
+    plate.appendChild(avatarEl(s));
+    const named = (info.llm || info.model) && modelOf[i];
+    const label = named ? `${info.label}, ${modelOf[i].replace(/^claude-|^laya:/, "")}` : info.label;
+    plate.insertAdjacentHTML("beforeend",
+      `<div class="id"><div class="name">${esc(s.name)}</div><div class="pos"><b>${s.position}</b>${label ? esc(label) : ""}</div></div>`);
+    const stack = document.createElement("div");
+    stack.className = "stack" + (s.allIn ? " allin" : "");
     stack.textContent = s.allIn ? "all-in" : `${s.stack}`;
-    el.appendChild(stack);
+    plate.appendChild(stack);
+    if (s.won) plate.insertAdjacentHTML("beforeend", `<div class="won">wins ${s.won}</div>`);
+    else if (shares && !s.folded && shares[i] !== undefined) plate.appendChild(equityEl(i, shares[i], shares));
     if (acting && hand.streaming && !(turn && turn.seat === i)) {
       const th = document.createElement("div"); th.className = "thinking"; th.innerHTML = "<i></i><i></i><i></i>";
-      el.appendChild(th);
-      if (info.llm || info.model) { const tk = document.createElement("div"); tk.className = "ticker"; tk.dataset.since = liveActing ? liveActing.since : now; el.appendChild(tk); }
+      plate.appendChild(th);
+      if (info.llm || info.model) { const tk = document.createElement("div"); tk.className = "ticker"; tk.dataset.since = liveActing ? liveActing.since : now; plate.appendChild(tk); }
     } else if (lastDecision[i] && hand.streaming && (info.llm || info.model)) {
       const tk = document.createElement("div"); tk.className = "ticker settled";
       const d = lastDecision[i];
-      tk.textContent = `${(d.latency_ms / 1000).toFixed(1)} s` + (d.cost_usd !== undefined ? ` · $${d.cost_usd.toFixed(4)}` : "");
-      el.appendChild(tk);
+      tk.textContent = `${(d.latency_ms / 1000).toFixed(1)} s` + (d.cost_usd !== undefined ? `, $${d.cost_usd.toFixed(4)}` : "");
+      plate.appendChild(tk);
     }
+    el.appendChild(plate);
+
     if (s.bet) { const b = document.createElement("div"); b.className = "bet"; b.appendChild(chipStackEl(s.bet)); el.appendChild(b); }
-    if (i === hand.button) { const d = document.createElement("div"); d.className = "button"; d.textContent = "D"; el.appendChild(d); }
+    if (i === hand.button) { const d = document.createElement("div"); d.className = "button"; d.textContent = "D"; d.title = "dealer button"; el.appendChild(d); }
     const bubble = bubbles[i];
     if (bubble && bubble.until > now) { const q = document.createElement("div"); q.className = "bubble"; q.textContent = `“${bubble.text}”`; el.appendChild(q); }
     table.appendChild(el);
@@ -404,7 +459,8 @@ function potToWinners(table, oldPot, winners) {
     g.animate([{ transform: "none", opacity: 1 }, { transform: `translate(${target.x - oldPot.x}px, ${target.y - oldPot.y}px)`, opacity: .2 }],
       { duration: 600, easing: EASE, fill: "forwards" }).finished.then(() => {
         g.remove();
-        el.animate([{ boxShadow: "0 0 0 0 rgba(212,167,44,.9)" }, { boxShadow: "0 0 0 18px rgba(212,167,44,0)" }], { duration: 900, easing: "ease-out" });
+        const plate = el.querySelector(".plate") || el;
+        plate.animate([{ boxShadow: "0 0 0 0 rgba(227,195,120,.9)" }, { boxShadow: "0 0 0 22px rgba(227,195,120,0)" }], { duration: 900, easing: "ease-out" });
       });
   }
 }
@@ -443,7 +499,7 @@ function logItem(e) {
     }
     case "street": {
       li.className = "street";
-      li.textContent = e.street;
+      li.textContent = e.street[0].toUpperCase() + e.street.slice(1);
       const c = document.createElement("span"); c.className = "cards";
       e.cards.forEach(x => c.appendChild(cardEl(x, true)));
       li.appendChild(c);
@@ -459,7 +515,7 @@ function logItem(e) {
       break;
     }
     case "win": li.className = "win"; li.innerHTML = `<span class="who">${esc(e.name)}</span> wins ${e.amount} (${esc(e.text)})`; break;
-    case "hand_end": li.className = "street"; li.textContent = "hand over"; break;
+    case "hand_end": li.className = "street"; li.textContent = "Hand over"; break;
     default: li.textContent = e.kind;
   }
   return li;
@@ -910,8 +966,7 @@ async function showHandSubset(ids, label) {
     const li = document.createElement("li");
     const b = document.createElement("button");
     b.dataset.id = h.hand_id;
-    const net = h.players.filter(p => p.net > 0).map(p => `${esc(p.name)} +${p.net}`).join(", ");
-    b.innerHTML = `<span class="id">#${esc(h.hand_id)}</span><span class="who">${net || "no winner"}</span><span class="pot">${h.pot}</span>`;
+    b.innerHTML = handRowHtml(h);
     b.addEventListener("click", () => openHand(h.hand_id));
     li.appendChild(b);
     list.appendChild(li);
@@ -990,7 +1045,7 @@ $("toggle-cards").onclick = (e) => { showCards = !showCards; e.target.setAttribu
 $("toggle-odds").onclick = (e) => {
   showOdds = !showOdds;
   e.target.setAttribute("aria-pressed", showOdds);
-  if (showOdds && !oddsData && hand) loadOdds(hand.hand_id); else renderOdds();
+  if (showOdds && !oddsData && hand) loadOdds(hand.hand_id); else render();
 };
 $("tab-hands").onclick = () => setTab("hands");
 $("tab-board").onclick = () => setTab("board");
