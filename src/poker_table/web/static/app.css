@@ -393,6 +393,7 @@ input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 
 .log li .talk { font-style: italic; color: var(--ivory); }
 .log li .think { display: block; margin-top: 5px; padding-left: 12px; border-left: 2px solid var(--room-4); color: var(--ivory-soft); font-size: 14px; line-height: 1.45; }
 .log li .think .illegal { color: var(--down); }
+.log li .think .note { display: block; margin-top: 3px; color: var(--brass-hi); }
 .log li .meta { display: inline-block; margin-left: 8px; font: 500 13px var(--condensed); color: var(--ivory-faint); }
 .log li.win { color: var(--brass-hi); }
 .log li.win .who { color: var(--brass-hi); }
