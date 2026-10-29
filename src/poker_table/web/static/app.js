@@ -147,6 +147,7 @@ async function loadList(reset) {
   }
   listOffset += data.hands.length;
   $("more").classList.toggle("hidden", listOffset >= listTotal);
+  return data.hands;
 }
 
 let oddsData = null, showOdds = true;
@@ -1079,8 +1080,13 @@ if (STATIC) $("tab-drill").classList.add("hidden");  // drills record answers; a
 
 (async () => {
   await loadSession();
-  await loadList(true);
+  const first = await loadList(true);
   const wanted = location.hash.slice(1);
   if (wanted) openHand(wanted).catch(() => {});
+  else if (STATIC && first.length) {
+    // A published demo opens on a hand worth watching: the biggest pot that was shown down.
+    const shown = first.filter(h => h.showdown).sort((a, b) => b.pot - a.pot);
+    openHand((shown[0] || first[0]).hand_id).catch(() => {});
+  }
   connectLive().catch(() => {});
 })();

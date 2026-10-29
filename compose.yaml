@@ -1,0 +1,20 @@
+# docker compose up -d   then open http://localhost:8765
+# Hands are kept in the "hands" volume, so the viewer's history survives a restart.
+services:
+  table:
+    build: .
+    image: poker-table
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - hands:/data
+    environment:
+      # Only needed when --seats names an llm: kind.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    restart: unless-stopped
+    # To choose the seats, pace or blinds, override the command, e.g.:
+    # command: ["serve", "/data/live.jsonl", "--live", "--host", "0.0.0.0",
+    #           "--seats", "tag,maniac,llm:nerd", "--pace", "1.5"]
+
+volumes:
+  hands:

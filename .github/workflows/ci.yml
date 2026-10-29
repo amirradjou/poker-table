@@ -21,3 +21,23 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run pytest -q
+
+  docker:
+    name: docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t poker-table .
+      - name: A live table serves hands from the container
+        run: |
+          docker run -d --name table -p 8765:8765 poker-table \
+            serve /data/live.jsonl --live --host 0.0.0.0 -n 5 --pace 0 --seats tag,station
+          for _ in $(seq 1 30); do
+            hands="$(curl -fsS localhost:8765/api/session | python3 -c 'import json,sys; print(json.load(sys.stdin)["hands"])' || echo 0)"
+            [ "$hands" -ge 5 ] && break
+            sleep 1
+          done
+          docker logs table
+          echo "hands served: $hands"
+          [ "$hands" -ge 5 ]
+      - run: docker run --rm poker-table play -n 20 --seats tag,maniac,station -q
