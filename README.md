@@ -16,7 +16,11 @@ drillable in the browser too. A [Laya](docs/laya.md) seat brings an open decisio
 table beside the scripted bots and the LLM personalities. Antes and
 [freezeout tournaments](docs/tournaments.md) are in, so the table answers "who survives" as well
 as "who wins chips", and a [probability calculator](docs/odds.md) runs in the viewer, on the
-command line and inside the seats' own prompts.
+command line and inside the seats' own prompts. LLM seats now [read their opponents](docs/agents.md):
+ranges from this hand's action, a HUD built from the hands they were shown, and a notebook
+they write to themselves. You can define your own seats in a TOML file (a persona, a tuned bot
+or a Python class), run any LLM seat on a local model through Ollama for free, and score seats
+with `poker-table eval` before paying for a league.
 
 ![Watch mode: six bots playing a hand live at a lamp-lit table, with nameplates, chip stacks,
 a thinking indicator and table talk](docs/watch.gif)
@@ -61,12 +65,22 @@ uv run poker-table serve real.jsonl --open                  # Coach tab: leaks l
 
 # LLM seats (needs ANTHROPIC_API_KEY): kind is llm:<personality>[@model]
 uv run poker-table play -n 20 --seats llm:nerd,llm:maniac,tag,station --show -o llm.jsonl
-uv run poker-table play -n 20 --seats "ada:llm:storyteller@claude-sonnet-5,rock" --show
+uv run poker-table play -n 20 --seats "ada:llm:storyteller@claude-sonnet-5,rock" --budget 1
+# ... or on a local model, free and with no key (ollama pull qwen2.5:7b)
+uv run poker-table play -n 20 --seats llm:nerd@ollama/qwen2.5:7b,tag,station --show
+
+# your own seats: an LLM persona, a tuned bot or a Python class, in a TOML file
+uv run poker-table agents --example > agents.toml
+uv run poker-table play --agents agents.toml --seats shark,nit,tag,station
+# score seats on the same graded decisions before paying for a league
+uv run poker-table eval --seats llm:nerd@ollama/qwen2.5:7b,tag -n 40
 ```
 
-Seat kinds: `random`, `station`, `tag`, `rock`, `maniac`, `laya`, and `llm:maniac`, `llm:rock`,
-`llm:nerd`, `llm:storyteller` (default model `claude-opus-5`). Every model decision records the
-model, tokens, latency and an estimated cost; the leaderboard shows `$/hand` and `ms` per seat.
+Seat kinds: `random`, `station`, `tag`, `rock`, `maniac`, `laya`, `human`, `llm:maniac`,
+`llm:rock`, `llm:nerd`, `llm:storyteller` (default model `claude-opus-5`), and whatever an agents
+file defines (`poker-table agents` lists them). Every model decision records the model, tokens,
+latency and an estimated cost; the leaderboard shows `$/hand` and `ms` per seat. What an LLM seat
+is handed, how to write your own and how to measure what the aids are worth: [docs/agents.md](docs/agents.md).
 
 ```sh
 # a probability calculator: with the other hands, or without them
