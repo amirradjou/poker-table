@@ -9,6 +9,7 @@ from pathlib import Path
 
 from poker_table import __version__
 from poker_table.agents.human import HumanAgent
+from poker_table.agents.llm import LLMAgent
 from poker_table.agents.registry import available_kinds, make_agents
 from poker_table.history import HandHistory, filter_by_date, read_jsonl, write_jsonl
 from poker_table.league import (
@@ -52,12 +53,19 @@ def build_parser() -> argparse.ArgumentParser:
             f"(kinds: {', '.join(available_kinds())})"
         ),
     )
+    add_agents_option(play)
     play.add_argument("--seed", type=int, default=0, help="league seed (default 0)")
     play.add_argument("--blinds", help="small/big blind, e.g. 1/2 (default)")
     play.add_argument("--ante", type=int, help="chips every seat posts before the blinds")
     play.add_argument("--stack", type=int, default=200, help="buy-in in chips (default 200)")
     play.add_argument(
         "--carry", action="store_true", help="carry stacks between hands and rebuy when busted"
+    )
+    play.add_argument(
+        "--budget",
+        type=float,
+        metavar="USD",
+        help="stop dealing once the LLM seats have spent this many dollars",
     )
     play.add_argument(
         "--tournament",
@@ -98,6 +106,43 @@ def build_parser() -> argparse.ArgumentParser:
     odds.add_argument("--call", type=int, default=0, help="chips you have to put in")
     odds.add_argument("--samples", type=int, default=20000, help="samples when it cannot be exact")
     odds.add_argument("--seed", type=int, default=0)
+
+    agents = sub.add_parser("agents", help="list the kinds a seat can be, and check agents files")
+    agents.description = (
+        "List every kind --seats accepts: the built-in bots and personalities, and the ones an"
+        " agents file defines. Start a file of your own with --example."
+    )
+    add_agents_option(agents)
+    agents.add_argument(
+        "--example", action="store_true", help="print an example agents file and exit"
+    )
+    agents.add_argument(
+        "--ollama", action="store_true", help="also list the models a local Ollama has pulled"
+    )
+
+    ev = sub.add_parser("eval", help="score seats on decisions the coach can grade")
+    ev.description = (
+        "Play a seeded bot session, let the coach grade its decisions, and ask each seat the"
+        " same questions: half spots the coach calls mistakes, half it accepts. Prints how"
+        " often each seat agrees, beside the best a one-answer seat could score."
+    )
+    ev.add_argument("-s", "--seats", required=True, help="seats to score, as for play")
+    add_agents_option(ev)
+    ev.add_argument("-n", "--questions", type=int, default=60, help="questions (default 60)")
+    ev.add_argument(
+        "--hands", type=int, default=150, help="seeded bot hands to draw them from (default 150)"
+    )
+    ev.add_argument(
+        "--from", dest="source", type=Path, help="draw questions from this JSONL file instead"
+    )
+    ev.add_argument("--players", help="whose decisions become questions (default: every seat)")
+    ev.add_argument("--seed", type=int, default=7)
+    ev.add_argument("--samples", type=int, default=150, help="equity samples per graded spot")
+    ev.add_argument(
+        "--aids", help="what LLM seats are handed: comma-separated, or 'none' (default: theirs)"
+    )
+    ev.add_argument("--json", type=Path, help="also write the scores and every answer here")
+    ev.add_argument("-v", "--verbose", action="store_true", help="print every answer")
 
     stats = sub.add_parser("stats", help="leaderboard and exploitability stats for a JSONL file")
     stats.add_argument("file", type=Path)
@@ -191,6 +236,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     serve.add_argument("-n", "--hands", type=int, default=100, help="hands to play with --live")
     serve.add_argument("-s", "--seats", default=DEFAULT_SEATS, help="seats for --live ('human' ok)")
+    add_agents_option(serve)
     serve.add_argument("--seed", type=int, default=0)
     serve.add_argument("--blinds", default="1/2")
     serve.add_argument("--stack", type=int, default=200)
@@ -201,6 +247,148 @@ def build_parser() -> argparse.ArgumentParser:
         help="seconds between bot decisions with --live, so hands can be watched (default 0.8)",
     )
     return parser
+
+
+def add_agents_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--agents",
+        type=Path,
+        action="append",
+        default=[],
+        metavar="FILE",
+        help="TOML file of your own agent kinds (repeatable); see `poker-table agents --example`",
+    )
+
+
+def custom_kinds(args: argparse.Namespace):
+    from poker_table.agents.custom import load_agent_files
+
+    return load_agent_files(args.agents)
+
+
+def cmd_agents(args: argparse.Namespace, out) -> int:
+    from importlib.resources import files
+
+    from poker_table.agents.custom import describe_kinds
+    from poker_table.agents.ollama import OllamaClient
+
+    if args.example:
+        example = files("poker_table.agents").joinpath("agents.example.toml")
+        print(example.read_text(encoding="utf-8"), end="", file=out)
+        return 0
+    custom = custom_kinds(args)
+    rows = describe_kinds(custom)
+    width = max(len(kind) for kind, _ in rows) + 2
+    print("Built in:", file=out)
+    for kind, text in rows[: len(rows) - len(custom)]:
+        print(f"  {kind:<{width}}{text}", file=out)
+    if custom:
+        sources = ", ".join(str(p) for p in args.agents)
+        print(f"From {sources}:", file=out)
+        for key, kind in custom.items():
+            detail = kind.type
+            if kind.personality is not None:
+                aids = ", ".join(kind.personality.aids) or "none"
+                detail = f"llm on {kind.model}, aids: {aids}"
+            print(f"  {key:<{width}}{kind.description} ({detail})", file=out)
+    example = next(iter(custom), "llm:nerd")
+    print(
+        f"\nSeat them with --seats, e.g. --seats {example},tag,station; "
+        "put another model on an LLM seat with @, e.g. llm:rock@ollama/qwen2.5:7b",
+        file=out,
+    )
+    if args.ollama:
+        client = OllamaClient(timeout=3.0)
+        try:
+            pulled = client.models()
+        except (OSError, RuntimeError) as exc:
+            print(f"Ollama at {client.host}: not reachable ({exc})", file=out)
+        else:
+            names = ", ".join(f"ollama/{m}" for m in pulled) or "none pulled"
+            print(f"Ollama at {client.host}: {names}", file=out)
+    return 0
+
+
+EVAL_BOTS = "tag,rock,station,maniac,random"  # the session questions are drawn from
+
+
+def cmd_eval(args: argparse.Namespace, out) -> int:
+    import json
+
+    from poker_table.evals import build_questions, format_scores, score
+    from poker_table.league import LeagueConfig, run_league
+
+    if args.source is not None:
+        histories = list(read_jsonl(args.source))
+        where = f"{len(histories)} hands from {args.source}"
+    else:
+        bots = make_agents(EVAL_BOTS.split(","), seed=args.seed)
+        histories = run_league(bots, LeagueConfig(hands=args.hands, seed=args.seed)).histories
+        where = f"{args.hands} seeded hands between {EVAL_BOTS.replace(',', ', ')}"
+    players = (
+        [p.strip() for p in args.players.split(",") if p.strip()]
+        if args.players
+        else sorted({p.name for h in histories for p in h.players})
+    )
+    questions = build_questions(
+        histories, players, count=args.questions, samples=args.samples, seed=args.seed
+    )
+    if not questions:
+        raise ValueError(f"the coach found nothing to grade in {where}")
+    specs = [s for s in args.seats.split(",") if s.strip()]
+    agents = make_agents(specs, seed=args.seed, custom=custom_kinds(args))
+    if any(isinstance(a, HumanAgent) for a in agents):
+        raise ValueError("a human seat cannot be evaluated here; try `poker-table drill`")
+    if args.aids is not None:
+        aids = [] if args.aids.strip() == "none" else [a.strip() for a in args.aids.split(",")]
+        for agent in agents:
+            if isinstance(agent, LLMAgent):
+                agent.use_aids(aids)
+    check_seats_ready(agents)
+    mistakes = sum(q.mistake for q in questions)
+    print(
+        f"{len(questions)} questions ({mistakes} spots the coach calls mistakes, "
+        f"{len(questions) - mistakes} it accepts) from {where}",
+        file=out,
+    )
+    answers: list[dict] = []
+
+    def on_answer(agent_name: str):
+        def record(q, action, right: bool) -> None:
+            answers.append(
+                {
+                    "seat": agent_name,
+                    "question": q.key,
+                    "tag": q.tag,
+                    "mistake": q.mistake,
+                    "answer": str(action),
+                    "right": right,
+                    "accepted": sorted(a.value for a in q.accepted),
+                }
+            )
+            if args.verbose:
+                mark = "ok " if right else "no "
+                accepted = "/".join(sorted(a.value for a in q.accepted))
+                print(
+                    f"  {mark}{agent_name:<12} {q.key:<14} {q.tag:<14} "
+                    f"{str(action):<12} (accepted: {accepted})",
+                    file=out,
+                )
+
+        return record
+
+    scores = [score(agent, questions, on_answer=on_answer(agent.name)) for agent in agents]
+    print(format_scores(scores, questions), file=out)
+    if args.json is not None:
+        payload = {
+            "source": where,
+            "questions": len(questions),
+            "mistakes": mistakes,
+            "scores": [s.row() for s in scores],
+            "answers": answers,
+        }
+        args.json.write_text(json.dumps(payload, indent=1), encoding="utf-8")
+    return 0
 
 
 def parse_blinds(text: str) -> tuple[int, int]:
@@ -242,7 +430,7 @@ def hand_writer(args: argparse.Namespace, out, *, every_hand: bool):
 
 def cmd_play(args: argparse.Namespace, out) -> int:
     specs = [s for s in args.seats.split(",") if s.strip()]
-    agents = make_agents(specs, seed=args.seed)
+    agents = make_agents(specs, seed=args.seed, custom=custom_kinds(args))
     check_seats_ready(agents)
     if args.tournament:
         return play_tournament(args, agents, out)
@@ -256,6 +444,7 @@ def cmd_play(args: argparse.Namespace, out) -> int:
         buy_in=args.stack,
         top_up=not args.carry,
         seed=args.seed,
+        budget_usd=args.budget,
     )
     human_seated = any(isinstance(a, HumanAgent) for a in agents)
     on_hand = hand_writer(args, out, every_hand=args.show or human_seated)
@@ -266,6 +455,12 @@ def cmd_play(args: argparse.Namespace, out) -> int:
         print(f"{header} · seats: {seat_list(agents)}", file=out)
         if args.carry:
             print("rebuys: " + ", ".join(f"{k}={v}" for k, v in result.rebuys.items()), file=out)
+        if result.over_budget:
+            print(
+                f"stopped after {result.hands} of {config.hands} hands: the seats spent "
+                f"${result.spent_usd:.4f} of the ${args.budget:.2f} budget",
+                file=out,
+            )
     print(format_table(result.stats), file=out)
     for line in model_seat_notes(agents):
         print(line, file=out)
@@ -285,6 +480,7 @@ def play_tournament(args: argparse.Namespace, agents, out) -> int:
         hands_per_level=args.level_hands,
         max_hands=args.hands if args.hands is not None else 5000,
         seed=args.seed,
+        budget_usd=args.budget,
     )
     if args.blinds or args.ante:
         print("note: a tournament takes its blinds and antes from --levels", file=out)
@@ -312,10 +508,16 @@ def play_tournament(args: argparse.Namespace, agents, out) -> int:
 def check_seats_ready(agents) -> None:
     """Fail before the first hand if a seat cannot run, rather than folding its way through."""
     from poker_table.agents.laya import INSTALL_HINT, LayaAgent
+    from poker_table.agents.ollama import is_local
 
     for agent in agents:
         if isinstance(agent, LayaAgent) and not agent.loadable:
             raise ValueError(f"seat {agent.name!r}: {INSTALL_HINT}")
+        if isinstance(agent, LLMAgent) and is_local(agent.model):
+            try:
+                agent.client.check(agent.model)
+            except ValueError as exc:
+                raise ValueError(f"seat {agent.name!r}: {exc}") from None
 
 
 def model_seat_notes(agents) -> list[str]:
@@ -324,6 +526,9 @@ def model_seat_notes(agents) -> list[str]:
 
     notes = []
     for agent in agents:
+        if isinstance(agent, LLMAgent):
+            notes.append(llm_seat_note(agent))
+            continue
         if not isinstance(agent, LayaAgent):
             continue
         u = agent.usage
@@ -342,6 +547,19 @@ def model_seat_notes(agents) -> list[str]:
             note += f", {u.avg_latency_ms:.0f} ms each"
         notes.append(note)
     return notes
+
+
+def llm_seat_note(agent: LLMAgent) -> str:
+    u = agent.usage
+    parts = [f"{u.calls} model call{'' if u.calls == 1 else 's'} to {agent.model}"]
+    if u.gated:
+        parts.append(f"{u.gated} junk hands folded without asking")
+    if u.errors:
+        parts.append(f"{u.errors} failed (checked or folded instead)")
+    if agent.notes:
+        parts.append(f"{len(agent.notes)} notes in its notebook")
+    aids = ", ".join(sorted(agent.aids)) or "none"
+    return f"{agent.name}: " + ", ".join(parts) + f", ${u.cost_usd:.4f}; aids: {aids}"
 
 
 def parse_opponents(text: str):
@@ -558,7 +776,7 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
         specs = [s for s in args.seats.split(",") if s.strip()]
         agents = [
             WebHumanAgent(a.name) if isinstance(a, HumanAgent) else a
-            for a in make_agents(specs, seed=args.seed)
+            for a in make_agents(specs, seed=args.seed, custom=custom_kinds(args))
         ]
         check_seats_ready(agents)
         config = LeagueConfig(
@@ -591,6 +809,10 @@ def main(argv: Sequence[str] | None = None, out=None) -> int:
                 return cmd_play(args, out)
             case "odds":
                 return cmd_odds(args, out)
+            case "agents":
+                return cmd_agents(args, out)
+            case "eval":
+                return cmd_eval(args, out)
             case "stats":
                 return cmd_stats(args, out)
             case "replay":

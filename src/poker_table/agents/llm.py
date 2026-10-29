@@ -4,13 +4,20 @@ from __future__ import annotations
 
 import json
 import time
+from collections import deque
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from poker_table.agents.base import Decision, SeatView
-from poker_table.agents.personalities import Personality, get_personality
+from poker_table.agents.ollama import OllamaClient, is_local
+from poker_table.agents.personalities import Personality, check_aids, get_personality
+from poker_table.agents.reads import Reads
 from poker_table.agents.strength import chen_score
 from poker_table.engine import Action, ActionType, Street
+
+if TYPE_CHECKING:
+    from poker_table.history import HandHistory
 
 DEFAULT_MODEL = "claude-opus-5"
 
@@ -42,6 +49,32 @@ Interface rules:
 - Illegal actions are converted to a check or a fold and counted against you.
 """
 
+PLAYBOOK = """\
+How strong players play (follow it unless your personality says otherwise):
+- Preflop: open-raise to 2.5-3 big blinds, plus one for each limper; do not limp. Play few
+  hands from early position and many from the button. Facing a raise, re-raise your best
+  hands and a few bluffs, call with pairs and suited connectors when the price and position
+  are right, and fold the rest.
+- After the flop: bet for value when worse hands can call and bluff when better hands can
+  fold; with neither, check. Continuation-bet about a third of the pot on dry boards and two
+  thirds on wet ones. Keep the story consistent from street to street.
+- Calling: compare your equity against the range their actions suggest, not against random
+  hands, with the break-even equity the pot odds give you. Draws earn implied odds when
+  stacks are deep.
+- Stacks: under about 10 big blinds, shove or fold preflop. When the stack left is small
+  next to the pot, a good top pair is worth all of it.
+- Opponents: respect raises from tight players, call down lighter against maniacs, bet big
+  for value into calling stations and never bluff them.
+"""
+
+NOTES_RULE = """\
+- "note" is a private line to your future self about an opponent, kept for later hands
+  ("maniac: bets every river, showed a pair of sixes"). Leave it empty unless you learned
+  something new about someone.
+"""
+
+NOTES_KEPT = 12  # the notebook keeps the most recent lines
+
 ACTION_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -52,6 +85,12 @@ ACTION_SCHEMA: dict[str, Any] = {
     },
     "required": ["action", "amount", "table_talk", "reasoning"],
     "additionalProperties": False,
+}
+
+NOTE_SCHEMA: dict[str, Any] = {
+    **ACTION_SCHEMA,
+    "properties": {**ACTION_SCHEMA["properties"], "note": {"type": "string"}},
+    "required": [*ACTION_SCHEMA["required"], "note"],
 }
 
 
@@ -74,6 +113,8 @@ class Usage:
 
 
 def estimate_cost(model: str, usage: Any) -> float:
+    if is_local(model):
+        return 0.0  # a model on this machine costs electricity, not dollars
     price_in, price_out = PRICES.get(model, PRICES[DEFAULT_MODEL])
     uncached = getattr(usage, "input_tokens", 0) or 0
     cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
@@ -88,7 +129,11 @@ def estimate_cost(model: str, usage: Any) -> float:
 
 
 class LLMAgent:
-    """A seat driven by a Claude model with a personality."""
+    """A seat driven by a language model with a personality.
+
+    Claude through the Anthropic API by default; a model named ``ollama/<name>`` runs on a
+    local Ollama instead (see ``agents/ollama.py``), free and with no API key.
+    """
 
     def __init__(
         self,
@@ -98,6 +143,7 @@ class LLMAgent:
         model: str = DEFAULT_MODEL,
         client: MessagesClient | None = None,
         max_tokens: int = 8000,
+        aids: Iterable[str] | None = None,
     ) -> None:
         self.name = name
         self.personality = (
@@ -108,19 +154,44 @@ class LLMAgent:
         self.usage = Usage()
         self._client = client
         self.kind = f"llm:{self.personality.key}"
+        self.notes: deque[str] = deque(maxlen=NOTES_KEPT)
+        self.use_aids(self.personality.aids if aids is None else aids)
+
+    def use_aids(self, aids: Iterable[str]) -> None:
+        """Change what this seat is handed (for evals that compare one aid against another)."""
+        self.aids = check_aids(aids)
+        self.reads = Reads(self.name) if "reads" in self.aids else None
+        self.notes.clear()
+
+    @property
+    def schema(self) -> dict[str, Any]:
+        return NOTE_SCHEMA if "notes" in self.aids else ACTION_SCHEMA
+
+    def observe(self, history: HandHistory) -> None:
+        """Called by the league after every hand, with what this seat could see of it."""
+        if self.reads is not None:
+            self.reads.observe(history)
 
     @property
     def client(self) -> MessagesClient:
         if self._client is None:
-            import anthropic  # imported lazily so scripted-only sessions never need a key
+            if is_local(self.model):
+                self._client = OllamaClient()
+            else:
+                import anthropic  # imported lazily so scripted-only sessions never need a key
 
-            self._client = anthropic.Anthropic()
+                self._client = anthropic.Anthropic()
         return self._client
 
     @property
     def system_prompt(self) -> str:
+        rules = RULES + (NOTES_RULE if "notes" in self.aids else "")
+        playbook = f"\n{PLAYBOOK}" if "playbook" in self.aids else ""
         talk = "" if self.personality.talkative else "\nYou almost never use table_talk."
-        return f"{RULES}\nYour personality: {self.personality.prompt}{talk}\nYou are {self.name}."
+        return (
+            f"{rules}{playbook}\nYour personality: {self.personality.prompt}{talk}"
+            f"\nYou are {self.name}."
+        )
 
     # -- deciding --
 
@@ -167,15 +238,28 @@ class LLMAgent:
             messages=[{"role": "user", "content": self._prompt(view)}],
             output_config={
                 "effort": self.personality.effort,
-                "format": {"type": "json_schema", "schema": ACTION_SCHEMA},
+                "format": {"type": "json_schema", "schema": self.schema},
             },
         )
 
     def _prompt(self, view: SeatView) -> str:
-        lines = [view.describe(numbers=True)]
-        if view.talk:
-            lines.append("Table talk this hand:")
-            lines += [f'  {who}: "{text}"' for who, text in view.talk]
+        # describe() already carries this hand's table talk
+        lines = [view.describe(numbers="odds" in self.aids)]
+        if "ranges" in self.aids:
+            from poker_table.agents.reading import read_hand  # the coach imports agents
+
+            reading = read_hand(view)
+            if reading.informative:
+                lines.append("Their likely hands, read from this hand's action:")
+                lines += [f"  {line}" for line in reading.lines()]
+        if self.reads is not None:
+            live = [p.name for p in view.players if not p.folded and p.seat != view.seat]
+            if live and self.reads.hands:
+                lines.append(f"What you have seen of them ({len(self.reads.hands)} hands):")
+                lines += [f"  {line}" for line in self.reads.describe(live)]
+        if self.notes:
+            lines.append("Your notes from earlier hands:")
+            lines += [f"  {note}" for note in self.notes]
         lines.append("Decide now.")
         return "\n".join(lines)
 
@@ -216,6 +300,10 @@ class LLMAgent:
             return self._fallback(view, f"unknown action {data.get('action')!r}", meta)
         amount = int(data.get("amount") or 0)
         action = Action(kind, amount if kind in (ActionType.BET, ActionType.RAISE) else 0)
+        note = str(data.get("note", "")).strip() if "notes" in self.aids else ""
+        if note:
+            self.notes.append(f"hand {view.hand_id}: {note}")
+            meta["note"] = note
         return Decision(
             action,
             reasoning=str(data.get("reasoning", "")).strip(),

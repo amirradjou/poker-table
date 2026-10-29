@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Iterator
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -278,6 +278,27 @@ def board_cards(history: HandHistory) -> list[Card]:
     return [Card.parse(c) for c in history.board]
 
 
+def public_view(history: HandHistory, viewer: str) -> HandHistory:
+    """The hand as ``viewer`` saw it from their chair.
+
+    Kept: their own cards, every card turned over at showdown, the board, every action and
+    all table talk. Removed: the cards of seats that folded, and every other seat's private
+    reasoning, requested (pre-correction) action and model metadata. A seat that learns
+    from past hands is handed this, so it can only learn what a player at the table could.
+    """
+    mine = {p.seat for p in history.players if p.name == viewer}
+    shown = set(history.showdown) | mine
+    return replace(
+        history,
+        players=[p if p.seat in shown else replace(p, hole=[]) for p in history.players],
+        events=[e for e in history.events if e.kind != EventKind.DEAL_HOLE.value or e.seat in mine],
+        decisions=[
+            d if d.seat in mine else replace(d, requested=d.applied, reasoning="", meta={})
+            for d in history.decisions
+        ],
+    )
+
+
 def filter_by_date(
     histories: Iterable[HandHistory], since: str | None, until: str | None
 ) -> list[HandHistory]:
@@ -344,6 +365,7 @@ __all__ = [
     "board_cards",
     "hole_cards",
     "parse_action",
+    "public_view",
     "read_jsonl",
     "write_jsonl",
 ]

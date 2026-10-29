@@ -142,7 +142,7 @@ class SeatView:
         lines.append(f"Legal: {self.legal.describe()}")
         if numbers:
             spot = self.odds()
-            lines.append("The numbers (your cards against the hands still in, unseen):")
+            lines.append("The numbers (your cards against random hands for everyone still in):")
             lines += [f"  {line}" for line in spot.lines()]
         return "\n".join(lines)
 
@@ -174,6 +174,10 @@ class Decision:
 
 
 class Agent(Protocol):
+    """A seat. ``act`` is all a seat needs; one that learns across hands also defines
+    ``observe(history)``, which the league calls after every hand with the public view of
+    it (see ``history.public_view``)."""
+
     name: str
 
     def act(self, view: SeatView) -> Decision: ...

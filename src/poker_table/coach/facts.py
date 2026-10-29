@@ -24,7 +24,7 @@ from poker_table.coach.ranges import (
     open_range,
     three_bet_range,
 )
-from poker_table.engine import Action, ActionType, Hand, Player, Street
+from poker_table.engine import Action, ActionType, EventKind, Hand, Player, Street
 from poker_table.history import HandHistory, parse_action
 
 ANY = expand("*")
@@ -144,6 +144,42 @@ def replay(history: HandHistory) -> Iterator[tuple[SeatView, Action]]:
         action = parse_action(e.action)
         yield make_view(hand, actor.index), action
         hand.apply(action)
+
+
+# ----- the same reading, live ---------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class _Seen:
+    """The slice of a SeatView that range narrowing reads, rebuilt for a past action."""
+
+    seat: int
+    position: str
+    street: Street
+    board: tuple[Card, ...]
+
+
+def read_ranges(view: SeatView, margins: Margins = DEFAULT_MARGINS) -> dict[int, Range]:
+    """Each live opponent's range as this hand's public action implies it.
+
+    The narrowing the coach grades with — preflop charts by position and line, then made
+    hands, draws and a share of air for every bet or call — run on the actions and board a
+    seat can see. Opponents who have not acted are "any two cards" (``ANY``).
+    """
+    line = _Line(margins)
+    board: list[Card] = []
+    positions = {p.seat: p.position for p in view.players}
+    for e in view.events:
+        if e.kind is EventKind.STREET:
+            board.extend(e.cards)
+        elif e.kind is EventKind.ACTION and e.seat is not None and e.action is not None:
+            seen = _Seen(e.seat, positions[e.seat], e.street, tuple(board))
+            line.note(seen, e.action)  # _Line reads only seat, position, street, board
+    return {
+        p.seat: line.ranges.get(p.seat, ANY)
+        for p in view.players
+        if not p.folded and p.seat != view.seat
+    }
 
 
 # ----- tagging ----------------------------------------------------------------------------

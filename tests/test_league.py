@@ -207,3 +207,37 @@ def test_a_cash_game_can_have_an_ante() -> None:
         assert [e.amount for e in antes] == [1, 1]
         assert sum(p["amount"] for p in history.pots) >= 2  # the antes are always in the pot
     assert sum(result.bankrolls.values()) == 0
+
+
+class Watcher(TightAggressive):
+    """A TAG that keeps every hand it is shown."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name, seed=5)
+        self.seen = []
+
+    def observe(self, history) -> None:
+        self.seen.append(history)
+
+
+def test_seats_that_learn_are_shown_each_hand_from_their_own_chair() -> None:
+    watcher = Watcher("watcher")
+    others = [TightAggressive("tag", seed=1), CallingStation("station")]
+    result = run_league([watcher, *others], LeagueConfig(hands=12, seed=4))
+    assert [h.hand_id for h in watcher.seen] == [h.hand_id for h in result.histories]
+    for seen, real in zip(watcher.seen, result.histories, strict=True):
+        for mine, theirs in zip(seen.players, real.players, strict=True):
+            if mine.name == "watcher" or mine.seat in real.showdown:
+                assert mine.hole == theirs.hole
+            else:
+                assert mine.hole == []  # folded cards stay face down
+        assert all(d.reasoning == "" for d in seen.decisions if d.seat != 0)
+    assert any(h.showdown for h in watcher.seen)  # it did get to see some shown hands
+
+
+def test_a_tournament_shows_hands_only_to_the_seats_still_in_it() -> None:
+    watchers = [Watcher(f"w{i}") for i in range(3)]
+    result = run_tournament(watchers, TournamentConfig(starting_stack=60, seed=2))
+    assert result.complete
+    for w in watchers:
+        assert len(w.seen) == result.hands_dealt[w.name]

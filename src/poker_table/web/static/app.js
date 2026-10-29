@@ -502,9 +502,11 @@ function logItem(e) {
       li.innerHTML = `<span class="who">${esc(e.name)}</span> ${verb(e)}${e.all_in ? " and is all-in" : ""}`;
       if (e.table_talk) li.innerHTML += ` <span class="talk">“${esc(e.table_talk)}”</span>`;
       if (e.meta && e.meta.cost_usd !== undefined) li.innerHTML += `<span class="meta">${esc(e.meta.model)}, $${e.meta.cost_usd.toFixed(4)}</span>`;
-      if (e.reasoning || e.illegal) {
+      const note = e.meta && e.meta.note;
+      if (e.reasoning || e.illegal || note) {
         const t = document.createElement("span"); t.className = "think";
-        t.innerHTML = (e.illegal ? `<span class="illegal">wanted “${esc(e.requested)}”, which was illegal.</span> ` : "") + esc(e.reasoning || "");
+        t.innerHTML = (e.illegal ? `<span class="illegal">wanted “${esc(e.requested)}”, which was illegal.</span> ` : "") + esc(e.reasoning || "")
+          + (note ? `<span class="note">Noted for later: ${esc(note)}</span>` : "");
         li.appendChild(t);
       }
       break;
