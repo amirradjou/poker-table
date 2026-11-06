@@ -110,11 +110,13 @@ with the same seed and seats.
 The three files in `experiments/`:
 
 - `local-league`: free, on a small local model. Its first run is written up below.
-- `four-personalities`: the league the README asks for (needs a key).
-- `per-model`: one personality on Opus, Sonnet and Haiku, bb/100 against $/hand (needs a key).
+- `four-personalities`: the league the README asks for, on your own key.
+- `per-model`: one personality on Opus, Sonnet and Haiku, bb/100 against $/hand, on your own key.
 
-Neither of the last two has been run: this machine has no key. They have only been tested against
-a fake client, so the first real run is also the first test of the request against the live API.
+This project does not pay for model calls, so neither of the last two has been run, and their
+`budget_usd` limits your money, not ours. The requests they send are tested through the real SDK
+against a stand-in for the API, so your first run is also the first live one
+([your key](agents.md#your-key)).
 
 ## The first league
 

@@ -1,5 +1,6 @@
 # The league the README asks for: who wins, and what does it cost?
-#   ANTHROPIC_API_KEY=... uv run poker-table experiment run experiments/four-personalities.toml
+# This spends your own money, up to budget_usd:
+#   ANTHROPIC_API_KEY=<your key> uv run poker-table experiment run experiments/four-personalities.toml
 name = "four-personalities"
 description = "The four LLM personalities on one model, against a tight-aggressive bot and a calling station."
 seats = [

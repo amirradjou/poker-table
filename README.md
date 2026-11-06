@@ -80,7 +80,7 @@ uv run poker-table coach real.jsonl --since 2026-09-01      # leaks, trend, who 
 uv run poker-table drill real.jsonl -n 10                   # quiz the flagged spots (spaced repetition)
 uv run poker-table serve real.jsonl --open                  # Coach tab: leaks link to the replays
 
-# LLM seats (needs ANTHROPIC_API_KEY): kind is llm:<personality>[@model]
+# LLM seats run on your own key (export ANTHROPIC_API_KEY=...): kind is llm:<personality>[@model]
 uv run poker-table play -n 20 --seats llm:nerd,llm:maniac,tag,station --show -o llm.jsonl
 uv run poker-table play -n 20 --seats "ada:llm:storyteller@claude-sonnet-5,rock" --budget 1
 # ... or on a local model, free and with no key (ollama pull qwen2.5:7b)
@@ -97,7 +97,7 @@ uv run poker-table experiment run experiments/local-league.toml
 ```
 
 Seat kinds: `random`, `station`, `tag`, `rock`, `maniac`, `laya`, `human`, `llm:maniac`,
-`llm:rock`, `llm:nerd`, `llm:storyteller` (default model `claude-opus-5`), and whatever an agents
+`llm:rock`, `llm:nerd`, `llm:storyteller` (default model `claude-opus-5-5`), and whatever an agents
 file defines (`poker-table agents` lists them). Every model decision records the model, tokens,
 latency and an estimated cost; the leaderboard shows `$/hand` and `ms` per seat. What an LLM seat
 is handed, how to write your own and how to measure what the aids are worth: [docs/agents.md](docs/agents.md).
