@@ -61,7 +61,9 @@ class StandInApi:
                 self.reply(status, {"type": "error", "error": {"type": kind, "message": kind}})
 
             def authorised(self) -> bool:
-                if self.headers.get("x-api-key") == KEY:
+                # The API takes a key in either header, and SDK 2.x sends it as a bearer token.
+                bearer = self.headers.get("authorization", "").removeprefix("Bearer ")
+                if KEY in (self.headers.get("x-api-key"), bearer):
                     return True
                 self.fail(401, "authentication_error")
                 return False

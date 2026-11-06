@@ -22,20 +22,21 @@ wheels = [
 
 [[package]]
 name = "anthropic"
-version = "1.6.0"
+version = "2.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "docstring-parser" },
     { name = "httpx2" },
     { name = "jiter" },
+    { name = "opentelemetry-api" },
     { name = "pydantic" },
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a6/3d/4170318539de0c163e1806509b0bb9cd7d611ee15e7885f1d16a11a37d29/anthropic-1.6.0.tar.gz", hash = "sha256:ce3c032f940984f67c516db896375bff36959f8dc589973e386f8e6ea81bbec3", size = 1172375, upload-time = "2026-09-15T15:14:55.826Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4a/a8/0e50326e4c408f4b4ee3aae4c3bbd60012570b88bc5887effc8542509068/anthropic-2.6.0.tar.gz", hash = "sha256:a38d8698258a4cb33a9bc9d2f0ced1d96b71010870e5ed703807d21021a0da24", size = 1958763, upload-time = "2026-11-05T18:59:09.557Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c1/32/57a8b6c5441d9e6a1f332f70ee02375af6d9b5b65b42689ba83f7c7d010a/anthropic-1.6.0-py3-none-any.whl", hash = "sha256:049434f013d3a874acdfee696ec626e19166d58f4277e8fa34e5d0a5ec250ad0", size = 1249068, upload-time = "2026-09-15T15:14:54.326Z" },
+    { url = "https://files.pythonhosted.org/packages/38/0b/705a05ab68558914e725cf1143d7e409fa3bb596c35bca1eceab42402abe/anthropic-2.6.0-py3-none-any.whl", hash = "sha256:4325cdf9346fa29183674b6ee6289ebad5b2b0a935758f7350fa504032da1d9b", size = 2445307, upload-time = "2026-11-05T18:59:11.474Z" },
 ]
 
 [[package]]
@@ -785,6 +786,18 @@ wheels = [
 ]
 
 [[package]]
+name = "opentelemetry-api"
+version = "1.45.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/19/14/cf3a6b6448849656e1e5f4e2101f3988dc6789724050096aba1bc5ccf592/opentelemetry_api-1.45.2.tar.gz", hash = "sha256:d7b0008e21e5fd61cbe7a7f34ca3b6905a78ab677d9bc395e299359c75cda6b4", size = 73277, upload-time = "2026-10-29T17:29:37.888Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a9/2d/610db864d7513158cebb8f36cc88e67e73bd6c7aa1905ef18d89e1281c81/opentelemetry_api-1.45.2-py3-none-any.whl", hash = "sha256:2cbd737377e710ee740d261c94e93fa0f08e6d037c18f17513cc0a2d94479a34", size = 60335, upload-time = "2026-10-29T17:29:06.955Z" },
+]
+
+[[package]]
 name = "packaging"
 version = "26.3"
 source = { registry = "https://pypi.org/simple" }
@@ -826,7 +839,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "anthropic", specifier = ">=1.6.0" },
+    { name = "anthropic", specifier = ">=2.6.0,<3" },
     { name = "fastapi", specifier = ">=0.141.1" },
     { name = "laya", marker = "extra == 'laya'", specifier = ">=0.3.20" },
     { name = "uvicorn", specifier = ">=0.53.0" },
