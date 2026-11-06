@@ -145,6 +145,24 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--json", type=Path, help="also write the scores and every answer here")
     ev.add_argument("-v", "--verbose", action="store_true", help="print every answer")
 
+    exp = sub.add_parser(
+        "experiment", help="run a league from a config file into a results directory"
+    )
+    exp_sub = exp.add_subparsers(dest="action", required=True)
+    exp_run = exp_sub.add_parser("run", help="play an experiment file and write its report")
+    exp_run.add_argument("file", type=Path, help="experiment TOML file")
+    exp_run.add_argument(
+        "-o", "--out", type=Path, default=Path("results"), help="where <name>/ goes (results)"
+    )
+    exp_run.add_argument(
+        "--resume", action="store_true", help="carry on from the hands already in the folder"
+    )
+    exp_run.add_argument(
+        "--hands", type=int, help="play this many in all instead (a short trial, or more of a run)"
+    )
+    exp_report = exp_sub.add_parser("report", help="rebuild the report of a results folder")
+    exp_report.add_argument("folder", type=Path)
+
     stats = sub.add_parser("stats", help="leaderboard and exploitability stats for a JSONL file")
     stats.add_argument("file", type=Path)
 
@@ -595,6 +613,24 @@ def cmd_odds(args: argparse.Namespace, out) -> int:
     return 0
 
 
+def cmd_experiment(args: argparse.Namespace, out) -> int:
+    from poker_table.experiments import run_experiment, write_report
+
+    if args.action == "report":
+        print(f"wrote {write_report(args.folder)}", file=out)
+        return 0
+    outcome = run_experiment(
+        args.file,
+        args.out,
+        hands=args.hands,
+        resume=args.resume,
+        log=lambda line: print(line, file=out, flush=True),
+    )
+    print((outcome.folder / "leaderboard.md").read_text(encoding="utf-8"), file=out)
+    print(f"results in {outcome.folder}", file=out)
+    return 130 if outcome.stopped == "interrupted" else 0
+
+
 def cmd_stats(args: argparse.Namespace, out) -> int:
     histories = list(read_jsonl(args.file))
     print(f"{len(histories)} hands from {args.file}", file=out)
@@ -792,6 +828,8 @@ def main(argv: Sequence[str] | None = None, out=None) -> int:
                 return cmd_agents(args, out)
             case "eval":
                 return cmd_eval(args, out)
+            case "experiment":
+                return cmd_experiment(args, out)
             case "stats":
                 return cmd_stats(args, out)
             case "replay":

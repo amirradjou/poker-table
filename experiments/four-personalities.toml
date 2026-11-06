@@ -1,0 +1,17 @@
+# The league the README asks for: who wins, and what does it cost?
+#   ANTHROPIC_API_KEY=... uv run poker-table experiment run experiments/four-personalities.toml
+name = "four-personalities"
+description = "The four LLM personalities on one model, against a tight-aggressive bot and a calling station."
+seats = [
+    "llm:nerd@claude-opus-5-5",
+    "llm:maniac@claude-opus-5-5",
+    "llm:rock@claude-opus-5-5",
+    "llm:storyteller@claude-opus-5-5",
+    "tag",
+    "station",
+]
+hands = 200
+seed = 2026
+tables = 4
+# Nobody has priced this yet: it may stop before 200 hands. --resume carries on with more.
+budget_usd = 20.0

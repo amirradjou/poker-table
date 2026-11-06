@@ -103,6 +103,7 @@ class MessagesClient(Protocol):
     """The slice of ``anthropic.Anthropic`` we use, so tests can pass a fake."""
 
     messages: Any
+    models: Any
 
 
 @dataclass(slots=True)

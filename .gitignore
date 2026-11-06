@@ -22,6 +22,10 @@ __pycache__/
 coverage/
 htmlcov/
 
+# what experiments and measuring scripts write, unless a run is published under docs/
+/results/
+/measure_aids/
+
 # editors / OS
 .idea/
 .vscode/*
