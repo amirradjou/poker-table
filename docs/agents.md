@@ -179,7 +179,8 @@ own name at your machine. Behind a tunnel, add the tunnel's name with `serve --a
 No paid model has been called from this repo. The requests are tested through the real SDK against
 a stand-in for the API that checks them against its published rules
 ([tests/test_anthropic_wire.py](../tests/test_anthropic_wire.py)), so your first run is also the
-first live one. Start with a few hands and a small budget.
+first live one. Start with [`experiment run FILE --trial 5`](experiments.md#try-before-you-pay) and a
+small budget.
 
 ## Local models
 
