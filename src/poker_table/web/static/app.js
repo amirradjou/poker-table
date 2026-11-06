@@ -165,13 +165,18 @@ async function loadOdds(id) {
 }
 
 // Everyone's share of the pot at position n (a broadcast's win %), or null when it cannot be
-// shown: odds off, cards hidden, a hand still being dealt, or cards the file never knew.
+// shown: odds off, cards hidden, cards the file never knew, or a live hand with a player at the
+// table, which streams no rows. A live hand keeps its rows until the replay's own have loaded.
 const prevShare = {};
 function equityAt(n) {
-  if (!showOdds || !showCards || !hand || hand.streaming || hand.drill) return null;
-  if (!oddsData || oddsData.hand_id !== hand.hand_id || !oddsData.table || !oddsData.table.length) return null;
+  if (!showOdds || !showCards || !hand || hand.drill) return null;
+  const rows = hand.streaming ? hand.equity
+    : oddsData && oddsData.hand_id === hand.hand_id ? oddsData.table
+    : liveHand && liveHand.hand_id === hand.hand_id ? liveHand.equity
+    : null;
+  if (!rows || !rows.length) return null;
   let row = null;
-  for (const r of oddsData.table) if (r.step <= n) row = r;
+  for (const r of rows) if (r.step <= n) row = r;
   return row ? Object.fromEntries(Object.entries(row.equity).map(([k, v]) => [+k, v])) : null;
 }
 function equityEl(seat, share, shares) {
@@ -719,6 +724,8 @@ function beginLiveHand(h) {
 }
 function takeLiveStep(ev) {
   if (!liveHand || ev.hand_id !== liveHand.hand_id) return;
+  const rows = liveHand.equity;
+  if (ev.equity && !rows.some(r => r.step === ev.equity.step)) rows.push(ev.equity);
   if (ev.at < liveHand.steps.length) return;  // the hello already brought this one
   const s = ev.step;
   liveHand.steps.push(s);
@@ -1065,7 +1072,7 @@ $("toggle-cards").onclick = (e) => { showCards = !showCards; e.target.setAttribu
 $("toggle-odds").onclick = (e) => {
   showOdds = !showOdds;
   e.target.setAttribute("aria-pressed", showOdds);
-  if (showOdds && !oddsData && hand) loadOdds(hand.hand_id); else render();
+  if (showOdds && !oddsData && hand && !hand.streaming) loadOdds(hand.hand_id); else render();
 };
 $("tab-hands").onclick = () => setTab("hands");
 $("tab-board").onclick = () => setTab("board");

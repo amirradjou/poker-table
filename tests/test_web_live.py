@@ -167,6 +167,76 @@ def test_session_with_a_human_hides_cards_and_reasoning(tmp_path: Path) -> None:
     assert actions[0]["action"] == "raise 100" and actions[0]["latency_ms"] >= 0
 
 
+def test_a_spectator_table_streams_the_numbers_its_replay_will_show(tmp_path: Path) -> None:
+    from poker_table.web.app import odds_payload
+
+    path = tmp_path / "live.jsonl"
+    session = LiveSession(
+        [TightAggressive("tag"), CallingStation("s"), Maniac("m")],
+        LeagueConfig(hands=4, seed=4),
+        path,
+    )
+    events = session.subscribe()
+    session.start()
+    session.join(10)
+    assert session.error == ""
+    streamed: dict[str, list[dict]] = {}
+    for event in drain(events):
+        if event["type"] == "hand_start":
+            streamed[event["hand"]["hand_id"]] = list(event["hand"]["equity"])
+        elif event["type"] == "step" and "equity" in event:
+            streamed[event["hand_id"]].append(event["equity"])
+    for history in read_jsonl(path):
+        assert streamed[history.hand_id] == odds_payload(history)["table"]
+
+
+def test_a_hand_joined_midway_already_has_its_numbers(tmp_path: Path) -> None:
+    path = tmp_path / "live.jsonl"
+    session = LiveSession(
+        [TightAggressive("tag"), CallingStation("s")], LeagueConfig(hands=1, seed=4), path, pace=0.3
+    )
+    session.start()
+    wait_until(lambda: session.current is not None and session.current.get("equity"))
+    joined = session.status()["current"]
+    assert joined["equity"][0]["step"] == 0
+    assert set(joined["equity"][0]["equity"]) == {"0", "1"}
+    session.pace = 0
+    session.join(5)
+
+
+def test_a_table_with_a_player_never_sends_the_win_chances(tmp_path: Path) -> None:
+    """They come from every seat's cards, so they would tell the player what the others hold."""
+    human = WebHumanAgent("me")
+    session = LiveSession(
+        [human, CallingStation("s")], LeagueConfig(hands=3, seed=4), tmp_path / "live.jsonl"
+    )
+    events = session.subscribe()
+    session.start()
+    seen = []
+    while not session.finished:
+        if human.pending is None:
+            time.sleep(0.005)
+            continue
+        seen.append(session.status())
+        human.submit("fold")
+    session.join(5)
+    assert session.error == "" and len(seen) >= 3
+    assert "equity" not in json.dumps(drain(events)) + json.dumps(seen)
+
+
+def test_nobody_watching_a_full_speed_table_skips_the_maths(tmp_path: Path, monkeypatch) -> None:
+    def no_maths(*args, **kwargs):
+        raise AssertionError("worked out win chances nobody can see")
+
+    monkeypatch.setattr("poker_table.web.live.table_equities", no_maths)
+    session = LiveSession(
+        [TightAggressive("tag"), CallingStation("s")], LeagueConfig(hands=2), tmp_path / "l.jsonl"
+    )
+    session.start()
+    session.join(5)
+    assert session.error == "" and session.hands_played == 2
+
+
 def test_a_double_click_does_not_answer_the_next_turn_too() -> None:
     human = WebHumanAgent("me")
     hand = Hand(
@@ -187,8 +257,8 @@ def test_a_double_click_does_not_answer_the_next_turn_too() -> None:
     assert [str(a.action) for a in answers] == ["call", "check"]
 
 
-def test_a_page_that_joins_midway_ends_up_with_every_step(tmp_path: Path) -> None:
-    from poker_table.web.app import steps_for
+def test_a_page_that_joins_midway_ends_up_with_every_step_and_number(tmp_path: Path) -> None:
+    from poker_table.web.app import odds_payload, steps_for
 
     path = tmp_path / "live.jsonl"
     session = LiveSession(
@@ -202,12 +272,18 @@ def test_a_page_that_joins_midway_ends_up_with_every_step(tmp_path: Path) -> Non
     hello, *events = (json.loads(line[6:]) for line in session.sse() if line.startswith("data: "))
     # what the page does: start from the hello, then take what the events add to it
     joined = len(hello["current"]["steps"])
-    steps = list(hello["current"]["steps"])
+    steps, rows = list(hello["current"]["steps"]), list(hello["current"]["equity"])
     for event in events:
-        if event["type"] == "step" and event["at"] >= len(steps):
+        if event["type"] != "step":
+            continue
+        if "equity" in event and event["equity"]["step"] not in {r["step"] for r in rows}:
+            rows.append(event["equity"])
+        if event["at"] >= len(steps):
             steps.append(event["step"])
     history = next(read_jsonl(path))
     assert 0 < joined < len(steps)
     keys = ("kind", "seat", "action", "amount")
-    want = [[s[k] for k in keys] for s in steps_for(history)]
-    assert [[s[k] for k in keys] for s in steps] == want
+    assert [[s[k] for k in keys] for s in steps] == [
+        [s[k] for k in keys] for s in steps_for(history)
+    ]
+    assert rows == odds_payload(history)["table"]

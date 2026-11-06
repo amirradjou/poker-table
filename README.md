@@ -27,9 +27,10 @@ a thinking indicator and table talk](docs/watch.gif)
 
 Live tables play out card by card under the lamp — dealing, chips sliding to the pot and on to
 the winner, table talk beside the seat, and a thinking indicator (with a cost ticker for LLM
-seats). The replay viewer steps through any finished hand with every seat's private reasoning
-in a column beside the table, and, like a poker broadcast, puts each player's chance of winning
-under their nameplate once the cards are known:
+seats). Like a poker broadcast, the table puts each player's chance of winning under their
+nameplate, live and in replays; the numbers stay off while you are playing, because they come
+from everyone's cards. The replay viewer steps through any finished hand with every seat's
+private reasoning in a column beside the table:
 
 ![Replay viewer: the maniac bets into the calling station, 82% to 18%, while the odds panel shows
 the station thinks it has 59% and the price asks for 37%](docs/viewer.png)
