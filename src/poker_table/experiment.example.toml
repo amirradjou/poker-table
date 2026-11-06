@@ -22,6 +22,7 @@ seed = 1                           # the same seed deals the same decks
 
 # Everything below is optional, and shown with its default where it has one.
 # budget_usd = 1.0                 # stop once model calls have cost this (a paid seat needs it)
+#                                  # It only sees Claude and OpenRouter costs: see docs/agents.md.
 # tables = 1                       # tables at once: this helps seats that wait on an API
 # blinds = "1/2"
 # ante = 0

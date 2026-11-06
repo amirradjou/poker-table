@@ -95,6 +95,7 @@ uv run poker-table serve real.jsonl --open                  # Coach tab: leaks l
 uv run poker-table play -n 20 --seats llm:nerd,llm:maniac,tag,station --show -o llm.jsonl
 uv run poker-table play -n 20 --seats "ada:llm:storyteller@claude-sonnet-5,rock" --budget 1
 # ... or another provider's, on your own key: openai/, groq/, openrouter/, gemini/, compat/
+# (you pay for what your key spends, and budgets only see Claude and OpenRouter: docs/agents.md)
 uv run poker-table play -n 20 --seats llm:nerd@groq/<model>,tag,station
 # ... or on a local model, free and with no key (ollama pull qwen2.5:7b)
 uv run poker-table play -n 20 --seats llm:nerd@ollama/qwen2.5:7b,tag,station --show

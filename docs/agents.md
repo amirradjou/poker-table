@@ -159,6 +159,11 @@ files you trust.
 
 ## Your key
 
+> **Disclaimer: you are responsible for what your key spends.** Costs shown here are estimates, and
+> budgets are a convenience, not a guarantee. They only see Claude and OpenRouter. On any other
+> provider the cost reads $0 and a budget does nothing, so set a spending limit in your provider's
+> account before you start. The software comes with no warranty ([MIT](../LICENSE)).
+
 This project has no shared key. A Claude seat runs on the key of whoever starts the table, read by
 the Anthropic SDK from `ANTHROPIC_API_KEY`, so the bill is yours and so is the limit. The key is
 never written to a hand file.

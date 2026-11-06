@@ -75,7 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--budget",
         type=float,
         metavar="USD",
-        help="stop dealing once the LLM seats have spent this many dollars",
+        help="stop dealing at this spend (sees Claude and OpenRouter costs only)",
     )
     play.add_argument(
         "--tournament",
@@ -261,7 +261,12 @@ def build_parser() -> argparse.ArgumentParser:
     watch.add_argument("-n", "--hands", type=int, default=100_000, help="hands to deal")
     watch.add_argument("--seed", type=int, help="deal these decks again (default: new ones)")
     watch.add_argument("--pace", type=float, default=0.8, help="seconds per decision (0.8)")
-    watch.add_argument("--budget", type=float, metavar="USD", help="limit for any paid seats")
+    watch.add_argument(
+        "--budget",
+        type=float,
+        metavar="USD",
+        help="stop at this spend (sees Claude and OpenRouter costs only)",
+    )
     watch.add_argument("--port", type=int, help="the port (default: the first free from 8765)")
     watch.add_argument("--no-open", action="store_true", help="do not open the browser")
 
@@ -308,7 +313,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--budget",
         type=float,
         metavar="USD",
-        help="with --live, stop dealing once the LLM seats have spent this many dollars",
+        help="with --live, stop at this spend (sees Claude and OpenRouter costs only)",
     )
     serve.add_argument(
         "--pace",
