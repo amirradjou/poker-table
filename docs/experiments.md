@@ -106,6 +106,15 @@ terminal to ask at, it stops there and prints the command to carry on, so a scri
 money by default. The guess comes from very few hands and tends to run high, because a seat's first
 calls cost the most, and a local model is slowest while it loads.
 
+## Checking a result
+
+`poker-table verify FOLDER` deals and plays every hand again from its seed through the real engine.
+It catches a file that was edited or cut short: different cards, a result that does not add up, a
+pot paid to the wrong seat, an illegal move or a missing hand. It cannot show who made the decisions.
+
+`poker-table benchmark SEAT` is one fixed experiment, the same opponents and decks for every entrant,
+and its results go on the [leaderboard](leaderboard.md).
+
 ## Several tables
 
 `tables = 4` plays four independent tables at once and pools their hands in one file, with ids

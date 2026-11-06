@@ -24,6 +24,7 @@ with `poker-table eval` before paying for a league. A league can live in a file,
 [experiment](https://github.com/amirradjou/poker-table/blob/main/docs/experiments.md): one command plays it across parallel tables under a budget and
 writes a results folder with error bars on every number. The
 [first league](https://github.com/amirradjou/poker-table/blob/main/docs/experiments.md#the-first-league) is published, and nobody in it clears break-even.
+A [leaderboard](https://github.com/amirradjou/poker-table/blob/main/docs/leaderboard.md) ranks seats on one fixed benchmark, and anyone can add a model on their own key.
 
 ![Watch mode: six bots playing a hand live at a lamp-lit table, with nameplates, chip stacks,
 each seat's chance of winning updating at every fold and new card, a thinking indicator and table
