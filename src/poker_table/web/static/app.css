@@ -466,6 +466,10 @@ input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 
 /* ----- leaderboard ---------------------------------------------------------------------- */
 section.board-view, section.coach-view { grid-column: 1 / -1; padding: 22px 28px 48px; }
 section.board-view h2, section.coach-view h2 { margin: 0 0 16px; font: 700 26px/1.15 var(--condensed); }
+/* The verdict, ahead of the numbers it qualifies. */
+.board-call { margin: -8px 0 16px; max-width: 70ch; font: 500 19px/1.35 var(--condensed); }
+.board-call:empty, .board-note:empty { display: none; }
+.board-note { margin: 12px 0 0; max-width: 80ch; color: var(--ivory-soft); font-size: 14px; }
 .leaderboard { background: var(--room-2); border: 1px solid var(--line); border-radius: var(--radius-panel); overflow-x: auto; }
 .leaderboard table { border-collapse: collapse; width: 100%; min-width: 900px; }
 .leaderboard th, .leaderboard td { padding: 10px 14px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }

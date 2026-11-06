@@ -53,7 +53,9 @@ or install it:
 
 ```sh
 uv tool install git+https://github.com/amirradjou/poker-table   # or: pipx install git+https://...
-poker-table play -n 200 --seats tag,maniac,station
+poker-table                                     # a live table of five bots, in your browser
+poker-table watch --seats me:human,tag,maniac   # or sit down yourself
+poker-table experiment init                     # a league in a file, free as written
 ```
 
 Each release also has a wheel on the [releases page](https://github.com/amirradjou/poker-table/releases).

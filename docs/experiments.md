@@ -5,9 +5,11 @@ question so that someone else can check it: the league lives in a file, one comm
 and the folder it writes holds everything needed to read, rebuild or continue the result.
 
 ```sh
+uv run poker-table experiment init                                                       # a starter file, free to run
 uv run poker-table experiment run experiments/local-league.toml
 uv run poker-table experiment run experiments/local-league.toml --hands 5 -o /tmp/trial  # a short trial
 uv run poker-table experiment run experiments/local-league.toml --resume                 # carry on
+uv run poker-table experiment run experiments/local-league.toml --trial 5                # try it, then decide
 uv run poker-table experiment report results/local-league                                # rebuild the report
 uv run poker-table serve results/local-league/hands.jsonl --open                         # watch the hands
 ```
@@ -64,6 +66,8 @@ as bb/100 with less noise, so the report uses it to name the seats that clear ze
 rest that they are too close to call. Tables where the chips go in early gain the most, as
 [the first league](#the-first-league) shows.
 
+The viewer's Leaderboard tab, `play` and `stats` show the same numbers from the same calculation.
+
 Poker stays noisy even so. Over 300 hands heads-up, a tight-aggressive bot beats a bot that plays
 at random by +152 bb/100 adjusted, and the 95% interval is ±173. That matchup is not close, and 300
 hands still cannot show it. The interval treats hands as independent and looks at one seat at a
@@ -92,6 +96,15 @@ extends a finished run: `--resume --hands 400` plays the next 200 hands of a 200
 seats get back their reads and notes from the hands already played. The decks repeat exactly, but
 the decisions need not: a model does not answer twice alike, and a scripted bot's random choices
 restart. A run that was never interrupted is the one that repeats exactly, for scripted seats.
+
+## Try before you pay
+
+`--trial 5` plays five hands, says what the rest should cost and how long it should take, warns you
+if the budget would stop the run early or a seat's calls are failing, and asks before going on. The
+trial's hands are the first hands of the run, on the same decks, so nothing is wasted. With no
+terminal to ask at, it stops there and prints the command to carry on, so a script never spends
+money by default. The guess comes from very few hands and tends to run high, because a seat's first
+calls cost the most, and a local model is slowest while it loads.
 
 ## Several tables
 

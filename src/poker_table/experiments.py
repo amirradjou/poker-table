@@ -26,7 +26,6 @@ and never writes through a link in the folder, so that part is safe on someone e
 from __future__ import annotations
 
 import json
-import math
 import os
 import random
 import re
@@ -50,10 +49,9 @@ from poker_table.agents.human import HumanAgent
 from poker_table.agents.llm import LLMAgent
 from poker_table.agents.ollama import is_local
 from poker_table.agents.registry import check_seats_ready, make_agents
-from poker_table.cards import parse_cards
 from poker_table.history import HandHistory, read_jsonl, write_jsonl
 from poker_table.league import LeagueConfig, parse_blinds, run_league, show_hand, spent_usd
-from poker_table.odds import table_equities
+from poker_table.margins import CAVEAT, all_in_note, calls, seat_margins
 from poker_table.stats import compute_stats, format_table
 
 # A seat failing this often is not being measured: it is folding on its fallback.
@@ -393,6 +391,60 @@ def run_experiment(
     return Outcome(folder, played, experiment.hands, stopped, spent, seconds)
 
 
+@dataclass(frozen=True, slots=True)
+class Projection:
+    """What the rest of a run should take, going by the hands played so far."""
+
+    hands_done: int
+    hands_left: int
+    spent_usd: float
+    seconds: float
+    budget_usd: float | None
+
+    @property
+    def seconds_left(self) -> float:
+        return self.seconds / self.hands_done * self.hands_left
+
+    @property
+    def cost_left_usd(self) -> float:
+        return self.spent_usd / self.hands_done * self.hands_left
+
+    @property
+    def total_usd(self) -> float:
+        return self.spent_usd + self.cost_left_usd
+
+    @property
+    def stops_after(self) -> int | None:
+        """Roughly where the budget would end the run, if it would."""
+        if self.budget_usd is None or self.total_usd <= self.budget_usd:
+            return None
+        return int(self.budget_usd / (self.spent_usd / self.hands_done))
+
+    def describe(self) -> str:
+        planned = self.hands_done + self.hands_left
+        trial = f"{self.hands_done} of {planned} hands took {_duration(self.seconds)}"
+        rest = f"The rest should take about {_duration(self.seconds_left)}"
+        if self.spent_usd == 0:
+            return f"{trial}, for free. {rest}, for free."
+        lines = [
+            f"{trial} and cost ${self.spent_usd:.4f}. {rest} and cost about "
+            f"${self.cost_left_usd:.2f}, so about ${self.total_usd:.2f} in all.",
+            "That is a rough guess from a few hands, and it tends to run high, because a seat's "
+            "first calls cost the most.",
+        ]
+        if self.stops_after is not None:
+            lines.append(
+                f"It is over your budget of ${self.budget_usd:.2f}, so the run would stop after "
+                f"about {self.stops_after} hands."
+            )
+        return "\n".join(lines)
+
+
+def failed_calls(folder: Path) -> int:
+    """Model calls that could not be used in a results folder so far."""
+    return sum(row.failed for row in seat_results(list(read_jsonl(folder / "hands.jsonl"))))
+
+
 def _write_text(path: Path, text: str) -> None:
     """Write a file in a results folder without following a link planted there: the folder may
     have come from someone else, and leaderboard.md could point at ~/.bashrc. Replacing a link
@@ -419,49 +471,6 @@ def _read_run(folder: Path) -> dict[str, Any]:
 # ----- the report --------------------------------------------------------------------------
 
 
-def margin_of_error(big_blinds_per_hand: Sequence[float]) -> float | None:
-    """Half the width of a 95% interval on bb/100, from one seat's result in each hand."""
-    if len(big_blinds_per_hand) < 2:
-        return None
-    error = statistics.stdev(big_blinds_per_hand) / math.sqrt(len(big_blinds_per_hand))
-    return 1.96 * error * 100
-
-
-_BOARD_AT = {"preflop": 0, "flop": 3, "turn": 4, "river": 5}
-_ALL_IN_SAMPLES = 1000  # run-outs per hand: enough once they are added up over a run
-
-
-def _board_when_decided(history: HandHistory) -> int:
-    """How many board cards were out at the last decision in the hand."""
-    return _BOARD_AT[history.decisions[-1].street] if history.decisions else 0
-
-
-def _all_in_early(history: HandHistory) -> bool:
-    """True when a showdown still had cards to come and nobody had a decision left."""
-    return len(history.showdown) >= 2 and _board_when_decided(history) < len(history.board)
-
-
-def all_in_adjusted(history: HandHistory) -> dict[int, float] | None:
-    """Chips per seat, counting each pot at its share of the cards rather than who won it.
-
-    Once nobody has a decision left, the cards still to come are pure luck. Scoring the hand at
-    each seat's share of the pot at that moment estimates the same win rate with less of that
-    luck in it. Returns None for a hand with nothing to adjust.
-    """
-    if not _all_in_early(history):
-        return None
-    seats = {p.seat: p for p in history.players}
-    board = parse_cards("".join(history.board[: _board_when_decided(history)]))
-    # net = payouts - chips put in, so this starts every seat at minus what it put in.
-    worth = {seat: float(p.net - history.payouts.get(seat, 0)) for seat, p in seats.items()}
-    for pot in history.pots:
-        holes = {seat: parse_cards("".join(seats[seat].hole)) for seat in pot["eligible"]}
-        shares, _ = table_equities(holes, board, samples=_ALL_IN_SAMPLES, seed=history.seed)
-        for seat, share in shares.items():
-            worth[seat] += share * pot["amount"]
-    return worth
-
-
 @dataclass(frozen=True, slots=True)
 class SeatResult:
     name: str
@@ -479,27 +488,19 @@ class SeatResult:
     illegal: int
     failed: int
 
-    @property
-    def clear_of_zero(self) -> bool:
-        margin = self.adjusted_margin
-        return margin is not None and abs(self.adjusted_bb_per_100) > margin
+    clear_of_zero: bool
 
 
 def seat_results(histories: Sequence[HandHistory]) -> list[SeatResult]:
     """One row per seat, best first. Hands are pooled across tables."""
-    nets: dict[str, list[float]] = defaultdict(list)
-    adjusted: dict[str, list[float]] = defaultdict(list)
+    margins = seat_margins(histories)
     kinds: dict[str, str] = {}
     models: dict[str, str] = {}
     latencies: dict[str, list[float]] = defaultdict(list)
     failed: dict[str, int] = defaultdict(int)
     for history in histories:
         names = {p.seat: p.name for p in history.players}
-        worth = all_in_adjusted(history)
         for player in history.players:
-            nets[player.name].append(player.net / history.big_blind)
-            chips = player.net if worth is None else worth[player.seat]
-            adjusted[player.name].append(chips / history.big_blind)
             kinds.setdefault(player.name, player.kind)
         for decision in history.decisions:
             name = names[decision.seat]
@@ -518,9 +519,10 @@ def seat_results(histories: Sequence[HandHistory]) -> list[SeatResult]:
                 hands=stats.hands,
                 net=stats.net,
                 bb_per_100=stats.bb_per_100 or 0.0,
-                margin=margin_of_error(nets[name]),
-                adjusted_bb_per_100=statistics.fmean(adjusted[name]) * 100,
-                adjusted_margin=margin_of_error(adjusted[name]),
+                margin=margins[name].margin,
+                adjusted_bb_per_100=margins[name].adjusted_bb_per_100,
+                adjusted_margin=margins[name].adjusted_margin,
+                clear_of_zero=margins[name].clear_of_zero,
                 decisions=stats.decisions,
                 model_calls=stats.model_calls,
                 seconds_per_call=(statistics.fmean(latencies[name]) if latencies[name] else None),
@@ -533,6 +535,8 @@ def seat_results(histories: Sequence[HandHistory]) -> list[SeatResult]:
 
 
 def _duration(seconds: float) -> str:
+    if seconds < 1.5:
+        return "a second or less"
     if seconds < 90:
         return f"{seconds:.0f} seconds"
     minutes = round(seconds / 60)
@@ -587,25 +591,13 @@ def render_report(
             f"| {row.adjusted_bb_per_100:+.0f} | {adjusted} | {row.net:+d} "
             f"| {row.model_calls} | {seconds} | {per_hand} | {row.illegal} | {row.failed} |"
         )
-    clear = [row.name for row in rows if row.clear_of_zero]
-    unclear = [row.name for row in rows if not row.clear_of_zero]
-    early = sum(_all_in_early(history) for history in histories)
     lines += [
         "",
-        f"{early} of the {len(histories)} hands were all in before the last card. All-in adj. "
-        "counts those at each seat's share of the pot at that moment, which takes out the luck "
-        "of the cards still to come. It estimates the same win rate as bb/100 with less noise, "
-        "so the calls below use it.",
+        all_in_note(histories),
         "",
-    ]
-    if clear:
-        lines.append(f"Clear of break-even: {', '.join(clear)}.")
-    if unclear:
-        lines.append(f"Too close to break-even to call: {', '.join(unclear)}.")
-    lines += [
+        *calls(rows),
         "",
-        "The interval treats hands as independent and looks at one seat at a time, so with many "
-        "seats one can clear zero by luck.",
+        CAVEAT,
         "",
         "## How they played",
         "",

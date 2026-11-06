@@ -171,10 +171,16 @@ refuses a paid seat with no `budget_usd`.
 
 `coach --narrate` runs on your key too, or free with `--model ollama/<name>`.
 
+A table holds your key while it runs, so it is careful who it talks to. It answers only to
+`localhost` and the address it is bound to, so a web page you visit cannot reach it by pointing its
+own name at your machine. Behind a tunnel, add the tunnel's name with `serve --allow-host NAME`.
+`serve --host 0.0.0.0` answers to any name unless you give it some, and says so when it starts.
+
 No paid model has been called from this repo. The requests are tested through the real SDK against
 a stand-in for the API that checks them against its published rules
 ([tests/test_anthropic_wire.py](../tests/test_anthropic_wire.py)), so your first run is also the
-first live one. Start with a few hands and a small budget.
+first live one. Start with [`experiment run FILE --trial 5`](experiments.md#try-before-you-pay) and a
+small budget.
 
 ## Local models
 

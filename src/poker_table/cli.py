@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import random
+import socket
 import sys
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from poker_table import __version__
 from poker_table.agents.base import Agent
@@ -23,6 +27,7 @@ from poker_table.league import (
     run_league,
     run_tournament,
 )
+from poker_table.margins import calls, seat_margins
 from poker_table.stats import compute_stats, format_table
 
 DEFAULT_SEATS = "tag,rock,maniac,station,random"
@@ -34,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="A no-limit hold'em table for scripted bots, LLM agents and humans.",
     )
     parser.add_argument("--version", action="version", version=f"poker-table {__version__}")
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command")  # none at all opens a table: see main()
 
     play = sub.add_parser("play", help="play a session between agents and print the leaderboard")
     play.add_argument(
@@ -164,6 +169,16 @@ def build_parser() -> argparse.ArgumentParser:
     exp_run.add_argument(
         "--hands", type=int, help="play this many in all instead (a short trial, or more of a run)"
     )
+    exp_run.add_argument(
+        "--trial",
+        type=int,
+        metavar="N",
+        help="play N hands, say what the rest would cost and take, and ask before going on",
+    )
+    exp_init = exp_sub.add_parser("init", help="write a commented starter file, free to run")
+    exp_init.add_argument(
+        "file", type=Path, nargs="?", default=Path("league.toml"), help="where (league.toml)"
+    )
     exp_report = exp_sub.add_parser("report", help="rebuild the report of a results folder")
     exp_report.add_argument("folder", type=Path)
 
@@ -234,6 +249,20 @@ def build_parser() -> argparse.ArgumentParser:
     drill.add_argument("-n", "--count", type=int, default=10, help="spots per session")
     drill.add_argument("--samples", type=int, default=300, help="equity samples per decision")
 
+    watch = sub.add_parser(
+        "watch", help="watch bots play a live table in your browser: no file and no key"
+    )
+    watch.add_argument(
+        "-s", "--seats", default=DEFAULT_SEATS, help=f"who sits down ({DEFAULT_SEATS})"
+    )
+    add_agents_option(watch)
+    watch.add_argument("-n", "--hands", type=int, default=100_000, help="hands to deal")
+    watch.add_argument("--seed", type=int, help="deal these decks again (default: new ones)")
+    watch.add_argument("--pace", type=float, default=0.8, help="seconds per decision (0.8)")
+    watch.add_argument("--budget", type=float, metavar="USD", help="limit for any paid seats")
+    watch.add_argument("--port", type=int, help="the port (default: the first free from 8765)")
+    watch.add_argument("--no-open", action="store_true", help="do not open the browser")
+
     serve = sub.add_parser("serve", help="open the replay viewer and leaderboard in a browser")
     serve.add_argument("file", type=Path, help="JSONL file (may still be growing)")
     serve.add_argument(
@@ -254,6 +283,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
+    serve.add_argument(
+        "--allow-host",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="a name this table also answers to, such as a tunnel's (repeatable)",
+    )
     serve.add_argument("--open", action="store_true", help="open the browser")
     serve.add_argument(
         "--live",
@@ -499,6 +535,8 @@ def cmd_play(args: argparse.Namespace, out) -> int:
                 file=out,
             )
     print(format_table(result.stats), file=out)
+    if not args.quiet and result.histories:
+        print_margins(result.histories, out)
     for line in model_seat_notes(agents):
         print(line, file=out)
     if args.out is not None and not args.quiet:
@@ -638,28 +676,105 @@ def cmd_odds(args: argparse.Namespace, out) -> int:
     return 0
 
 
+def trial_says_go_on(args: argparse.Namespace, outcome: Any, planned: int, out) -> bool:
+    """Show what a trial found, and ask. With nobody at a terminal the answer is no, because a
+    script must not spend someone's money by default, and the command to carry on is printed."""
+    from poker_table.experiments import Projection, failed_calls, load_experiment
+
+    budget = load_experiment(args.file).budget_usd
+    done = outcome.hands
+    projection = Projection(done, planned - done, outcome.spent_usd, outcome.seconds, budget)
+    print(projection.describe(), file=out)
+    failed = failed_calls(outcome.folder)
+    if failed:
+        print(
+            f"{failed} model calls failed, so those seats checked or folded instead: "
+            f"read {outcome.folder / 'leaderboard.md'} first.",
+            file=out,
+        )
+    if sys.stdin.isatty() and input("Carry on? [y/N] ").strip().lower() in ("y", "yes"):
+        return True
+    command = f"poker-table experiment run {args.file} --resume"
+    if args.out != Path("results"):
+        command += f" -o {args.out}"
+    if args.hands:
+        command += f" --hands {args.hands}"
+    print(f"Stopped here, with the hands kept. To carry on: {command}", file=out)
+    return False
+
+
 def cmd_experiment(args: argparse.Namespace, out) -> int:
-    from poker_table.experiments import run_experiment, write_report
+    from importlib.resources import files
+
+    from poker_table.experiments import load_experiment, run_experiment, write_report
 
     if args.action == "report":
         print(f"wrote {write_report(args.folder)}", file=out)
         return 0
-    outcome = run_experiment(
-        args.file,
-        args.out,
-        hands=args.hands,
-        resume=args.resume,
-        log=lambda line: print(line, file=out, flush=True),
-    )
-    print((outcome.folder / "leaderboard.md").read_text(encoding="utf-8"), file=out)
-    print(f"results in {outcome.folder}", file=out)
-    return 130 if outcome.stopped == "interrupted" else 0
+    if args.action == "init":
+        starter = files("poker_table").joinpath("experiment.example.toml")
+        try:
+            with args.file.open("x", encoding="utf-8") as fh:
+                fh.write(starter.read_text(encoding="utf-8"))
+        except FileExistsError:
+            raise ValueError(f"{args.file} already exists: give another name") from None
+        print(f"wrote {args.file}. Run it: poker-table experiment run {args.file}", file=out)
+        return 0
+    if not args.file.exists():
+        raise ValueError(f"no file at {args.file}: `poker-table experiment init` writes a starter")
+
+    def log(line: str) -> None:
+        print(line, file=out, flush=True)
+
+    def finish(outcome: Any) -> int:
+        print((outcome.folder / "leaderboard.md").read_text(encoding="utf-8"), file=out)
+        print(f"results in {outcome.folder}", file=out)
+        return 130 if outcome.stopped == "interrupted" else 0
+
+    resume = args.resume
+    if args.trial is not None:
+        if resume:
+            raise ValueError("--trial starts a run and --resume carries one on: choose one")
+        experiment = load_experiment(args.file)
+        if args.trial < experiment.tables:
+            raise ValueError(f"--trial needs a hand for each of the {experiment.tables} tables")
+        planned = args.hands or experiment.hands
+        if args.trial < planned:
+            trial = run_experiment(args.file, args.out, hands=args.trial, log=log)
+            if trial.stopped != "finished":  # it hit the budget or a failing seat: that is the news
+                return finish(trial)
+            if not trial_says_go_on(args, trial, planned, out):
+                return 0
+            resume = True
+    return finish(run_experiment(args.file, args.out, hands=args.hands, resume=resume, log=log))
+
+
+def print_margins(histories: Sequence[HandHistory], out) -> None:
+    """Who can really be called a winner. This comes after the table and is flushed behind it, so
+    a long run's leaderboard never waits for it, and Ctrl-C only skips this part."""
+    print(flush=True, file=out)
+    try:
+        margins = sorted(
+            seat_margins(histories).values(), key=lambda m: m.adjusted_bb_per_100, reverse=True
+        )
+    except KeyboardInterrupt:
+        print("(error bars skipped)", file=out)
+        return
+    width = max(len(m.name) for m in margins)
+    print("All-in adjusted bb/100, with a 95% interval:", file=out)
+    for m in margins:
+        margin = f"±{m.adjusted_margin:.0f}" if m.adjusted_margin is not None else ""
+        print(f"  {m.name:<{width}}  {m.adjusted_bb_per_100:+7.0f}  {margin}", file=out)
+    for line in calls(margins):
+        print(line, file=out)
 
 
 def cmd_stats(args: argparse.Namespace, out) -> int:
     histories = list(read_jsonl(args.file))
     print(f"{len(histories)} hands from {args.file}", file=out)
     print(format_table(compute_stats(histories)), file=out)
+    if histories:
+        print_margins(histories, out)
     return 0
 
 
@@ -789,10 +904,49 @@ def cmd_drill(args: argparse.Namespace, out) -> int:
     return 0
 
 
+def free_port(start: int = 8765, tries: int = 20) -> int:
+    """The first port from ``start`` that nothing is listening on."""
+    for port in range(start, start + tries):
+        with socket.socket() as probe:
+            try:
+                probe.bind(("127.0.0.1", port))
+            except OSError:
+                continue
+            return port
+    raise ValueError(f"ports {start} to {start + tries - 1} are all taken: choose one with --port")
+
+
+def cmd_watch(args: argparse.Namespace, out) -> int:
+    """A live table with nothing to set up: a fresh deal, a free port, a throwaway file."""
+    hands = Path(tempfile.mkdtemp(prefix="poker-table-")) / "hands.jsonl"
+    print("To sit down yourself: poker-table watch --seats me:human,tag,maniac", file=out)
+    return cmd_serve(
+        argparse.Namespace(
+            file=hands,
+            export=None,
+            host="127.0.0.1",
+            allow_host=[],
+            port=args.port or free_port(),
+            open=not args.no_open,
+            live=True,
+            hands=args.hands,
+            seats=args.seats,
+            agents=args.agents,
+            seed=random.randrange(2**32) if args.seed is None else args.seed,
+            blinds="1/2",
+            stack=200,
+            budget=args.budget,
+            pace=args.pace,
+        ),
+        out,
+    )
+
+
 def cmd_serve(args: argparse.Namespace, out) -> int:
     import uvicorn
 
     from poker_table.web.app import create_app
+    from poker_table.web.guard import hosts_to_answer
 
     if args.export is not None:
         from poker_table.web.export import export_site
@@ -835,7 +989,14 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
         args.file.parent.mkdir(parents=True, exist_ok=True)
         args.file.touch()
         live = LiveSession(agents, config, args.file, pace=max(0.0, args.pace))
-    app = create_app(args.file, live)
+    allowed_hosts = hosts_to_answer(args.host, args.allow_host)
+    if allowed_hosts is None:
+        print(
+            f"{args.host} is every interface, so this table answers to any name, and a web page "
+            "you visit could reach it. --allow-host NAME limits it.",
+            file=sys.stderr,
+        )
+    app = create_app(args.file, live, allowed_hosts=allowed_hosts)
     url = f"http://{args.host}:{args.port}/"
     print(f"poker-table viewer on {url} (Ctrl-C to stop)", file=out)
     if live is not None:
@@ -851,12 +1012,21 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
 
 
 def main(argv: Sequence[str] | None = None, out=None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
     out = out or sys.stdout
+    if args.command is None:
+        # Someone at a terminal gets a table. A script that forgot its command gets told.
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            parser.print_help(sys.stderr)
+            return 2
+        args = parser.parse_args(["watch"])
     try:
         match args.command:
             case "play":
                 return cmd_play(args, out)
+            case "watch":
+                return cmd_watch(args, out)
             case "odds":
                 return cmd_odds(args, out)
             case "agents":

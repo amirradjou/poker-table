@@ -12,9 +12,9 @@ def test_version_is_set() -> None:
     assert poker_table.__version__
 
 
-def test_cli_requires_a_command() -> None:
+def test_an_unknown_command_is_refused() -> None:
     with pytest.raises(SystemExit):
-        main([])
+        main(["no-such-command"])
 
 
 def run(*argv: str) -> tuple[int, str]:

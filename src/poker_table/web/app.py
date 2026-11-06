@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +17,10 @@ from poker_table.coach.facts import Fact, replay, tag_hands
 from poker_table.coach.report import Report, build_report
 from poker_table.engine import ActionType, EventKind
 from poker_table.history import HandHistory, filter_by_date, parse_action, read_jsonl, weeks_of
+from poker_table.margins import CAVEAT, all_in_adjusted, all_in_note, calls, seat_margins
 from poker_table.stats import compute_stats, leaderboard
 from poker_table.web.commentary import LONG_SHOT
+from poker_table.web.guard import TableGuard
 from poker_table.web.live import MAX_PACE, Broadcast, LiveSession, live_view_payload
 
 STATIC = Path(__file__).parent / "static"
@@ -48,6 +50,7 @@ class HandStore:
         self._reports: dict[tuple[str, int, int, str, str], Report] = {}
         self._drills: dict[tuple[str, int], DrillSession] = {}
         self._odds: dict[str, dict[str, Any]] = {}
+        self._worth: dict[tuple[str, int], dict[int, float] | None] = {}
         self._highlights: dict[tuple[str, int], dict[str, Any]] = {}
         self.reload()
 
@@ -87,6 +90,14 @@ class HandStore:
         if hand_id not in self._odds:
             self._odds[hand_id] = odds_payload(self.by_id[hand_id])
         return self._odds[hand_id]
+
+    def worth(self, history: HandHistory) -> dict[int, float] | None:
+        """One hand's all-in adjusted result, kept: a live table only pays for its new hands. Two
+        runs appended to one file can repeat a hand id, so the deck's seed is part of the key."""
+        key = (history.hand_id, history.seed)
+        if key not in self._worth:
+            self._worth[key] = all_in_adjusted(history)
+        return self._worth[key]
 
     def highlight(self, history: HandHistory) -> dict[str, Any]:
         """One hand as the filters see it, worked out once: it costs about 150 ms. Two runs
@@ -196,6 +207,30 @@ def stats_payload(store: HandStore) -> dict[str, Any]:
             if value == float("inf"):
                 row[key] = None
     return {"hands": len(store.hands), "rows": rows}
+
+
+def margins_payload(store: HandStore) -> dict[str, Any]:
+    """Each seat's error bars. Apart from the stats because a big file takes a while: the page
+    draws the leaderboard first and fills these in when they arrive."""
+    margins = sorted(
+        seat_margins(store.hands, store.worth).values(),
+        key=lambda m: m.bb_per_100,
+        reverse=True,
+    )
+    return {
+        "hands": len(store.hands),
+        "rows": [
+            {
+                "name": m.name,
+                "adjusted": m.adjusted_bb_per_100,
+                "margin": m.adjusted_margin,
+                "clear": m.clear_of_zero,
+            }
+            for m in margins
+        ],
+        "calls": calls(margins),
+        "note": f"{all_in_note(store.hands)} {CAVEAT}" if store.hands else "",
+    }
 
 
 def coach_payload(
@@ -367,9 +402,15 @@ class DrillAnswer(BaseModel):
     action: str  # "fold", "check", "call", "bet 12", "raise 30"
 
 
-def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
+def create_app(
+    path: Path | str,
+    live: LiveSession | None = None,
+    *,
+    allowed_hosts: Iterable[str] | None = None,
+) -> FastAPI:
     store = HandStore(Path(path))
     app = FastAPI(title="poker-table", docs_url=None, redoc_url=None)
+    app.add_middleware(TableGuard, allowed_hosts=allowed_hosts)
     app.state.store = store
     app.state.live = live
 
@@ -519,6 +560,10 @@ def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
     @app.get("/api/stats")
     def stats() -> dict[str, Any]:
         return stats_payload(store)
+
+    @app.get("/api/margins")
+    def margins() -> dict[str, Any]:
+        return margins_payload(store)
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     return app

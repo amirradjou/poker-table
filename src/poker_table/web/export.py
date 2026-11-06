@@ -27,6 +27,7 @@ from poker_table.web.app import (
     hand_payload,
     hands_payload,
     highlight_of,
+    margins_payload,
     odds_payload,
     session_payload,
     stats_payload,
@@ -93,6 +94,7 @@ def export_site(
         bytes_written += _write(out / "data" / "hands" / f"{name}.json", hand_payload(history))
     bytes_written += _write(out / "data" / "bankroll.json", bankroll_payload(store))
     bytes_written += _write(out / "data" / "stats.json", stats_payload(store))
+    bytes_written += _write(out / "data" / "margins.json", margins_payload(store))
 
     if odds:
         tagged = []

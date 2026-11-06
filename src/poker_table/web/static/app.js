@@ -2,6 +2,8 @@ const $ = (id) => document.getElementById(id);
 const SUITS = { c: "♣", d: "♦", h: "♥", s: "♠" };
 const STAT_HELP = {
   "bb/100": "big blinds won per 100 hands",
+  adj: "big blinds won per 100 hands, counting an all-in at each seat's share of the pot, so without the luck of the cards still to come",
+  margin: "95% interval on the all-in adjusted number: a result inside this distance of zero is too close to call",
   vpip: "voluntarily put money in preflop",
   pfr: "raised preflop",
   "3bet": "re-raised when facing one raise",
@@ -17,6 +19,7 @@ const STAT_HELP = {
 const PERCENT = new Set(["vpip", "pfr", "3bet", "f3b", "wtsd", "w$sd", "bluff", "illegal"]);
 // Column heads as players write them: the tracker acronyms in capitals, everything else plain.
 const STAT_NAME = {
+  adj: "All-in adj.", margin: "±95%",
   name: "Seat", hands: "Hands", net: "Net", "bb/100": "bb/100", vpip: "VPIP", pfr: "PFR", "3bet": "3-bet",
   f3b: "F3B", af: "AF", wtsd: "WTSD", "w$sd": "W$SD", bluff: "Bluff", illegal: "Illegal", ms: "ms", "$/hand": "$/hand",
 };
@@ -94,6 +97,7 @@ function staticFile(path) {
   if (route === "/api/session") return "data/session.json";
   if (route === "/api/bankroll") return "data/bankroll.json";
   if (route === "/api/stats") return "data/stats.json";
+  if (route === "/api/margins") return "data/margins.json";
   if (route === "/api/highlights") return "data/highlights.json";
   if (route === "/api/hands") return "data/hands.json";
   if (route.startsWith("/api/hands/")) return `data/hands/${fileId(decodeURIComponent(route.slice(11)))}.json`;
@@ -667,15 +671,35 @@ async function showBoard() {
   const data = await api("/api/stats");
   $("board-title").textContent = `${data.hands} hands, sorted by chips won`;
   const cols = data.rows.length ? Object.keys(data.rows[0]) : [];
+  cols.splice(cols.indexOf("bb/100") + 1, 0, "adj", "margin");
   const head = cols.map(c => `<th${STAT_HELP[c] ? ` title="${STAT_HELP[c]}"` : ""}>${STAT_NAME[c] || c}</th>`).join("");
   const body = data.rows.map(r => "<tr>" + cols.map(c => {
     const v = r[c];
     let text = v === null || v === undefined ? "–" : PERCENT.has(c) ? `${Math.round(v * 100)}%`
       : c === "$/hand" ? `$${v.toFixed(4)}` : typeof v === "number" && !Number.isInteger(v) ? v.toFixed(1) : v;
     const cls = c === "net" ? (v > 0 ? "plus" : v < 0 ? "minus" : "") : "";
+    if (c === "adj" || c === "margin") return `<td class="${c}" data-seat="${esc(r.name)}">…</td>`;
     return `<td class="${cls}">${text}</td>`;
   }).join("") + "</tr>").join("");
   $("board-table").innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
+  fillMargins().catch(() => {
+    for (const td of $("board-table").querySelectorAll("td.adj, td.margin")) td.textContent = "–";
+  });
+}
+
+// A big file takes a while to work these out, so they arrive after the table has been drawn.
+async function fillMargins() {
+  $("board-call").textContent = ""; $("board-note").textContent = "";
+  const data = await api("/api/margins");
+  const signed = v => (v > 0 ? "+" : "") + Math.round(v);
+  for (const row of data.rows) {
+    const cells = [...$("board-table").querySelectorAll("td[data-seat]")].filter(td => td.dataset.seat === row.name);
+    for (const td of cells) {
+      td.textContent = td.classList.contains("adj") ? signed(row.adjusted) : row.margin === null ? "–" : `±${Math.round(row.margin)}`;
+    }
+  }
+  $("board-call").textContent = data.calls.join(" ");
+  $("board-note").textContent = data.note;
 }
 
 function startAuto() {
