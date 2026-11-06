@@ -12,22 +12,22 @@ seat, hand histories, stats, league, CLI and a browser replay viewer are in (Pyt
 `uv`), including live tables you can watch or sit at in the browser. Phase 2 (poker-coach)
 imports PokerStars, GGPoker and 888poker histories and finds your recurring leaks, who you
 leak against, how it trends week by week, with Claude's notes and spaced-repetition drills —
-drillable in the browser too. A [Laya](docs/laya.md) seat brings an open decision model to the
+drillable in the browser too. A [Laya](https://github.com/amirradjou/poker-table/blob/main/docs/laya.md) seat brings an open decision model to the
 table beside the scripted bots and the LLM personalities. Antes and
-[freezeout tournaments](docs/tournaments.md) are in, so the table answers "who survives" as well
-as "who wins chips", and a [probability calculator](docs/odds.md) runs in the viewer, on the
-command line and inside the seats' own prompts. LLM seats now [read their opponents](docs/agents.md):
+[freezeout tournaments](https://github.com/amirradjou/poker-table/blob/main/docs/tournaments.md) are in, so the table answers "who survives" as well
+as "who wins chips", and a [probability calculator](https://github.com/amirradjou/poker-table/blob/main/docs/odds.md) runs in the viewer, on the
+command line and inside the seats' own prompts. LLM seats now [read their opponents](https://github.com/amirradjou/poker-table/blob/main/docs/agents.md):
 ranges from this hand's action, a HUD built from the hands they were shown, and a notebook
 they write to themselves. You can define your own seats in a TOML file (a persona, a tuned bot
 or a Python class), run any LLM seat on a local model through Ollama for free, and score seats
 with `poker-table eval` before paying for a league. A league can live in a file, as an
-[experiment](docs/experiments.md): one command plays it across parallel tables under a budget and
+[experiment](https://github.com/amirradjou/poker-table/blob/main/docs/experiments.md): one command plays it across parallel tables under a budget and
 writes a results folder with error bars on every number. The
-[first league](docs/experiments.md#the-first-league) is published, and nobody in it clears break-even.
+[first league](https://github.com/amirradjou/poker-table/blob/main/docs/experiments.md#the-first-league) is published, and nobody in it clears break-even.
 
 ![Watch mode: six bots playing a hand live at a lamp-lit table, with nameplates, chip stacks,
 each seat's chance of winning updating at every fold and new card, a thinking indicator and table
-talk](docs/watch.gif)
+talk](https://raw.githubusercontent.com/amirradjou/poker-table/main/docs/watch.gif)
 
 Live tables play out card by card under the lamp — dealing, chips sliding to the pot and on to
 the winner, table talk beside the seat, and a thinking indicator (with a cost ticker for LLM
@@ -37,17 +37,23 @@ from everyone's cards. The replay viewer steps through any finished hand with ev
 private reasoning in a column beside the table:
 
 ![Replay viewer: the maniac bets into the calling station, 82% to 18%, while the odds panel shows
-the station thinks it has 59% and the price asks for 37%](docs/viewer.png)
+the station thinks it has 59% and the price asks for 37%](https://raw.githubusercontent.com/amirradjou/poker-table/main/docs/viewer.png)
 
-First numbers: [docs/baseline.md](docs/baseline.md) — five scripted bots over 1,000 seeded
+First numbers: [docs/baseline.md](https://github.com/amirradjou/poker-table/blob/main/docs/baseline.md) — five scripted bots over 1,000 seeded
 hands, the leaderboard, and what the coach says about each of them. Then
-[docs/tournaments.md](docs/tournaments.md) — the same five over 500 freezeouts, where the order
+[docs/tournaments.md](https://github.com/amirradjou/poker-table/blob/main/docs/tournaments.md) — the same five over 500 freezeouts, where the order
 changes: the maniac drops from second to fourth and the random bot wins more often than the rock.
 
 Try it without installing anything: **[the demo](https://amirradjou.github.io/poker-table/)**
-is the viewer exported as a static site from 300 seeded bot hands. Or run a live table in
-Docker. Tagged releases go to PyPI ([docs/releasing.md](docs/releasing.md)), and from the first
-one `pipx install poker-table` works too.
+is the viewer exported as a static site from 300 seeded bot hands. Or run a live table in Docker,
+or install it:
+
+```sh
+uv tool install git+https://github.com/amirradjou/poker-table   # or: pipx install git+https://...
+poker-table play -n 200 --seats tag,maniac,station
+```
+
+Each release also has a wheel on the [releases page](https://github.com/amirradjou/poker-table/releases).
 
 ```sh
 docker compose up -d                  # a live table at http://localhost:8765
@@ -100,7 +106,7 @@ Seat kinds: `random`, `station`, `tag`, `rock`, `maniac`, `laya`, `human`, `llm:
 `llm:rock`, `llm:nerd`, `llm:storyteller` (default model `claude-opus-5-5`), and whatever an agents
 file defines (`poker-table agents` lists them). Every model decision records the model, tokens,
 latency and an estimated cost; the leaderboard shows `$/hand` and `ms` per seat. What an LLM seat
-is handed, how to write your own and how to measure what the aids are worth: [docs/agents.md](docs/agents.md).
+is handed, how to write your own and how to measure what the aids are worth: [docs/agents.md](https://github.com/amirradjou/poker-table/blob/main/docs/agents.md).
 
 ```sh
 # a probability calculator: with the other hands, or without them
@@ -111,15 +117,15 @@ uv run poker-table odds "Ah Kh" -b "Qh 7h 2c" --vs 2 --pot 40 --call 15
 uv run poker-table play -n 50 --seats laya,tag,station -o laya.jsonl
 uv run poker-table dataset laya.jsonl -p tag -o train.jsonl --source both   # its training set
 ```
-See [docs/laya.md](docs/laya.md) for what the base checkpoint actually does at the table.
+See [docs/laya.md](https://github.com/amirradjou/poker-table/blob/main/docs/laya.md) for what the base checkpoint actually does at the table.
 
 The replay shows the same numbers at every decision — what the seat could work out (its cards
 against the hands still in, unseen) next to what the replay also knows (the same spot against
 their actual cards, enumerated). LLM seats are prompted with them, so a model spends its
-thinking on the read rather than on arithmetic. [docs/odds.md](docs/odds.md) has the formulas
+thinking on the read rather than on arithmetic. [docs/odds.md](https://github.com/amirradjou/poker-table/blob/main/docs/odds.md) has the formulas
 and the checks against the published tables.
 
-![The odds panel under the table: two equity bars, the outs, and the price](docs/odds.png)
+![The odds panel under the table: two equity bars, the outs, and the price](https://raw.githubusercontent.com/amirradjou/poker-table/main/docs/odds.png)
 
 ## What it is
 
@@ -147,7 +153,7 @@ bankrupts you in chips.
 
 ![How a hand flows: a league deals on the engine, the engine asks each seat through a view that
 never holds another seat's cards, finished hands become JSONL histories, and stats, the coach
-and the viewer read them](docs/architecture.svg)
+and the viewer read them](https://raw.githubusercontent.com/amirradjou/poker-table/main/docs/architecture.svg)
 
 Illegal actions are never fatal: slips such as bet-for-raise or an amount off the range are
 mapped to the nearest legal action, and anything else becomes a check or a fold that counts

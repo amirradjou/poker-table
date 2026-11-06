@@ -6,6 +6,15 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 authors = [{ name = "Amirreza Radjou" }]
+keywords = ["poker", "llm", "agents", "texas-holdem", "evaluation"]
+classifiers = [
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Games/Entertainment :: Board Games",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "anthropic>=1.6.0",
     "fastapi>=0.141.1",
@@ -16,12 +25,20 @@ dependencies = [
 # The Laya seat: an open decision model (pulls torch, so it is not a core dependency).
 laya = ["laya>=0.3.20"]
 
+[project.urls]
+Homepage = "https://amirradjou.github.io/poker-table/"
+Source = "https://github.com/amirradjou/poker-table"
+Releases = "https://github.com/amirradjou/poker-table/releases"
+
 [project.scripts]
 poker-table = "poker_table.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.8,<0.13"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+source-exclude = [".graphify"]  # a local code graph's cache: it is not part of the package
 
 [dependency-groups]
 dev = [
