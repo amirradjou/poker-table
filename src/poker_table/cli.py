@@ -275,6 +275,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
+    serve.add_argument(
+        "--allow-host",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="a name this table also answers to, such as a tunnel's (repeatable)",
+    )
     serve.add_argument("--open", action="store_true", help="open the browser")
     serve.add_argument(
         "--live",
@@ -844,6 +851,7 @@ def cmd_watch(args: argparse.Namespace, out) -> int:
             file=hands,
             export=None,
             host="127.0.0.1",
+            allow_host=[],
             port=args.port or free_port(),
             open=not args.no_open,
             live=True,
@@ -864,6 +872,7 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
     import uvicorn
 
     from poker_table.web.app import create_app
+    from poker_table.web.guard import hosts_to_answer
 
     if args.export is not None:
         from poker_table.web.export import export_site
@@ -906,7 +915,14 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
         args.file.parent.mkdir(parents=True, exist_ok=True)
         args.file.touch()
         live = LiveSession(agents, config, args.file, pace=max(0.0, args.pace))
-    app = create_app(args.file, live)
+    allowed_hosts = hosts_to_answer(args.host, args.allow_host)
+    if allowed_hosts is None:
+        print(
+            f"{args.host} is every interface, so this table answers to any name, and a web page "
+            "you visit could reach it. --allow-host NAME limits it.",
+            file=sys.stderr,
+        )
+    app = create_app(args.file, live, allowed_hosts=allowed_hosts)
     url = f"http://{args.host}:{args.port}/"
     print(f"poker-table viewer on {url} (Ctrl-C to stop)", file=out)
     if live is not None:

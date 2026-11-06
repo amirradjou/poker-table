@@ -13,7 +13,7 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     restart: unless-stopped
     # To choose the seats, pace or blinds, override the command, e.g.:
-    # command: ["serve", "/data/live.jsonl", "--live", "--host", "0.0.0.0",
+    # command: ["serve", "/data/live.jsonl", "--live", "--host", "0.0.0.0", "--allow-host", "localhost",
     #           "--seats", "tag,maniac,llm:nerd", "--pace", "1.5"]
 
 volumes:
