@@ -17,6 +17,10 @@
 
 A stopped run keeps every finished hand, and ``--resume`` carries on with the same decks. The
 report is built from those files alone, so ``experiment report DIR`` can rebuild it at any time.
+
+Running an experiment file can run code: its ``agents`` may name a file with a ``python`` kind
+(see ``agents/custom.py``), so only run files you trust. Rebuilding a report never loads agents,
+so that part is safe on a results folder from anywhere.
 """
 
 from __future__ import annotations
@@ -53,7 +57,7 @@ from poker_table.stats import compute_stats, format_table
 # A seat failing this often is not being measured: it is folding on its fallback.
 MAX_FAILURES = 10
 
-_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
+_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")  # a folder name: never "..", never a path
 _REQUIRED = object()
 _KEYS = frozenset(
     "name description seats hands seed blinds ante stack budget_usd tables agents coach".split()
@@ -135,8 +139,11 @@ def load_experiment(path: Path | str) -> Experiment:
         raise ValueError(f"{path}: unknown key(s): {', '.join(sorted(unknown))}")
 
     name = _take(data, "name", str, path)
-    if not _NAME.match(name):
-        raise ValueError(f"{path}: name becomes a folder, so keep it to letters, digits, . _ -")
+    if not _NAME.fullmatch(name):
+        raise ValueError(
+            f"{path}: name becomes a folder, so start it with a letter or digit "
+            "and keep the rest to letters, digits, . _ -"
+        )
     seats = _take(data, "seats", list, path)
     if len(seats) < 2 or not all(isinstance(seat, str) for seat in seats):
         raise ValueError(f"{path}: seats needs at least two kinds, as strings")

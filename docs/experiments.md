@@ -37,6 +37,10 @@ A run is refused before the first hand if a seat could not play it: a local mode
 pulled, a paid model with no budget, a key that does not work or a model name that does not
 exist. A human seat is refused too, because nobody is there to answer.
 
+**Only run experiment files you trust.** `agents` can name a file with a `python` kind, which runs
+the code it points at, exactly as `--agents` does ([docs/agents.md](agents.md)). Reading a results
+folder is different: `experiment report` and `serve` never load agents.
+
 ## The folder
 
 | file | what it holds |

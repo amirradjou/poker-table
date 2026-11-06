@@ -129,11 +129,28 @@ def test_a_bad_file_is_refused(tmp_path: Path, body: str, message: str) -> None:
         load_experiment(write_experiment(tmp_path, body))
 
 
-def test_a_name_has_to_work_as_a_folder(tmp_path: Path) -> None:
+@pytest.mark.parametrize("name", ["..", ".", "../up", "a/b", ".hidden", "-x", "trial\\n", ""])
+def test_a_name_cannot_leave_the_results_folder(tmp_path: Path, name: str) -> None:
     path = tmp_path / "x.toml"
-    path.write_text('name = "../up"\nseats = ["tag", "rock"]\nhands = 5\n', encoding="utf-8")
+    path.write_text(f'name = "{name}"\nseats = ["tag", "rock"]\nhands = 5\n', encoding="utf-8")
     with pytest.raises(ValueError, match="folder"):
         load_experiment(path)
+
+
+def test_rebuilding_a_report_never_loads_the_agents_it_names(tmp_path: Path) -> None:
+    path = write_experiment(tmp_path, f"seats = {BOTS}\nhands = 4")
+    outcome = run_experiment(path, tmp_path / "out", log=lambda _: None)
+    saved = outcome.folder / "experiment.toml"
+    saved.write_text(saved.read_text() + 'agents = ["boom.toml"]\n', encoding="utf-8")
+    (outcome.folder / "boom.toml").write_text(
+        '[agents.boom]\ntype = "python"\nclass = "boom.py:Boom"\n', encoding="utf-8"
+    )
+    marker = tmp_path / "ran"
+    (outcome.folder / "boom.py").write_text(
+        f"from pathlib import Path\nPath({str(marker)!r}).touch()\n", encoding="utf-8"
+    )
+    assert write_report(outcome.folder).exists()
+    assert not marker.exists()
 
 
 # ----- the seats ---------------------------------------------------------------------------

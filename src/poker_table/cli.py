@@ -150,7 +150,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     exp_sub = exp.add_subparsers(dest="action", required=True)
     exp_run = exp_sub.add_parser("run", help="play an experiment file and write its report")
-    exp_run.add_argument("file", type=Path, help="experiment TOML file")
+    exp_run.add_argument(
+        "file", type=Path, help="experiment TOML file (its agents can run code: trust it first)"
+    )
     exp_run.add_argument(
         "-o", "--out", type=Path, default=Path("results"), help="where <name>/ goes (results)"
     )
