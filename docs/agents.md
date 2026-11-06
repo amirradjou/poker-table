@@ -215,5 +215,44 @@ decisions, so its row is a ceiling for a chart-follower, not an independent resu
 the questions are always other seats' decisions.
 
 `scripts/measure_aids.py` asks one model the same questions with no aids, then odds, ranges and
-the playbook added one at a time, and prints a row for each. At about 18 seconds a decision,
-`qwen2.5:7b` on this machine needs a few hours for 120 questions per row.
+the playbook added one at a time, and prints a row for each.
+
+### What the aids were worth to a small local model
+
+`qwen2.5:3b` on a laptop CPU, 80 questions per row, about an hour and five minutes in all:
+
+```sh
+uv run python scripts/measure_aids.py ollama/qwen2.5:3b 80
+```
+
+| aids | agrees | fixes mistakes | keeps good plays | folds | median s |
+|---|---|---|---|---|---|
+| none | 51% | 50% | 52% | 40 | 11.3 |
+| odds | 64% | 62% | 65% | 37 | 12.6 |
+| odds + ranges | 64% | 60% | 68% | 35 | 13.5 |
+| odds + ranges + playbook | 66% | 68% | 65% | 48 | 14.8 |
+| *always fold* | *65%* | | | *80* | |
+
+One row at 80 questions is good to about ±10 points, so the rows are best compared question by
+question, since every row answered the same 80:
+
+| from → to | only the first right | only the second right | exact p |
+|---|---|---|---|
+| none → odds | 3 | 13 | 0.02 |
+| odds → odds + ranges | 6 | 6 | 1.00 |
+| odds + ranges → + playbook | 10 | 12 | 0.83 |
+| everything → always fold | 15 | 14 | 1.00 |
+
+What this supports:
+
+- **The odds help, and not by making the model fold.** It folded slightly less with them. The gain
+  is on the 28 questions where folding is wrong, which went from 12 right to 20. This is the only
+  step that clears the noise, and at p = 0.02 across three steps it is evidence rather than proof.
+- **Ranges show no effect here.** They changed 12 answers, 6 each way.
+- **The playbook made it tighter, not better.** It folded 48 times instead of 35, gaining on
+  questions where folding is right (31 → 38 of 52) and losing where it is wrong (20 → 15 of 28).
+- **The full set only ties always folding,** and it gets different questions right.
+
+What it does not say: this is one small model and one sample, and a run on another model could
+come out differently. Reads and notes are not in it, because these questions are asked one at a
+time with no session behind them. A model's answers also vary, so a re-run will not match exactly.
