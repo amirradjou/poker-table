@@ -22,7 +22,8 @@ they write to themselves. You can define your own seats in a TOML file (a person
 or a Python class), run any LLM seat on a local model through Ollama for free, and score seats
 with `poker-table eval` before paying for a league. A league can live in a file, as an
 [experiment](docs/experiments.md): one command plays it across parallel tables under a budget and
-writes a results folder with error bars on every number.
+writes a results folder with error bars on every number. The
+[first league](docs/experiments.md#the-first-league) is published, and nobody in it clears break-even.
 
 ![Watch mode: six bots playing a hand live at a lamp-lit table, with nameplates, chip stacks,
 a thinking indicator and table talk](docs/watch.gif)

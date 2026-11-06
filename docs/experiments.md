@@ -109,9 +109,51 @@ with the same seed and seats.
 
 The three files in `experiments/`:
 
-- `local-league`: free, on a small local model.
+- `local-league`: free, on a small local model. Its first run is written up below.
 - `four-personalities`: the league the README asks for (needs a key).
 - `per-model`: one personality on Opus, Sonnet and Haiku, bb/100 against $/hand (needs a key).
 
 Neither of the last two has been run: this machine has no key. They have only been tested against
 a fake client, so the first real run is also the first test of the request against the live API.
+
+## The first league
+
+[`docs/results/local-league`](results/local-league/leaderboard.md) is a real run: two LLM
+personalities on `qwen2.5:3b`, a small model running on a CPU, against three scripted bots. It played
+100 hands and 211 model calls at about 30 seconds each, in 1 h 48 min, with no failed calls, for $0.
+
+| seat | net chips | bb/100 | all-in adj. | ±95% |
+|---|---:|---:|---:|---:|
+| station | +5552 | +2776 | +659 | 1020 |
+| tag | +848 | +424 | +243 | 421 |
+| maniac | +77 | +38 | -475 | 859 |
+| nerd | -1209 | -604 | +61 | 728 |
+| random | -5268 | -2634 | -488 | 777 |
+
+**Nobody clears break-even.** On chips, station looks like a clear winner and random a clear loser.
+But 95 of the 100 hands were all in before the last card, and the cards fell one way: in the 89 hands
+all in before the flop, station won 48 showdowns where its cards were worth about 38, and random won
+5 where its cards were worth about 12. That is luck, not a fault. A separate evaluator re-scored all
+98 contested pots and the best hand was paid every time, and 40,000 five-way all-ins from the same
+seed stream gave each seat between 19.8% and 20.2% of the pot.
+
+**This model shoves.** 91 of the model seats' 131 bets and raises were all in, and 54 of them asked
+for more chips than a stack holds, up to `raise 1000000000000000`. The table caps those at all-in.
+Nerd made all 115 of its decisions before the flop. Both personalities played much alike, so this
+run says nothing about which is better, and the reasoning does not always match the cards: "With a
+strong AA" was written about 9♠ 8♦.
+
+**The other columns.** All 40 of maniac's illegal moves were one mistake: asking to raise when an
+all-in already covered its stack and only fold and call were legal. The table folds those. That did
+not decide its place: holding everyone else's choices fixed, calling all 40 instead would have cost
+it about 80 chips, by a rough estimate. Under "How they played", `ms` averages every decision,
+including nerd's 29 automatic folds of junk hands that never reach the model, so it reads lower than
+`s/call`.
+
+So the run shows the runner working against a real model, and how few 100 hands are. Bringing an
+interval of ±800 down to ±200 takes 16 times the hands, about 29 hours on this model. To watch the
+hands:
+
+```bash
+uv run poker-table serve docs/results/local-league/hands.jsonl --open
+```
