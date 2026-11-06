@@ -26,6 +26,7 @@ from poker_table.web.app import (
     coach_payload,
     hand_payload,
     hands_payload,
+    highlight_of,
     odds_payload,
     session_payload,
     stats_payload,
@@ -76,7 +77,9 @@ def export_site(
         STATIC, out / "static", dirs_exist_ok=True, ignore=shutil.ignore_patterns("index.html")
     )
 
-    bytes_written = _write(out / "data" / "session.json", session_payload(store))
+    # Tagging hands costs what the odds cost, so it comes with them.
+    session = session_payload(store) | {"highlights": odds}
+    bytes_written = _write(out / "data" / "session.json", session)
     # The list the viewer pages through is newest first, all of it: the page slices it itself.
     bytes_written += _write(out / "data" / "hands.json", hands_payload(store, 0, len(store.hands)))
     seen: dict[str, str] = {}
@@ -92,10 +95,16 @@ def export_site(
     bytes_written += _write(out / "data" / "stats.json", stats_payload(store))
 
     if odds:
+        tagged = []
         for history in store.hands:
+            payload = odds_payload(history)
             bytes_written += _write(
-                out / "data" / "odds" / f"{file_id(history.hand_id)}.json", odds_payload(history)
+                out / "data" / "odds" / f"{file_id(history.hand_id)}.json", payload
             )
+            tagged.append(highlight_of(history, payload["commentary"]))
+        # All at once where the server pages: there is no slow work left for a page to wait on.
+        everything = {"total": len(tagged), "next": None, "hands": tagged[::-1]}
+        bytes_written += _write(out / "data" / "highlights.json", everything)
 
     coached = players if players is not None else store.players()
     for player in coached:

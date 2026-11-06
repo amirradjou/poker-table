@@ -25,6 +25,7 @@ def test_index_and_session(hands_file: Path) -> None:
     assert js.status_code == 200 and "function stateAt(" in js.text
     session = client.get("/api/session").json()
     assert {k: v for k, v in session.items() if k != "weeks"} == {
+        "highlights": True,
         "file": "hands.jsonl",
         "hands": 12,
         "players": ["tag", "maniac", "station"],
@@ -77,6 +78,7 @@ def test_session_reload_sees_appended_hands(hands_file: Path) -> None:
 def test_missing_file_serves_an_empty_session(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path / "nope.jsonl"))
     assert client.get("/api/session").json() == {
+        "highlights": True,
         "file": "nope.jsonl",
         "hands": 0,
         "players": [],
@@ -220,6 +222,8 @@ def test_export_writes_a_static_site_answering_the_same_json(tmp_path: Path, han
         ("/api/coach?player=tag", "coach/tag.json"),
     ]:
         served = client.get(route).json()
+        if route == "/api/session":
+            served["highlights"] = False  # no odds in this export, so nothing to tag hands from
         assert json.loads((site / "data" / file).read_text()) == served, route
 
     # the whole list, newest first: the page does the paging the server used to do
