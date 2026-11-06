@@ -234,21 +234,25 @@ class WebHumanAgent:
         self.session: LiveSession | None = None
         self.pending: dict[str, Any] | None = None
         self._answer: queue.Queue[Decision] = queue.Queue()
+        self._submitting = threading.Lock()
 
     def act(self, view: SeatView) -> Decision:
         self.pending = live_view_payload(view)
         if self.session is not None:
             self.session.publish({"type": "turn", "seat": view.seat, "hand_id": view.hand_id})
-        try:
-            return self._answer.get()
-        finally:
-            self.pending = None
+        return self._answer.get()
 
     def submit(self, action_text: str, table_talk: str = "") -> Action:
-        """Called from the request thread; the table's sanitizer handles off-by-a-bit sizes."""
-        if self.pending is None:
-            raise LookupError("it is not your turn")
-        action = parse_action(action_text)
+        """Called from the request thread; the table's sanitizer handles off-by-a-bit sizes.
+
+        The turn closes here rather than when the table wakes up, so a double click cannot
+        leave a second answer waiting to play the seat's next turn unseen.
+        """
+        with self._submitting:
+            if self.pending is None:
+                raise LookupError("it is not your turn")
+            action = parse_action(action_text)
+            self.pending = None
         self._answer.put(Decision(action, reasoning="human (browser)", table_talk=table_talk))
         return action
 

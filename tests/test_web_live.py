@@ -1,7 +1,9 @@
 import json
+import threading
 import time
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from poker_table.agents import CallingStation, TightAggressive, make_view
@@ -163,3 +165,23 @@ def test_session_with_a_human_hides_cards_and_reasoning(tmp_path: Path) -> None:
     actions = [e["step"] for e in seq if e["type"] == "step" and e["step"]["kind"] == "action"]
     assert actions and all("reasoning" not in a and "meta" not in a for a in actions)
     assert actions[0]["action"] == "raise 100" and actions[0]["latency_ms"] >= 0
+
+
+def test_a_double_click_does_not_answer_the_next_turn_too() -> None:
+    human = WebHumanAgent("me")
+    hand = Hand(
+        [Player("me", 100), Player("bot", 100)], button=0, small_blind=1, big_blind=2, seed=3
+    )
+    view = make_view(hand, 0)
+    answers = []
+    table = threading.Thread(target=lambda: answers.extend(human.act(view) for _ in range(2)))
+    table.start()
+    wait_until(lambda: human.pending is not None)
+    human.submit("call")
+    with pytest.raises(LookupError):
+        human.submit("fold")
+    wait_until(lambda: human.pending is not None)  # the second turn waits for its own answer
+    assert len(answers) == 1 and human._answer.empty()
+    human.submit("check")
+    table.join(5)
+    assert [str(a.action) for a in answers] == ["call", "check"]
