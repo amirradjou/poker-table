@@ -251,6 +251,24 @@ def build_parser() -> argparse.ArgumentParser:
     drill.add_argument("-n", "--count", type=int, default=10, help="spots per session")
     drill.add_argument("--samples", type=int, default=300, help="equity samples per decision")
 
+    bench = sub.add_parser(
+        "benchmark", help="the fixed test for one seat, so that seats can be compared"
+    )
+    bench.add_argument("seat", help="the seat to test: tag, or llm:nerd@groq/<model>")
+    bench.add_argument(
+        "-o", "--out", type=Path, default=Path("results"), help="where the folder goes (results)"
+    )
+    bench.add_argument("--budget", type=float, metavar="USD", help="stop at this spend")
+    bench.add_argument("--resume", action="store_true", help="carry on from a stopped run")
+    bench.add_argument(
+        "--trial",
+        type=int,
+        metavar="N",
+        help="play N hands, say what the rest would cost and take, and ask before going on",
+    )
+    verify = sub.add_parser("verify", help="deal and play a results folder again, to check it")
+    verify.add_argument("folders", type=Path, nargs="+", help="results folders")
+
     watch = sub.add_parser(
         "watch", help="watch bots play a live table in your browser: no file and no key"
     )
@@ -696,6 +714,32 @@ def cmd_odds(args: argparse.Namespace, out) -> int:
     return 0
 
 
+def cmd_benchmark(args: argparse.Namespace, out) -> int:
+    from poker_table.benchmark import benchmark_file, folder_name
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    path = args.out / f"{folder_name(args.seat)}.toml"
+    path.write_text(benchmark_file(args.seat, args.budget), encoding="utf-8")
+    run = argparse.Namespace(
+        action="run", file=path, out=args.out, hands=None, resume=args.resume, trial=args.trial
+    )
+    return cmd_experiment(run, out)
+
+
+def cmd_verify(args: argparse.Namespace, out) -> int:
+    from poker_table.verify import CANNOT_PROVE, verify_folders
+
+    failed = False
+    for folder, problems in verify_folders(args.folders).items():
+        count = f"{len(problems)} problem{'' if len(problems) == 1 else 's'}"
+        print(f"{folder}: {count if problems else 'checks out'}", file=out)
+        for problem in problems:
+            print(f"  {problem}", file=out)
+        failed = failed or bool(problems)
+    print(CANNOT_PROVE, file=out)
+    return 1 if failed else 0
+
+
 def trial_says_go_on(args: argparse.Namespace, outcome: Any, planned: int, out) -> bool:
     """Show what a trial found, and ask. With nobody at a terminal the answer is no, because a
     script must not spend someone's money by default, and the command to carry on is printed."""
@@ -1055,6 +1099,10 @@ def main(argv: Sequence[str] | None = None, out=None) -> int:
                 return cmd_play(args, out)
             case "watch":
                 return cmd_watch(args, out)
+            case "benchmark":
+                return cmd_benchmark(args, out)
+            case "verify":
+                return cmd_verify(args, out)
             case "odds":
                 return cmd_odds(args, out)
             case "agents":

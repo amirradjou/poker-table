@@ -1,0 +1,6 @@
+name = "bench-rock"
+description = "The benchmark: rock against the four bots."
+seats = ["entrant:rock", "tag", "rock", "maniac", "station"]
+hands = 200
+seed = 2026
+coach = false
