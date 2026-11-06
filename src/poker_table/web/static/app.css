@@ -321,6 +321,11 @@ section.hand { padding: 0; }
 .ghost { position: absolute; pointer-events: none; z-index: 5; }
 
 /* ----- transport ------------------------------------------------------------------------ */
+.your-odds { flex: 1 1 100%; margin: 0; color: var(--ivory-soft); }
+.your-odds strong { color: var(--ivory); }
+.your-odds .good { color: var(--up); font-weight: 600; }
+.your-odds .bad { color: var(--down); font-weight: 600; }
+
 /* The commentary, under the table like a broadcast caption. The height is held so that the
    controls below stay put when a line comes and goes. */
 .call {
@@ -446,7 +451,7 @@ input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 
 /* ----- the human seat's action bar ---------------------------------------------------- */
 .action-bar {
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
-  max-width: 1040px; margin: -28px auto 16px; padding: 12px 14px; border-radius: var(--radius-panel);
+  max-width: 1040px; margin: 0 auto 16px; padding: 12px 14px; border-radius: var(--radius-panel);
   background: #2a2117; border: 1px solid var(--brass); box-shadow: 0 0 30px -10px rgba(202, 162, 76, .5);
 }
 .action-bar .lead { width: 100%; font: 600 18px var(--condensed); }

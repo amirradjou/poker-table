@@ -40,6 +40,7 @@ const DENOMS = [[100, "black"], [25, "green"], [5, "red"], [1, "white"]];
 let listOffset = 0, listTotal = 0;
 let hand = null, step = 0, showThink = true, showCards = true;
 let live = null, follow = true, autoTimer = null, turn = null;
+let review = null;
 let liveHand = null, liveActing = null, tickerTimer = null;
 const bubbles = {};      // seat -> { text, until }
 const lastDecision = {}; // seat -> { latency_ms, cost_usd } shown after an LLM seat decides
@@ -186,6 +187,13 @@ function equityAt(n) {
   for (const r of rows) if (r.step <= n) row = r;
   return row ? Object.fromEntries(Object.entries(row.equity).map(([k, v]) => [+k, v])) : null;
 }
+// At your own table: what the coach made of the hand you just played, until the next one is over.
+// The Odds switch turns off this help along with the numbers.
+function reviewLine() {
+  if (!showOdds || !review || !hand) return "";
+  return hand.streaming || hand.hand_id === review.hand_id ? review.text : "";
+}
+
 // The commentary line in force at position n: the same sources and the same rule as the numbers.
 function callAt(n) {
   if (!showOdds || !showCards || !hand || hand.drill) return "";
@@ -225,6 +233,24 @@ function equityRow(row, label, note, exact) {
   return `<div class="row${exact ? " exact" : ""}"><span class="what">${label}</span>` +
     `<span class="bar"><i style="width:${pct}%"></i></span><b>${pct}%</b>` +
     `<span class="note">${note}</span></div>`;
+}
+
+// Your own odds, beside the buttons they are for. They come from your cards against hands you
+// cannot see, which is all you could work out at a real table.
+function renderYourOdds() {
+  const el = $("your-odds");
+  const odds = showOdds && turn ? turn.odds : null;
+  el.classList.toggle("hidden", !odds);
+  if (!odds) { el.innerHTML = ""; return; }
+  const b = odds.blind;
+  const pct = v => `<strong>${Math.round(v * 100)}%</strong>`;
+  let html = `You have ${pct(b.equity)} against ${b.opponents} unknown hand${b.opponents === 1 ? "" : "s"}`;
+  if (odds.to_call) {
+    const sign = odds.ev_call > 0 ? "+" : "";
+    html += `. A call needs ${pct(odds.required)}, so it is <span class="${odds.ev_call >= 0 ? "good" : "bad"}">${sign}${odds.ev_call.toFixed(1)}</span> chips against folding`;
+  }
+  if (b.improving && odds.street !== "river") html += `. ${b.improving} cards would better your hand`;
+  el.innerHTML = `${html}.`;
 }
 
 function renderOdds() {
@@ -360,7 +386,7 @@ function render() {
   $("scrub").style.setProperty("--pct", `${hand.steps.length ? (100 * step) / hand.steps.length : 0}%`);
   $("summary").classList.toggle("pending", !st.done && !hand.streaming);
   $("street").textContent = st.done ? "Hand over" : st.street[0].toUpperCase() + st.street.slice(1);
-  $("call").textContent = callAt(step);
+  $("call").textContent = reviewLine() || callAt(step);
   // board
   const board = $("board"); board.innerHTML = "";
   st.board.forEach(c => board.appendChild(cardEl(c)));
@@ -805,6 +831,7 @@ async function connectLive() {
     // above: anything published between that answer and the stream opening would be lost.
     if (ev.type === "hello") {
       setLive(ev);
+      review = ev.review || null;
       if (ev.current) beginLiveHand(ev.current);
       if (ev.turn) showTurn(ev.turn);
     } else if (ev.type === "hand_start") beginLiveHand(ev.hand);
@@ -813,6 +840,7 @@ async function connectLive() {
       if (watchingLive()) render();
     } else if (ev.type === "step") takeLiveStep(ev);
     else if (ev.type === "hand") {
+      if (ev.review !== undefined) review = ev.review;
       if (liveHand && liveHand.hand_id === ev.hand_id) { liveHand.streaming = false; liveHand.finished = true; }
       await loadSession();
       await loadList(true);
@@ -844,6 +872,7 @@ function showTurn(t) {
 
 // The action bar for a decision payload (a live turn or a drill spot): legal buttons and sizes.
 function fillActionBar(t) {
+  renderYourOdds();
   const L = t.legal;
   $("action-legal").textContent = `— ${L.describe}`;
   $("act-check").textContent = L.can_check ? "Check" : `Call ${L.call_amount}`;
@@ -1240,6 +1269,7 @@ $("toggle-odds").onclick = (e) => {
   showOdds = !showOdds;
   e.target.setAttribute("aria-pressed", showOdds);
   if (showOdds && !oddsData && hand && !hand.streaming) loadOdds(hand.hand_id); else render();
+  renderYourOdds();
 };
 $("tab-hands").onclick = () => setTab("hands");
 $("tab-board").onclick = () => setTab("board");

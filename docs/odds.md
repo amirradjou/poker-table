@@ -46,6 +46,12 @@ code and seeds as the replay, so the numbers do not change when the finished han
 replay. A table with a player at it never sends these numbers. They come from everyone's cards,
 so your own 20% would tell you how strong the others are.
 
+What you do get at your own table is what you could work out at a real one. On your turn, next to
+the buttons, you see your cards against the hands you cannot see, and the price, with the same
+numbers the replay will show later. Those hands count as random, and a raise usually means better
+than random, so treat the number as an upper limit when you are facing one. After each hand a line from the coach says what it made of your play, until the
+next hand is over. The Odds switch turns all of this off.
+
 ## The formulas
 
 Written out because the point of a calculator is that its numbers can be checked.
