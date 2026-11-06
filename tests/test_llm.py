@@ -318,3 +318,17 @@ def test_a_tournament_stops_unfinished_at_the_budget() -> None:
     )
     assert result.over_budget and not result.complete
     assert "stopped at the $0.01 budget, no winner" in result.render()
+
+
+@pytest.mark.parametrize(
+    ("model", "expected"),
+    [
+        ("claude-opus-5-5", 1000 * 4 + 100 * 20 + 1000 * 0.20),
+        ("claude-sonnet-5-5", 1000 * 2 + 100 * 10 + 1000 * 0.20),
+        ("claude-haiku-5-5", 1000 * 0.10 + 100 * 0.50 + 1000 * 0.01),
+        ("claude-fable-5-1", 1000 * 10 + 100 * 50 + 1000 * 0.25),
+    ],
+)
+def test_the_current_models_are_priced_as_themselves(model: str, expected: float) -> None:
+    usage = SimpleNamespace(input_tokens=1000, output_tokens=100, cache_read_input_tokens=1000)
+    assert estimate_cost(model, usage) == pytest.approx(expected / 1e6)
