@@ -5,17 +5,23 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from poker_table.agents.base import Decision
 from poker_table.agents.llm import LLMAgent
+from poker_table.cards import Deck, parse_cards
 from poker_table.cli import main
+from poker_table.engine import Action, Hand, Player, Street
 from poker_table.experiments import (
     Experiment,
+    all_in_adjusted,
     load_experiment,
     margin_of_error,
     run_experiment,
     seat_results,
     write_report,
 )
-from poker_table.history import read_jsonl
+from poker_table.history import HandHistory, read_jsonl
+from poker_table.league import LeagueConfig, run_league
+from poker_table.table import play_hand
 from poker_table.web.app import create_app
 from poker_table.web.export import export_site
 
@@ -474,6 +480,7 @@ def test_the_report_says_who_is_clear_of_break_even_and_rebuilds_the_same(tmp_pa
     text = report.read_text()
     assert text.startswith("# trial\n")
     assert "3000 hands at blinds 1/2" in text and "seed 2" in text
+    assert "| all-in adj. |" in text and "of the 3000 hands were all in" in text
     rows = seat_results(hands_of(outcome.folder))
     assert rows[0].name == "tag" and rows[0].clear_of_zero and rows[1].clear_of_zero
     assert "Clear of break-even: tag, random." in text
@@ -492,6 +499,101 @@ def test_a_short_run_is_not_allowed_to_sound_sure_of_itself(tmp_path: Path) -> N
     text = (outcome.folder / "leaderboard.md").read_text()
     assert "Too close to break-even to call: tag, random." in text
     assert "Clear of break-even" not in text
+
+
+class Shover:
+    """Puts everything in at the first chance, from ``street`` on."""
+
+    kind = "shover"
+
+    def __init__(self, name: str, street: Street = Street.PREFLOP) -> None:
+        self.name = name
+        self.order = list(Street)
+        self.street = street
+
+    def act(self, view) -> Decision:
+        legal = view.legal
+        if self.order.index(view.street) < self.order.index(self.street):
+            return Decision(Action.check() if legal.can_check else Action.call())
+        return Decision(Action.raise_to(legal.max_raise_to) if legal.can_raise else Action.call())
+
+
+def dealt(cards: str, stacks: list[int], agents: list) -> HandHistory:
+    """Play one hand from a stacked deck. Cards go out one at a time from the seat left of the
+    button, which is seat 0, so ``cards`` starts with seat 1's first card."""
+    players = [Player(a.name, stack) for a, stack in zip(agents, stacks, strict=True)]
+    hand = Hand(
+        players,
+        button=0,
+        small_blind=1,
+        big_blind=2,
+        seed=7,
+        deck=Deck.stacked(parse_cards(cards)),
+    )
+    return HandHistory.from_played(play_hand(hand, dict(enumerate(agents))))
+
+
+def test_an_all_in_counts_what_the_cards_were_worth_not_who_got_lucky() -> None:
+    # Aces against seven-deuce, and the seven-deuce makes a full house.
+    history = dealt("7c Ah 2d As 7h 7s 2c 3d 9h", [200, 200], [Shover("aces"), Shover("sevens")])
+    assert [p.net for p in history.players] == [-200, 200]
+    worth = all_in_adjusted(history)
+    assert worth is not None
+    assert worth[0] == pytest.approx(0.87 * 400 - 200, abs=15)
+    assert sum(worth.values()) == pytest.approx(0)
+
+
+def test_an_all_in_on_the_flop_counts_the_flop() -> None:
+    # A set of kings against aces on the flop, then the last two aces arrive.
+    late = [Shover("aces", Street.FLOP), Shover("kings", Street.FLOP)]
+    history = dealt("Ks Ah Kh As Kd 2c 7h Ad Ac", [200, 200], late)
+    assert [p.net for p in history.players] == [200, -200]
+    worth = all_in_adjusted(history)
+    assert worth is not None
+    assert worth[1] > 130
+
+
+def test_a_side_pot_is_shared_only_among_the_seats_that_can_win_it() -> None:
+    history = dealt(
+        "Qh Ah Kh Qd Ad Kd 2c 3c 4d 8s 9s",
+        [200, 200, 50],
+        [Shover("kings"), Shover("queens"), Shover("aces")],
+    )
+    assert len(history.pots) == 2
+    worth = all_in_adjusted(history)
+    assert worth is not None
+    # The short stack's aces win about two thirds of the 150 main pot, and nothing else.
+    assert worth[2] == pytest.approx(0.66 * 150 - 50, abs=12)
+    assert sum(worth.values()) == pytest.approx(0)
+
+
+@pytest.mark.parametrize(
+    "agents",
+    [
+        [Shover("a", Street.RIVER), Shover("b", Street.RIVER)],  # all in with no cards to come
+        [Shover("a", Street.SHOWDOWN), Shover("b", Street.SHOWDOWN)],  # checked down
+    ],
+)
+def test_a_hand_decided_on_the_river_has_nothing_to_adjust(agents: list) -> None:
+    assert all_in_adjusted(dealt("7c Ah 2d As 7h 7s 2c 3d 9h", [200, 200], agents)) is None
+
+
+def test_a_hand_nobody_called_has_nothing_to_adjust() -> None:
+    class Folder(Shover):
+        def act(self, view) -> Decision:
+            return Decision(Action.fold())
+
+    history = dealt("7c Ah 2d As 7h 7s 2c 3d 9h", [200, 200], [Shover("a"), Folder("b")])
+    assert all_in_adjusted(history) is None
+
+
+def test_a_hot_run_is_not_called_a_win() -> None:
+    # Two seats that shove every hand: neither has an edge, whatever the chips say. This seed
+    # happens to give one of them a run of good cards to come.
+    config = LeagueConfig(hands=60, seed=62, buy_in=200, top_up=True)
+    rows = seat_results(run_league([Shover("a"), Shover("b")], config).histories)
+    assert abs(rows[0].bb_per_100) > rows[0].margin
+    assert not rows[0].clear_of_zero
 
 
 def test_rebuilding_a_folder_with_no_hands_says_so(tmp_path: Path) -> None:

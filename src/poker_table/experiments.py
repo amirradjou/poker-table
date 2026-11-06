@@ -12,7 +12,7 @@
     experiment.toml   the file it was run from
     hands.jsonl       every hand, with every seat's reasoning
     run.json          what ran, when, for how long, and why it stopped
-    leaderboard.md    who won, with an error bar, and what it cost
+    leaderboard.md    who won, with error bars, and what it cost
     coach/<seat>.md   the coach's report on each model seat
 
 A stopped run keeps every finished hand, and ``--resume`` carries on with the same decks. The
@@ -50,8 +50,10 @@ from poker_table.agents.human import HumanAgent
 from poker_table.agents.llm import LLMAgent
 from poker_table.agents.ollama import is_local
 from poker_table.agents.registry import check_seats_ready, make_agents
+from poker_table.cards import parse_cards
 from poker_table.history import HandHistory, read_jsonl, write_jsonl
 from poker_table.league import LeagueConfig, parse_blinds, run_league, show_hand, spent_usd
+from poker_table.odds import table_equities
 from poker_table.stats import compute_stats, format_table
 
 # A seat failing this often is not being measured: it is folding on its fallback.
@@ -434,6 +436,41 @@ def margin_of_error(big_blinds_per_hand: Sequence[float]) -> float | None:
     return 1.96 * error * 100
 
 
+_BOARD_AT = {"preflop": 0, "flop": 3, "turn": 4, "river": 5}
+_ALL_IN_SAMPLES = 1000  # run-outs per hand: enough once they are added up over a run
+
+
+def _board_when_decided(history: HandHistory) -> int:
+    """How many board cards were out at the last decision in the hand."""
+    return _BOARD_AT[history.decisions[-1].street] if history.decisions else 0
+
+
+def _all_in_early(history: HandHistory) -> bool:
+    """True when a showdown still had cards to come and nobody had a decision left."""
+    return len(history.showdown) >= 2 and _board_when_decided(history) < len(history.board)
+
+
+def all_in_adjusted(history: HandHistory) -> dict[int, float] | None:
+    """Chips per seat, counting each pot at its share of the cards rather than who won it.
+
+    Once nobody has a decision left, the cards still to come are pure luck. Scoring the hand at
+    each seat's share of the pot at that moment estimates the same win rate with less of that
+    luck in it. Returns None for a hand with nothing to adjust.
+    """
+    if not _all_in_early(history):
+        return None
+    seats = {p.seat: p for p in history.players}
+    board = parse_cards("".join(history.board[: _board_when_decided(history)]))
+    # net = payouts - chips put in, so this starts every seat at minus what it put in.
+    worth = {seat: float(p.net - history.payouts.get(seat, 0)) for seat, p in seats.items()}
+    for pot in history.pots:
+        holes = {seat: parse_cards("".join(seats[seat].hole)) for seat in pot["eligible"]}
+        shares, _ = table_equities(holes, board, samples=_ALL_IN_SAMPLES, seed=history.seed)
+        for seat, share in shares.items():
+            worth[seat] += share * pot["amount"]
+    return worth
+
+
 @dataclass(frozen=True, slots=True)
 class SeatResult:
     name: str
@@ -442,6 +479,8 @@ class SeatResult:
     net: int
     bb_per_100: float
     margin: float | None
+    adjusted_bb_per_100: float
+    adjusted_margin: float | None
     decisions: int
     model_calls: int
     seconds_per_call: float | None
@@ -451,20 +490,25 @@ class SeatResult:
 
     @property
     def clear_of_zero(self) -> bool:
-        return self.margin is not None and abs(self.bb_per_100) > self.margin
+        margin = self.adjusted_margin
+        return margin is not None and abs(self.adjusted_bb_per_100) > margin
 
 
 def seat_results(histories: Sequence[HandHistory]) -> list[SeatResult]:
     """One row per seat, best first. Hands are pooled across tables."""
     nets: dict[str, list[float]] = defaultdict(list)
+    adjusted: dict[str, list[float]] = defaultdict(list)
     kinds: dict[str, str] = {}
     models: dict[str, str] = {}
     latencies: dict[str, list[float]] = defaultdict(list)
     failed: dict[str, int] = defaultdict(int)
     for history in histories:
         names = {p.seat: p.name for p in history.players}
+        worth = all_in_adjusted(history)
         for player in history.players:
             nets[player.name].append(player.net / history.big_blind)
+            chips = player.net if worth is None else worth[player.seat]
+            adjusted[player.name].append(chips / history.big_blind)
             kinds.setdefault(player.name, player.kind)
         for decision in history.decisions:
             name = names[decision.seat]
@@ -484,6 +528,8 @@ def seat_results(histories: Sequence[HandHistory]) -> list[SeatResult]:
                 net=stats.net,
                 bb_per_100=stats.bb_per_100 or 0.0,
                 margin=margin_of_error(nets[name]),
+                adjusted_bb_per_100=statistics.fmean(adjusted[name]) * 100,
+                adjusted_margin=margin_of_error(adjusted[name]),
                 decisions=stats.decisions,
                 model_calls=stats.model_calls,
                 seconds_per_call=(statistics.fmean(latencies[name]) if latencies[name] else None),
@@ -536,21 +582,31 @@ def render_report(
         lines += ["", _STOPPED[run["stopped"]]]
     lines += [
         "",
-        "| seat | plays as | bb/100 | ±95% | net chips | model calls | s/call | $/hand "
-        "| illegal | failed |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| seat | plays as | bb/100 | ±95% | all-in adj. | ±95% | net chips | model calls "
+        "| s/call | $/hand | illegal | failed |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in rows:
         margin = f"{row.margin:.0f}" if row.margin is not None else "-"
+        adjusted = f"{row.adjusted_margin:.0f}" if row.adjusted_margin is not None else "-"
         seconds = f"{row.seconds_per_call:.1f}" if row.seconds_per_call is not None else "-"
         per_hand = f"{row.cost_usd / row.hands:.4f}" if row.model_calls else "-"
         lines.append(
-            f"| {row.name} | {row.plays_as} | {row.bb_per_100:+.0f} | {margin} | {row.net:+d} "
+            f"| {row.name} | {row.plays_as} | {row.bb_per_100:+.0f} | {margin} "
+            f"| {row.adjusted_bb_per_100:+.0f} | {adjusted} | {row.net:+d} "
             f"| {row.model_calls} | {seconds} | {per_hand} | {row.illegal} | {row.failed} |"
         )
     clear = [row.name for row in rows if row.clear_of_zero]
     unclear = [row.name for row in rows if not row.clear_of_zero]
-    lines += [""]
+    early = sum(_all_in_early(history) for history in histories)
+    lines += [
+        "",
+        f"{early} of the {len(histories)} hands were all in before the last card. All-in adj. "
+        "counts those at each seat's share of the pot at that moment, which takes out the luck "
+        "of the cards still to come. It estimates the same win rate as bb/100 with less noise, "
+        "so the calls below use it.",
+        "",
+    ]
     if clear:
         lines.append(f"Clear of break-even: {', '.join(clear)}.")
     if unclear:
@@ -594,10 +650,10 @@ def write_report(folder: Path | str) -> Path:
     report = folder / "leaderboard.md"
     _write_text(report, render_report(experiment, histories, run))
     if experiment.coach:
-        for row in seat_results(histories):
-            if row.model_calls:
-                facts = tag_hands(histories, row.name, samples=200)
-                text = build_report(histories, row.name, facts).render(top=5)
-                coach = folder / "coach" / f"{_file_name(row.name)}.md"
-                _write_text(coach, f"# {row.name}\n\n```\n{text}\n```\n")
+        for name, stats in compute_stats(histories).items():
+            if stats.model_calls:
+                facts = tag_hands(histories, name, samples=200)
+                text = build_report(histories, name, facts).render(top=5)
+                coach = folder / "coach" / f"{_file_name(name)}.md"
+                _write_text(coach, f"# {name}\n\n```\n{text}\n```\n")
     return report

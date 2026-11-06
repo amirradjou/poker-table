@@ -49,19 +49,25 @@ through a link in the folder, so a results folder from someone else cannot overw
 | `experiment.toml` | the file it was run from |
 | `hands.jsonl` | every hand, with every seat's reasoning, written as each hand ends |
 | `run.json` | hands played and planned, why it stopped, seconds, dollars, version and commit |
-| `leaderboard.md` | who won, with an error bar, and what it cost |
+| `leaderboard.md` | who won, with error bars, and what it cost |
 | `coach/<seat>.md` | the coach's report on each model seat |
 
 `results/` is ignored by git. To publish a run, give it `-o docs/results`.
 
 ## Reading the leaderboard
 
-The number to read is bb/100 with its interval, not the order of the rows. Poker is noisy: over
-300 hands heads-up, a tight-aggressive bot beats a bot that plays at random by +173 bb/100, and
-the 95% interval is ±201. That matchup is not close, and 300 hands still cannot show it. So the
-report names the seats whose interval clears zero and says of the rest that they are too close to
-call. The interval treats hands as independent and looks at one seat at a time, so with many seats
-one can clear zero by luck.
+The number to read is all-in adj. with its interval, not the chips or the order of the rows.
+
+Once nobody has a decision left, the cards still to come are luck that no seat chose. All-in adj.
+counts those hands at each seat's share of the pot at that moment. It estimates the same win rate
+as bb/100 with less noise, so the report uses it to name the seats that clear zero, and says of the
+rest that they are too close to call. Tables where the chips go in early gain the most, as
+[the first league](#the-first-league) shows.
+
+Poker stays noisy even so. Over 300 hands heads-up, a tight-aggressive bot beats a bot that plays
+at random by +152 bb/100 adjusted, and the 95% interval is ±173. That matchup is not close, and 300
+hands still cannot show it. The interval treats hands as independent and looks at one seat at a
+time, so with many seats one can clear zero by luck.
 
 Check the `failed` column before the winners. It counts decisions where the model's reply could
 not be used, so the seat checked or folded instead, and that seat's result is partly its fallback's.
