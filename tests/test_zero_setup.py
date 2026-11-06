@@ -129,7 +129,7 @@ def test_every_setting_shows_up_in_the_starter() -> None:
 @pytest.mark.parametrize(
     "seats",
     re.findall(r"^# (seats = .+)$", STARTER, re.MULTILINE),
-    ids=["local", "claude"],
+    ids=["local", "claude", "another-provider"],
 )
 def test_the_seats_it_suggests_are_real(seats: str, tmp_path: Path) -> None:
     from poker_table.agents.registry import make_agents

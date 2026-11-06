@@ -249,7 +249,7 @@ def test_no_network_is_found_before_the_first_hand(
 
 def test_a_table_with_no_limit_says_so(api: StandInApi, capsys: pytest.CaptureFixture) -> None:
     assert main(["play", "-n", "1", "--seats", "llm:maniac,tag", "-q"]) == 0
-    assert "bill your Anthropic key with no limit" in capsys.readouterr().err
+    assert "bill your key with no limit" in capsys.readouterr().err
     assert main(["play", "-n", "1", "--seats", "llm:maniac,tag", "-q", "--budget", "1"]) == 0
     assert "no limit" not in capsys.readouterr().err
 
@@ -300,7 +300,8 @@ def test_the_coach_notes_go_out_the_same_way(api: StandInApi) -> None:
 
 
 def test_a_failed_call_never_shows_a_person_a_bare_type_error() -> None:
-    message = explain_model_error(TypeError("Could not resolve authentication method"), "m")
+    no_key = TypeError("Could not resolve authentication method")
+    message = explain_model_error(no_key, "claude-opus-5-5")
     assert "your own Anthropic API key" in message
     assert explain_model_error(ValueError("run `ollama pull x`"), "m") == "run `ollama pull x`"
     assert "RuntimeError: boom" in explain_model_error(RuntimeError("boom"), "m")
