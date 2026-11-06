@@ -33,7 +33,8 @@ Live tables play out card by card under the lamp — dealing, chips sliding to t
 the winner, table talk beside the seat, and a thinking indicator (with a cost ticker for LLM
 seats). Like a poker broadcast, the table puts each player's chance of winning under their
 nameplate, live and in replays; the numbers stay off while you are playing, because they come
-from everyone's cards. A line of commentary under the table calls the moments that matter, a shove,
+from everyone's cards. Instead you get your own odds on your turn, and a line from the coach after
+each hand. A line of commentary under the table calls the moments that matter, a shove,
 the best hand folding, the card that turns a hand around, and it needs no model, so it is free and
 runs in the demo. Filters find the long shots, turnarounds and biggest pots in a file, and "Watch
 these" plays them one after another. The replay viewer steps through any finished hand with every
