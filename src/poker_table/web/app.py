@@ -21,7 +21,13 @@ from poker_table.margins import CAVEAT, all_in_adjusted, all_in_note, calls, sea
 from poker_table.stats import compute_stats, leaderboard
 from poker_table.web.commentary import LONG_SHOT
 from poker_table.web.guard import TableGuard
-from poker_table.web.live import MAX_PACE, Broadcast, LiveSession, live_view_payload
+from poker_table.web.live import (
+    MAX_PACE,
+    ODDS_SAMPLES,
+    Broadcast,
+    LiveSession,
+    live_view_payload,
+)
 
 STATIC = Path(__file__).parent / "static"
 
@@ -246,9 +252,6 @@ def coach_payload(
     return data
 
 
-ODDS_SAMPLES = 800
-
-
 def odds_payload(history: HandHistory, *, samples: int = ODDS_SAMPLES) -> dict[str, Any]:
     """The probability calculation at every decision of one hand, both ways round.
 
@@ -257,7 +260,7 @@ def odds_payload(history: HandHistory, *, samples: int = ODDS_SAMPLES) -> dict[s
     the same spot against the actual holdings, enumerated where that is cheap. A hand
     imported from a site keeps ``known`` empty for the seats whose cards were never shown.
     """
-    from poker_table.odds import calculate
+    from poker_table.odds import calculate, chance_row
 
     holes = {p.seat: [Card.parse(c) for c in p.hole] for p in history.players}
     steps = [i for i, step in enumerate(steps_for(history)) if step["kind"] == "action"]
@@ -291,8 +294,8 @@ def odds_payload(history: HandHistory, *, samples: int = ODDS_SAMPLES) -> dict[s
                 "required": round(blind.required_equity, 4),
                 "ratio": blind.ratio,
                 "ev_call": round(blind.ev_call, 2),
-                "blind": _chance_row(blind),
-                "known": _chance_row(known) if known is not None else None,
+                "blind": chance_row(blind),
+                "known": chance_row(known) if known is not None else None,
             }
         )
     broadcast = _broadcast(history)
@@ -319,22 +322,6 @@ def _broadcast(history: HandHistory) -> Broadcast | None:
     for index, step in enumerate(steps_for(history)):
         broadcast.take(index + 1, step)
     return broadcast
-
-
-def _chance_row(spot: Any) -> dict[str, Any]:
-    c = spot.chances
-    return {
-        "equity": round(c.equity, 4),
-        "win": round(c.win, 4),
-        "tie": round(c.tie, 4),
-        "exact": c.exact,
-        "trials": c.trials,
-        "error": round(c.error, 4),
-        "opponents": spot.opponents,
-        "outs": [str(c) for c in (spot.outs or ())] if spot.outs is not None else None,
-        "improving": len(spot.improving),
-        "hit": round(spot.hit() or 0.0, 4) if spot.outs is not None else None,
-    }
 
 
 def summarize(history: HandHistory) -> dict[str, Any]:

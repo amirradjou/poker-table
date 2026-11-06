@@ -17,11 +17,15 @@ from poker_table.cards import Card
 from poker_table.engine import Action, Event, EventKind, Hand
 from poker_table.history import HandHistory, parse_action, write_jsonl
 from poker_table.league import LeagueConfig, run_league
-from poker_table.odds import table_equities
+from poker_table.odds import chance_row, for_view, table_equities
 from poker_table.table import DecisionRecord
 from poker_table.web.commentary import Commentator
 
 MAX_PACE = 5.0
+
+
+ODDS_SAMPLES = 800  # a seat's own odds: the same count live and in a replay, so they match
+REVIEW_SAMPLES = 200
 
 
 class EquityTrack:
@@ -122,6 +126,7 @@ class LiveSession:
     _thread: threading.Thread | None = None
     _published: int = 0  # engine events of the current hand already turned into steps
     _broadcast: Broadcast | None = None  # the current hand's win chances, for spectators only
+    review: dict[str, Any] | None = None  # the coach on the last hand, at a human's table
 
     @property
     def human(self) -> WebHumanAgent | None:
@@ -265,7 +270,11 @@ class LiveSession:
         write_jsonl(self.path, [history], append=True)
         self.hands_played += 1
         self.current = None
-        self.publish({"type": "hand", "hand_id": history.hand_id, "hands": self.hands_played})
+        human = self.human
+        if human is not None:
+            self.review = review_of(history, human.name)
+        event = {"type": "hand", "hand_id": history.hand_id, "hands": self.hands_played}
+        self.publish(event | {"review": self.review} if human is not None else event)
 
     # -- pub/sub for server-sent events --
 
@@ -300,6 +309,7 @@ class LiveSession:
             "pace": self.pace,
             "human": human.name if human else None,
             "turn": human.pending if human else None,
+            "review": self.review,
             "current": self.current,
         }
 
@@ -336,7 +346,7 @@ class WebHumanAgent:
         self._submitting = threading.Lock()
 
     def act(self, view: SeatView) -> Decision:
-        self.pending = live_view_payload(view)
+        self.pending = live_view_payload(view) | {"odds": own_odds(view)}
         if self.session is not None:
             self.session.publish({"type": "turn", "seat": view.seat, "hand_id": view.hand_id})
         return self._answer.get()
@@ -369,6 +379,47 @@ def event_to_step(event: Event, names: dict[int, str]) -> dict[str, Any]:
         "text": event.text,
         "all_in": event.all_in,
     }
+
+
+def own_odds(view: SeatView) -> dict[str, Any]:
+    """What a player could work out at the table: their cards against hands they cannot see. Only
+    the view goes in, and a view never holds another seat's cards, so this cannot give them away.
+    It has the shape of a spot in the replay's odds panel, and the same numbers."""
+    spot = for_view(view, samples=ODDS_SAMPLES)
+    return {
+        "seat": view.seat,
+        "name": view.name,
+        "street": view.street.value,
+        "pot": view.pot,
+        "to_call": view.to_call,
+        "pot_odds": round(spot.pot_odds, 4),
+        "required": round(spot.required_equity, 4),
+        "ratio": spot.ratio,
+        "ev_call": round(spot.ev_call, 2),
+        "blind": chance_row(spot),
+        "known": None,
+    }
+
+
+def review_of(history: HandHistory, player: str) -> dict[str, Any] | None:
+    """One line from the coach on how ``player`` played a finished hand, or None if there is
+    nothing to say. The hand is over, so this may read everyone's cards."""
+    from poker_table.coach.facts import tag_hand  # the coach imports the seats
+
+    try:
+        facts = tag_hand(history, player, samples=REVIEW_SAMPLES)
+    except Exception:  # noqa: BLE001 - a review is a nicety, and must never stop the table
+        return None
+    graded = [fact for fact in facts if fact.ok is not None]
+    if not graded:
+        return None
+    leaks = [fact for fact in graded if fact.ok is False]
+    if not leaks:
+        text = f"Coach, hand #{history.hand_id}: nothing to change."
+    else:
+        more = f" (and {len(leaks) - 1} more)" if len(leaks) > 1 else ""
+        text = f"Coach, hand #{history.hand_id}, {leaks[0].street}: {leaks[0].detail}{more}."
+    return {"hand_id": history.hand_id, "text": text}
 
 
 def live_view_payload(view: SeatView) -> dict[str, Any]:

@@ -36,6 +36,7 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from math import comb, sqrt
+from typing import Any
 
 from poker_table.cards import FULL_DECK, Card, cards_str
 from poker_table.evaluator import HandCategory, evaluate
@@ -439,6 +440,23 @@ def calculate(
         improving=improving_cards(hole, board),
         known_hands=all_known,
     )
+
+
+def chance_row(spot: Spot) -> dict[str, Any]:
+    """A spot's chances as the viewer's odds panel reads them."""
+    c = spot.chances
+    return {
+        "equity": round(c.equity, 4),
+        "win": round(c.win, 4),
+        "tie": round(c.tie, 4),
+        "exact": c.exact,
+        "trials": c.trials,
+        "error": round(c.error, 4),
+        "opponents": spot.opponents,
+        "outs": [str(c) for c in (spot.outs or ())] if spot.outs is not None else None,
+        "improving": len(spot.improving),
+        "hit": round(spot.hit() or 0.0, 4) if spot.outs is not None else None,
+    }
 
 
 def for_view(view, *, samples: int = 1200, seed: int = 0) -> Spot:

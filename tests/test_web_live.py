@@ -246,7 +246,8 @@ def test_a_table_with_a_player_never_sends_the_win_chances(tmp_path: Path) -> No
     session.join(5)
     assert session.error == "" and len(seen) >= 3
     sent = json.dumps(drain(events)) + json.dumps(seen)
-    assert "equity" not in sent
+    # Everyone's shares would give the cards away. A seat's own odds are fine, and have a number.
+    assert '"equity": {' not in sent and '"equity": [' not in sent
     assert "commentary" not in sent and '"line"' not in sent  # it says what everyone holds
 
 
