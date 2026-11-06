@@ -10,13 +10,14 @@ from pathlib import Path
 from poker_table import __version__
 from poker_table.agents.human import HumanAgent
 from poker_table.agents.llm import LLMAgent
-from poker_table.agents.registry import available_kinds, make_agents
+from poker_table.agents.registry import available_kinds, check_seats_ready, make_agents
 from poker_table.history import HandHistory, filter_by_date, read_jsonl, write_jsonl
 from poker_table.league import (
     DEFAULT_SCHEDULE,
     LeagueConfig,
     Level,
     TournamentConfig,
+    parse_blinds,
     run_league,
     run_tournament,
 )
@@ -391,13 +392,6 @@ def cmd_eval(args: argparse.Namespace, out) -> int:
     return 0
 
 
-def parse_blinds(text: str) -> tuple[int, int]:
-    small, sep, big = text.partition("/")
-    if not sep:
-        raise ValueError("blinds must look like 1/2")
-    return int(small), int(big)
-
-
 def parse_levels(text: str) -> tuple[Level, ...]:
     """``"1/2,2/4,5/10+1"`` -> a blind schedule; ``+n`` on a level is its ante."""
     levels = []
@@ -503,21 +497,6 @@ def play_tournament(args: argparse.Namespace, agents, out) -> int:
     if args.out is not None and not args.quiet:
         print(f"hand histories appended to {args.out}", file=out)
     return 0
-
-
-def check_seats_ready(agents) -> None:
-    """Fail before the first hand if a seat cannot run, rather than folding its way through."""
-    from poker_table.agents.laya import INSTALL_HINT, LayaAgent
-    from poker_table.agents.ollama import is_local
-
-    for agent in agents:
-        if isinstance(agent, LayaAgent) and not agent.loadable:
-            raise ValueError(f"seat {agent.name!r}: {INSTALL_HINT}")
-        if isinstance(agent, LLMAgent) and is_local(agent.model):
-            try:
-                agent.client.check(agent.model)
-            except ValueError as exc:
-                raise ValueError(f"seat {agent.name!r}: {exc}") from None
 
 
 def model_seat_notes(agents) -> list[str]:

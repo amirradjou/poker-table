@@ -318,4 +318,6 @@ class LLMAgent:
 
     def _fallback(self, view: SeatView, why: str, meta: dict[str, Any] | None = None) -> Decision:
         action = Action.check() if view.legal.can_check else Action.fold()
-        return Decision(action, reasoning=why, meta=meta or {"model": self.model})
+        return Decision(
+            action, reasoning=why, meta={"model": self.model, **(meta or {}), "failed": True}
+        )

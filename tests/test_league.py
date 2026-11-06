@@ -241,3 +241,36 @@ def test_a_tournament_shows_hands_only_to_the_seats_still_in_it() -> None:
     assert result.complete
     for w in watchers:
         assert len(w.seen) == result.hands_dealt[w.name]
+
+
+def test_a_league_started_partway_deals_the_hands_it_would_have_dealt() -> None:
+    def stations():
+        return [CallingStation("a"), CallingStation("b"), CallingStation("c")]
+
+    whole = run_league(stations(), LeagueConfig(hands=12, seed=3))
+    rest = run_league(stations(), LeagueConfig(hands=12, seed=3, first_hand=8))
+    assert rest.hands == 12
+    assert [h.hand_id for h in rest.histories] == ["9", "10", "11", "12"]
+    assert fingerprint(rest) == fingerprint(whole)[8:]
+    assert [h.button for h in rest.histories] == [h.button for h in whole.histories[8:]]
+
+
+def test_only_a_topped_up_league_can_start_partway() -> None:
+    with pytest.raises(ValueError, match="topped up"):
+        run_league(fresh_agents(), LeagueConfig(hands=4, first_hand=2, top_up=False))
+
+
+def test_a_prefix_keeps_the_hands_of_two_tables_apart() -> None:
+    result = run_league(fresh_agents(), LeagueConfig(hands=2, hand_prefix="t2-"))
+    assert [h.hand_id for h in result.histories] == ["t2-1", "t2-2"]
+
+
+def test_a_league_stops_when_asked_between_hands() -> None:
+    played = []
+    result = run_league(
+        fresh_agents(),
+        LeagueConfig(hands=10),
+        on_hand=played.append,
+        stop=lambda: len(played) == 3,
+    )
+    assert result.hands == 3 and len(result.histories) == 3

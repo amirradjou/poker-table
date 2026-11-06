@@ -141,7 +141,8 @@ def test_api_errors_and_bad_replies_degrade_to_check_or_fold() -> None:
     assert agent.act(view).action == Action.fold()
 
     agent = LLMAgent("alice", "rock", client=FakeClient(response("{}", stop="max_tokens")))
-    assert "max_tokens" in agent.act(view).reasoning
+    decision = agent.act(view)
+    assert "max_tokens" in decision.reasoning and decision.meta["failed"] is True
 
     agent = LLMAgent("alice", "rock", client=FakeClient({"action": "shove", "amount": 1}))
     assert "unknown action" in agent.act(view).reasoning
