@@ -28,8 +28,8 @@ scripts/build_demo.sh site 300 && python3 -m http.server -d site 8000
 
 `.github/workflows/release.yml` runs on a `v*` tag. It checks that the tag, `pyproject.toml`
 and `poker_table.__version__` agree, runs the tests, and builds the wheel, checking that the
-viewer's static files are inside. It then publishes to PyPI with trusted publishing, so no
-token is stored, and attaches the same files to a GitHub release.
+viewer's static files are inside. It then attaches those files to a GitHub release and publishes
+the same files to PyPI with trusted publishing, so no token is stored.
 
 Once, on PyPI (Your projects → Publishing → Add a pending publisher):
 
@@ -39,6 +39,16 @@ Once, on PyPI (Your projects → Publishing → Add a pending publisher):
 | owner / repository | `amirradjou` / `poker-table` |
 | workflow | `release.yml` |
 | environment | `pypi` |
+
+The GitHub release does not wait for PyPI. Until the publisher is added, the `pypi` job fails and
+everything else still ships. Add the publisher, then publish the files that release already built:
+
+```sh
+gh run list --workflow release.yml --limit 1       # the run's id
+gh run rerun <id> --failed
+```
+
+GitHub allows a re-run for 30 days. After that, bump the version and tag again.
 
 For each release, bump both version strings in one commit, merge, then tag `main`:
 

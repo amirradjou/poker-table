@@ -1,8 +1,9 @@
 name: Release
-# Push a tag like v0.2.0 (matching pyproject.toml and poker_table.__version__) to publish the
-# package to PyPI and attach the same files to a GitHub release.
+# Push a tag like v0.2.0 (matching pyproject.toml and poker_table.__version__) to attach the
+# package to a GitHub release and publish the same files to PyPI.
 # PyPI side, once: add a trusted publisher for this repository, workflow release.yml,
-# environment "pypi" (https://docs.pypi.org/trusted-publishers/).
+# environment "pypi" (https://docs.pypi.org/trusted-publishers/). Until then the pypi job fails
+# and the GitHub release still goes out; see docs/releasing.md for publishing it afterwards.
 on:
   push:
     tags: ["v*"]
@@ -23,8 +24,10 @@ jobs:
       - run: uv sync --frozen
       - run: uv run pytest -q
       - run: uv build
-      - name: The wheel carries the viewer
-        run: unzip -l dist/*.whl | grep -q "poker_table/web/static/app.js"
+      - name: The wheel carries the viewer, and no local caches
+        run: |
+          unzip -l dist/*.whl | grep -q "poker_table/web/static/app.js"
+          ! unzip -l dist/*.whl | grep -q "\.graphify"
       - uses: actions/upload-artifact@v4
         with:
           name: dist
@@ -46,7 +49,7 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
 
   github:
-    needs: pypi
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
