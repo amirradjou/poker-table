@@ -158,9 +158,10 @@ class LiveSession:
                 decision = None
             if event.kind is EventKind.STREET:
                 self.current["board"] = [str(c) for c in hand.board]
+            at = len(self.current["steps"])
             self.current["steps"].append(step)
             if publish:
-                self.publish({"type": "step", "hand_id": hand.hand_id, "step": step})
+                self.publish({"type": "step", "hand_id": hand.hand_id, "at": at, "step": step})
 
     def _sleep(self) -> None:
         if self.pace > 0:
@@ -209,7 +210,11 @@ class LiveSession:
         }
 
     def sse(self, keepalive: float = 15.0) -> Iterator[str]:
-        """Server-sent events: a hello with the status, then every published event."""
+        """Server-sent events: a hello with the status, then every published event.
+
+        The queue exists before the status is read, so nothing falls between the two. A step may
+        arrive twice, in the hello's hand and as an event; its ``at`` says which one it is.
+        """
         q = self.subscribe()
         try:
             yield f"data: {json.dumps({'type': 'hello', **self.status()})}\n\n"

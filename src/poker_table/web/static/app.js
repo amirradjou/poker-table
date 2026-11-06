@@ -719,6 +719,7 @@ function beginLiveHand(h) {
 }
 function takeLiveStep(ev) {
   if (!liveHand || ev.hand_id !== liveHand.hand_id) return;
+  if (ev.at < liveHand.steps.length) return;  // the hello already brought this one
   const s = ev.step;
   liveHand.steps.push(s);
   if (s.kind === "street") liveHand.board = liveHand.board.concat(s.cards);
@@ -739,12 +740,16 @@ async function connectLive() {
   const st = await api("/api/live");
   if (!st.live) return;
   setLive(st);
-  if (st.current) beginLiveHand(st.current);
-  if (st.turn) showTurn(st.turn);
   const es = new EventSource("/api/events");
   es.onmessage = async (msg) => {
     const ev = JSON.parse(msg.data);
-    if (ev.type === "hand_start") beginLiveHand(ev.hand);
+    // The hand comes from the stream's own hello (also after a reconnect), never from the request
+    // above: anything published between that answer and the stream opening would be lost.
+    if (ev.type === "hello") {
+      setLive(ev);
+      if (ev.current) beginLiveHand(ev.current);
+      if (ev.turn) showTurn(ev.turn);
+    } else if (ev.type === "hand_start") beginLiveHand(ev.hand);
     else if (ev.type === "acting") {
       liveActing = { seat: ev.seat, kind: ev.kind, since: Date.now() };
       if (watchingLive()) render();

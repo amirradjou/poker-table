@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from poker_table.agents import CallingStation, TightAggressive, make_view
+from poker_table.agents import CallingStation, Maniac, TightAggressive, make_view
 from poker_table.engine import Hand, Player
 from poker_table.history import read_jsonl
 from poker_table.league import LeagueConfig
@@ -185,3 +185,29 @@ def test_a_double_click_does_not_answer_the_next_turn_too() -> None:
     human.submit("check")
     table.join(5)
     assert [str(a.action) for a in answers] == ["call", "check"]
+
+
+def test_a_page_that_joins_midway_ends_up_with_every_step(tmp_path: Path) -> None:
+    from poker_table.web.app import steps_for
+
+    path = tmp_path / "live.jsonl"
+    session = LiveSession(
+        [TightAggressive("tag"), CallingStation("s"), Maniac("m")],
+        LeagueConfig(hands=1, seed=4),
+        path,
+        pace=0.05,
+    )
+    session.start()
+    wait_until(lambda: session.current is not None and len(session.current["steps"]) > 3)
+    hello, *events = (json.loads(line[6:]) for line in session.sse() if line.startswith("data: "))
+    # what the page does: start from the hello, then take what the events add to it
+    joined = len(hello["current"]["steps"])
+    steps = list(hello["current"]["steps"])
+    for event in events:
+        if event["type"] == "step" and event["at"] >= len(steps):
+            steps.append(event["step"])
+    history = next(read_jsonl(path))
+    assert 0 < joined < len(steps)
+    keys = ("kind", "seat", "action", "amount")
+    want = [[s[k] for k in keys] for s in steps_for(history)]
+    assert [[s[k] for k in keys] for s in steps] == want
