@@ -44,6 +44,7 @@ from typing import Any
 
 from poker_table import __version__
 from poker_table.agents.base import Agent
+from poker_table.agents.compat import is_priced
 from poker_table.agents.custom import load_agent_files
 from poker_table.agents.human import HumanAgent
 from poker_table.agents.llm import LLMAgent
@@ -173,17 +174,26 @@ def load_experiment(path: Path | str) -> Experiment:
     )
 
 
-def _check_seats(experiment: Experiment, agents: Sequence[Agent]) -> None:
+def _check_seats(
+    experiment: Experiment, agents: Sequence[Agent], log: Callable[[str], None] = print
+) -> None:
     """Refuse anything that would waste a night or spend money without a limit."""
     for agent in agents:
         if isinstance(agent, HumanAgent):
             raise ValueError(f"seat {agent.name!r} is a human, and a results run has nobody at it")
     paid = [a for a in agents if isinstance(a, LLMAgent) and not is_local(a.model)]
-    if paid and experiment.budget_usd is None:
+    priced = [a for a in paid if is_priced(a.model)]
+    if priced and experiment.budget_usd is None:
         raise ValueError(
-            f"seat {paid[0].name!r} calls {paid[0].model}, which costs money: "
+            f"seat {priced[0].name!r} calls {priced[0].model}, which costs money: "
             "set budget_usd so the run has a limit"
         )
+    for agent in paid:
+        if not is_priced(agent.model):
+            log(
+                f"{agent.name} on {agent.model}: this table does not know that provider's prices, "
+                "so its cost reads $0 and budget_usd cannot limit it."
+            )
     check_seats_ready(agents)
 
 
@@ -263,7 +273,7 @@ def run_experiment(
         make_agents(experiment.seats, seed=experiment.table_seed(table), custom=custom)
         for table in range(experiment.tables)
     ]
-    _check_seats(experiment, tables[0])
+    _check_seats(experiment, tables[0], log)
 
     folder = Path(out) / experiment.name
     hands_file = folder / "hands.jsonl"
@@ -400,6 +410,7 @@ class Projection:
     spent_usd: float
     seconds: float
     budget_usd: float | None
+    priced: bool = True  # False when a seat's provider does not say what it charges
 
     @property
     def seconds_left(self) -> float:
@@ -424,6 +435,11 @@ class Projection:
         planned = self.hands_done + self.hands_left
         trial = f"{self.hands_done} of {planned} hands took {_duration(self.seconds)}"
         rest = f"The rest should take about {_duration(self.seconds_left)}"
+        if not self.priced:
+            return (
+                f"{trial}. {rest}. This table does not know what these models cost, "
+                "so check your provider's account."
+            )
         if self.spent_usd == 0:
             return f"{trial}, for free. {rest}, for free."
         lines = [
@@ -438,6 +454,17 @@ class Projection:
                 f"about {self.stops_after} hands."
             )
         return "\n".join(lines)
+
+
+def unpriced_models(folder: Path) -> list[str]:
+    """Models in a results folder that this table cannot put a price on."""
+    models = {
+        str(decision.meta["model"])
+        for history in read_jsonl(folder / "hands.jsonl")
+        for decision in history.decisions
+        if decision.meta.get("model")
+    }
+    return sorted(model for model in models if not is_priced(model))
 
 
 def failed_calls(folder: Path) -> int:
@@ -591,6 +618,17 @@ def render_report(
             f"| {row.adjusted_bb_per_100:+.0f} | {adjusted} | {row.net:+d} "
             f"| {row.model_calls} | {seconds} | {per_hand} | {row.illegal} | {row.failed} |"
         )
+    unpriced = [
+        row.name
+        for row in rows
+        if " on " in row.plays_as and not is_priced(row.plays_as.rsplit(" on ", 1)[1])
+    ]
+    if unpriced:
+        lines += [
+            "",
+            f"Cost reads $0 for {', '.join(unpriced)}, because this table does not know that "
+            "provider's prices. Check your provider's account.",
+        ]
     lines += [
         "",
         all_in_note(histories),

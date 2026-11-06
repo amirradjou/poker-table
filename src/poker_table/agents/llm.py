@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 from poker_table.agents.base import Decision, SeatView
+from poker_table.agents.compat import CompatClient, is_compat
 from poker_table.agents.ollama import OllamaClient, is_local
 from poker_table.agents.personalities import Personality, check_aids, get_personality
 from poker_table.agents.reads import Reads
@@ -122,6 +123,8 @@ class Usage:
 def estimate_cost(model: str, usage: Any) -> float:
     if is_local(model):
         return 0.0  # a model on this machine costs electricity, not dollars
+    if is_compat(model):
+        return float(getattr(usage, "cost_usd", 0.0) or 0.0)  # only what the provider reports
     priced = model if model in PRICES else DEFAULT_MODEL  # a model newer than this table
     price_in, price_out = PRICES[priced]
     uncached = getattr(usage, "input_tokens", 0) or 0
@@ -136,6 +139,23 @@ def estimate_cost(model: str, usage: Any) -> float:
     ) / 1_000_000
 
 
+_OTHER_PROVIDERS = (
+    " Another provider's model needs its prefix: openai/, groq/, openrouter/, gemini/ or compat/."
+)
+
+
+def client_for(model: str) -> Any:
+    """Who answers a seat playing ``model``. The SDK is imported late, so that a session of scripted
+    bots or local models never needs it."""
+    if is_local(model):
+        return OllamaClient()
+    if is_compat(model):
+        return CompatClient(model)
+    import anthropic
+
+    return anthropic.Anthropic()
+
+
 def explain_model_error(exc: Exception, model: str) -> str:
     """What went wrong with a model call, in words someone can act on.
 
@@ -146,6 +166,8 @@ def explain_model_error(exc: Exception, model: str) -> str:
     if isinstance(exc, ValueError):  # our own message, already written for a person
         return str(exc)
     if isinstance(exc, TypeError) and "authentication" in str(exc):
+        if not model.startswith("claude"):
+            return f"{model} went to Anthropic, which needs a key.{_OTHER_PROVIDERS}"
         return (
             f"{model} runs on your own Anthropic API key, and none is set. Set ANTHROPIC_API_KEY, "
             f"or run it free on a local model: `ollama pull {FREE_MODEL}`, then use "
@@ -156,7 +178,8 @@ def explain_model_error(exc: Exception, model: str) -> str:
     if isinstance(exc, anthropic.PermissionDeniedError):
         return f"this API key is not allowed to use {model}"
     if isinstance(exc, anthropic.NotFoundError):
-        return f"Anthropic has no model named {model}, or this API key cannot see it"
+        other = "" if model.startswith("claude") else _OTHER_PROVIDERS
+        return f"Anthropic has no model named {model}, or this API key cannot see it.{other}"
     if isinstance(exc, anthropic.APIConnectionError):
         return f"cannot reach the Anthropic API for {model}: {exc}"
     return f"{model}: {type(exc).__name__}: {exc}"
@@ -209,12 +232,7 @@ class LLMAgent:
     @property
     def client(self) -> MessagesClient:
         if self._client is None:
-            if is_local(self.model):
-                self._client = OllamaClient()
-            else:
-                import anthropic  # imported lazily so scripted-only sessions never need a key
-
-                self._client = anthropic.Anthropic()
+            self._client = client_for(self.model)
         return self._client
 
     @property

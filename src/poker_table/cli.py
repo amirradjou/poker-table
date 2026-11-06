@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import random
 import socket
 import sys
@@ -13,6 +14,7 @@ from typing import Any
 
 from poker_table import __version__
 from poker_table.agents.base import Agent
+from poker_table.agents.compat import PROVIDERS, is_priced
 from poker_table.agents.human import HumanAgent
 from poker_table.agents.llm import LLMAgent
 from poker_table.agents.ollama import is_local
@@ -73,7 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--budget",
         type=float,
         metavar="USD",
-        help="stop dealing once the LLM seats have spent this many dollars",
+        help="stop dealing at this spend (sees Claude and OpenRouter costs only)",
     )
     play.add_argument(
         "--tournament",
@@ -259,7 +261,12 @@ def build_parser() -> argparse.ArgumentParser:
     watch.add_argument("-n", "--hands", type=int, default=100_000, help="hands to deal")
     watch.add_argument("--seed", type=int, help="deal these decks again (default: new ones)")
     watch.add_argument("--pace", type=float, default=0.8, help="seconds per decision (0.8)")
-    watch.add_argument("--budget", type=float, metavar="USD", help="limit for any paid seats")
+    watch.add_argument(
+        "--budget",
+        type=float,
+        metavar="USD",
+        help="stop at this spend (sees Claude and OpenRouter costs only)",
+    )
     watch.add_argument("--port", type=int, help="the port (default: the first free from 8765)")
     watch.add_argument("--no-open", action="store_true", help="do not open the browser")
 
@@ -306,7 +313,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--budget",
         type=float,
         metavar="USD",
-        help="with --live, stop dealing once the LLM seats have spent this many dollars",
+        help="with --live, stop at this spend (sees Claude and OpenRouter costs only)",
     )
     serve.add_argument(
         "--pace",
@@ -365,6 +372,10 @@ def cmd_agents(args: argparse.Namespace, out) -> int:
         "put another model on an LLM seat with @, e.g. llm:rock@ollama/qwen2.5:7b",
         file=out,
     )
+    print("\nOther providers, on your own key (llm:nerd@groq/<model>):", file=out)
+    for prefix, provider in PROVIDERS.items():
+        ready = "set" if os.environ.get(provider.key_env) else "not set"
+        print(f"  {prefix + '/':<{width}}{provider.name}: {provider.key_env} {ready}", file=out)
     if args.ollama:
         client = OllamaClient(timeout=3.0)
         try:
@@ -491,11 +502,19 @@ def hand_writer(args: argparse.Namespace, out, *, every_hand: bool):
 
 def note_spending(agents: Sequence[Agent], budget: float | None) -> None:
     """A paid seat spends the key of whoever started the table, so say so if nothing limits it."""
-    paid = [a.name for a in agents if isinstance(a, LLMAgent) and not is_local(a.model)]
-    if paid and budget is None:
+    paid = [a for a in agents if isinstance(a, LLMAgent) and not is_local(a.model)]
+    priced = [a.name for a in paid if is_priced(a.model)]
+    unpriced = [a.name for a in paid if not is_priced(a.model)]
+    if priced and budget is None:
         print(
-            f"{', '.join(paid)} will bill your Anthropic key with no limit: "
+            f"{', '.join(priced)} will bill your key with no limit: "
             "--budget USD stops the table at that spend",
+            file=sys.stderr,
+        )
+    if unpriced:
+        print(
+            f"{', '.join(unpriced)}: this table does not know that provider's prices, so its cost "
+            "reads $0 and --budget cannot limit it. Use the limit in your provider's account.",
             file=sys.stderr,
         )
 
@@ -619,7 +638,8 @@ def llm_seat_note(agent: LLMAgent) -> str:
     if agent.notes:
         parts.append(f"{len(agent.notes)} notes in its notebook")
     aids = ", ".join(sorted(agent.aids)) or "none"
-    return f"{agent.name}: " + ", ".join(parts) + f", ${u.cost_usd:.4f}; aids: {aids}"
+    cost = f"${u.cost_usd:.4f}" if is_priced(agent.model) else "cost not known here"
+    return f"{agent.name}: " + ", ".join(parts) + f", {cost}; aids: {aids}"
 
 
 def parse_opponents(text: str):
@@ -679,11 +699,19 @@ def cmd_odds(args: argparse.Namespace, out) -> int:
 def trial_says_go_on(args: argparse.Namespace, outcome: Any, planned: int, out) -> bool:
     """Show what a trial found, and ask. With nobody at a terminal the answer is no, because a
     script must not spend someone's money by default, and the command to carry on is printed."""
-    from poker_table.experiments import Projection, failed_calls, load_experiment
+    from poker_table.experiments import (
+        Projection,
+        failed_calls,
+        load_experiment,
+        unpriced_models,
+    )
 
     budget = load_experiment(args.file).budget_usd
     done = outcome.hands
-    projection = Projection(done, planned - done, outcome.spent_usd, outcome.seconds, budget)
+    priced = not unpriced_models(outcome.folder)
+    projection = Projection(
+        done, planned - done, outcome.spent_usd, outcome.seconds, budget, priced
+    )
     print(projection.describe(), file=out)
     failed = failed_calls(outcome.folder)
     if failed:

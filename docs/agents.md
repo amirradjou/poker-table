@@ -159,6 +159,11 @@ files you trust.
 
 ## Your key
 
+> **Disclaimer: you are responsible for what your key spends.** Costs shown here are estimates, and
+> budgets are a convenience, not a guarantee. They only see Claude and OpenRouter. On any other
+> provider the cost reads $0 and a budget does nothing, so set a spending limit in your provider's
+> account before you start. The software comes with no warranty ([MIT](../LICENSE)).
+
 This project has no shared key. A Claude seat runs on the key of whoever starts the table, read by
 the Anthropic SDK from `ANTHROPIC_API_KEY`, so the bill is yours and so is the limit. The key is
 never written to a hand file.
@@ -181,6 +186,39 @@ a stand-in for the API that checks them against its published rules
 ([tests/test_anthropic_wire.py](../tests/test_anthropic_wire.py)), so your first run is also the
 first live one. Start with [`experiment run FILE --trial 5`](experiments.md#try-before-you-pay) and a
 small budget.
+
+## Other providers
+
+A seat runs on any OpenAI-compatible API, on your own key. Put the provider in front of its model
+name, exactly as the provider spells it:
+
+| seat | key it reads | can a budget limit it? |
+|---|---|---|
+| `llm:nerd@openai/<model>` | `OPENAI_API_KEY` | no |
+| `llm:nerd@groq/<model>` | `GROQ_API_KEY` | no |
+| `llm:nerd@openrouter/<model>` | `OPENROUTER_API_KEY` | yes |
+| `llm:nerd@gemini/<model>` | `GEMINI_API_KEY` | no |
+| `llm:nerd@compat/<model>` | `POKER_TABLE_API_KEY`, if your server wants one | no |
+
+`compat/` is for a server of your own, such as LM Studio or vLLM. It reads the address from
+`POKER_TABLE_BASE_URL`, for example `http://localhost:1234/v1`, and a real `OPENAI_API_KEY` is never
+sent to it. `poker-table agents` shows which keys are set.
+
+```sh
+export GROQ_API_KEY=...
+uv run poker-table play -n 20 --seats llm:nerd@groq/<model>,llm:nerd2:nerd@openrouter/<model>:free,tag
+```
+
+**What a budget can see.** This table knows Claude's prices, and OpenRouter reports what each call
+cost. The others do not say, so their cost reads $0, `--budget` and `budget_usd` cannot limit them,
+and the table says so when it starts. Use the spending limit in your provider's account.
+
+**What has been tested.** The client has run against a real model through Ollama's OpenAI-compatible
+endpoint, and against a stand-in server for everything else. The provider addresses were checked to
+answer, but no call has been made to OpenAI, Groq, OpenRouter or Gemini themselves, because nobody
+here pays for model calls. Their free tiers can be slow, so a seat waits out rate limits. If a model
+ignores the requested JSON format, the seat steps down to plain JSON and then to asking in words,
+and any reply it cannot read counts in the `failed` column.
 
 ## Local models
 

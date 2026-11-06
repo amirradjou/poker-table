@@ -10,6 +10,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
 from poker_table.agents.base import Agent
+from poker_table.agents.compat import is_compat
 from poker_table.agents.human import HumanAgent
 from poker_table.agents.laya import DEFAULT_MODEL as LAYA_MODEL
 from poker_table.agents.laya import INSTALL_HINT, LayaAgent
@@ -107,7 +108,8 @@ def make_agent(
     # "llm:..." is the kind's own prefix, never a seat called llm
     named = len(parts) > 1 and parts[0].lower() != "llm" and _is_kind(parts[1], custom)
     name = parts[0] if named else ""
-    kind = ":".join(parts[1:] if named else parts).lower()
+    kind, at, model = ":".join(parts[1:] if named else parts).partition("@")
+    kind = kind.lower() + at + model  # a model's name is the provider's, so its case is kept
     if not kind:
         raise ValueError(f"empty agent kind in {spec!r}")
     if not named:
@@ -140,7 +142,7 @@ def check_seats_ready(agents: Sequence[Agent]) -> None:
         if not isinstance(agent, LLMAgent):
             continue
         try:
-            if is_local(agent.model):
+            if is_local(agent.model) or is_compat(agent.model):
                 agent.client.check(agent.model)
             else:
                 # Looking a model up is free, and fails on a missing key or a wrong name.
