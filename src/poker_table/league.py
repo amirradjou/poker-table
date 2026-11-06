@@ -51,6 +51,11 @@ class LeagueConfig:
     # Stop dealing once the seats' model calls have cost this many dollars (None: no cap).
     # Checked between hands, so the hand that crosses the line is finished, not cut short.
     budget_usd: float | None = None
+    # Start partway through: the first hands are skipped, but their decks are still drawn, so
+    # the rest are dealt exactly as they would have been. Needs top_up: stacks are not stored.
+    first_hand: int = 0
+    # Goes in front of each hand's number, to keep ids apart when several tables share a file.
+    hand_prefix: str = ""
 
 
 @dataclass(slots=True)
@@ -81,14 +86,18 @@ def run_league(
     on_view: Callable[[SeatView], None] | None = None,
     on_decision: Callable[[DecisionRecord, Hand], None] | None = None,
     keep_histories: bool = True,
+    stop: Callable[[], bool] | None = None,
 ) -> LeagueResult:
     """Play ``config.hands`` hands.
 
     ``on_hand`` is called after each finished hand (for streaming to disk); ``on_hand_start``,
     ``on_view`` and ``on_decision`` fire as a hand is dealt and played, for a live table.
+    ``stop`` is asked after each hand, and a yes ends the league there.
     """
     if len(agents) < 2:
         raise ValueError("a league needs at least two agents")
+    if config.first_hand and not config.top_up:
+        raise ValueError("a league can only start partway through when stacks are topped up")
     names = [a.name for a in agents]
     if len(set(names)) != len(names):
         raise ValueError("agent names must be unique")
@@ -97,6 +106,9 @@ def run_league(
     seeds = random.Random(config.seed)
     stacks = [config.buy_in] * len(agents)
     for n in range(config.hands):
+        deck_seed = seeds.randrange(2**63)
+        if n < config.first_hand:
+            continue
         if config.top_up:
             stacks = [config.buy_in] * len(agents)
         else:
@@ -111,8 +123,8 @@ def run_league(
             small_blind=config.small_blind,
             big_blind=config.big_blind,
             ante=config.ante,
-            seed=seeds.randrange(2**63),
-            hand_id=str(n + 1),
+            seed=deck_seed,
+            hand_id=f"{config.hand_prefix}{n + 1}",
         )
         if on_hand_start is not None:
             on_hand_start(hand)
@@ -128,9 +140,17 @@ def run_league(
             on_hand(history)
         result.hands = n + 1
         result.spent_usd = spent_usd(agents)
-        if result.over_budget:
+        if result.over_budget or (stop is not None and stop()):
             break
     return result
+
+
+def parse_blinds(text: str) -> tuple[int, int]:
+    """``"1/2"`` -> small blind, big blind."""
+    small, sep, big = text.partition("/")
+    if not sep:
+        raise ValueError("blinds must look like 1/2")
+    return int(small), int(big)
 
 
 # ----- tournaments -------------------------------------------------------------------------

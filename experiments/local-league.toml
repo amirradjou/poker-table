@@ -1,0 +1,14 @@
+# The same question on a small model on this machine: free, and needs no key.
+#   ollama pull qwen2.5:3b
+#   uv run poker-table experiment run experiments/local-league.toml -o docs/results
+name = "local-league"
+description = "Two LLM personalities on a small local model, against three scripted bots."
+seats = [
+    "llm:nerd@ollama/qwen2.5:3b",
+    "llm:maniac@ollama/qwen2.5:3b",
+    "tag",
+    "station",
+    "random",
+]
+hands = 100
+seed = 2026

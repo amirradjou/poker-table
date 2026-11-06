@@ -20,7 +20,10 @@ command line and inside the seats' own prompts. LLM seats now [read their oppone
 ranges from this hand's action, a HUD built from the hands they were shown, and a notebook
 they write to themselves. You can define your own seats in a TOML file (a persona, a tuned bot
 or a Python class), run any LLM seat on a local model through Ollama for free, and score seats
-with `poker-table eval` before paying for a league.
+with `poker-table eval` before paying for a league. A league can live in a file, as an
+[experiment](docs/experiments.md): one command plays it across parallel tables under a budget and
+writes a results folder with error bars on every number. The
+[first league](docs/experiments.md#the-first-league) is published, and nobody in it clears break-even.
 
 ![Watch mode: six bots playing a hand live at a lamp-lit table, with nameplates, chip stacks,
 each seat's chance of winning updating at every fold and new card, a thinking indicator and table
@@ -88,6 +91,9 @@ uv run poker-table agents --example > agents.toml
 uv run poker-table play --agents agents.toml --seats shark,nit,tag,station
 # score seats on the same graded decisions before paying for a league
 uv run poker-table eval --seats llm:nerd@ollama/qwen2.5:7b,tag -n 40
+
+# a league in a file: parallel tables, a budget, a results folder, and it can resume
+uv run poker-table experiment run experiments/local-league.toml
 ```
 
 Seat kinds: `random`, `station`, `tag`, `rock`, `maniac`, `laya`, `human`, `llm:maniac`,
@@ -165,8 +171,8 @@ against the seat.
 
 *Status: chart/equity facts (opponents' ranges narrowed by their postflop actions), leak
 report with cited hands, Claude narration constrained to those facts, drills with spaced
-repetition, a weekly trend, a Coach tab in the viewer, and PokerStars/GGPoker text importers
-are built. A postflop solver is not.*
+repetition, a weekly trend, a Coach tab in the viewer, and PokerStars, GGPoker and 888poker text
+importers are built. A postflop solver is not.*
 
 The chess-coach idea applied to poker. Once the table exists, point the same machinery at
 *your* hands — from poker-table itself or from hand-history exports of real sites — and

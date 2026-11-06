@@ -25,14 +25,19 @@ DEFAULT_MODEL = "claude-opus-5"
 PRICES: dict[str, tuple[float, float]] = {
     "claude-fable-5-1": (10.0, 50.0),
     "claude-fable-5": (10.0, 50.0),
+    "claude-opus-5-5": (4.0, 20.0),
     "claude-opus-5": (5.0, 25.0),
     "claude-opus-4-8": (5.0, 25.0),
     "claude-opus-4-7": (5.0, 25.0),
     "claude-opus-4-6": (5.0, 25.0),
+    "claude-sonnet-5-5": (2.0, 10.0),
     "claude-sonnet-5": (2.0, 10.0),
     "claude-sonnet-4-6": (3.0, 15.0),
+    "claude-haiku-5-5": (0.10, 0.50),
     "claude-haiku-4-5": (1.0, 5.0),
 }
+# A cache read is a tenth of the input price, except on these ($ per million tokens).
+CACHE_READS: dict[str, float] = {"claude-fable-5-1": 0.25, "claude-opus-5-5": 0.20}
 
 RULES = """\
 You are playing no-limit Texas hold'em for play money against other bots and, sometimes, humans.
@@ -98,6 +103,7 @@ class MessagesClient(Protocol):
     """The slice of ``anthropic.Anthropic`` we use, so tests can pass a fake."""
 
     messages: Any
+    models: Any
 
 
 @dataclass(slots=True)
@@ -122,7 +128,7 @@ def estimate_cost(model: str, usage: Any) -> float:
     output = getattr(usage, "output_tokens", 0) or 0
     return (
         uncached * price_in
-        + cache_read * price_in * 0.1
+        + cache_read * CACHE_READS.get(model, price_in * 0.1)
         + cache_write * price_in * 1.25
         + output * price_out
     ) / 1_000_000
@@ -313,4 +319,6 @@ class LLMAgent:
 
     def _fallback(self, view: SeatView, why: str, meta: dict[str, Any] | None = None) -> Decision:
         action = Action.check() if view.legal.can_check else Action.fold()
-        return Decision(action, reasoning=why, meta=meta or {"model": self.model})
+        return Decision(
+            action, reasoning=why, meta={"model": self.model, **(meta or {}), "failed": True}
+        )
