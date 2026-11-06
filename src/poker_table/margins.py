@@ -19,6 +19,9 @@ from poker_table.odds import table_equities
 
 _BOARD_AT = {"preflop": 0, "flop": 3, "turn": 4, "river": 5}
 _ALL_IN_SAMPLES = 1000  # run-outs per hand: enough once they are added up over a run
+# Below this a 95% interval is far too narrow. With no edge at all, a seat clears zero 30% of the
+# time on 2 hands, 12% on 5 and 8% on 10, and only settles near 5% from about 30.
+MIN_HANDS_TO_CALL = 30
 
 CAVEAT = (
     "The interval treats hands as independent and looks at one seat at a time, so with many "
@@ -83,7 +86,9 @@ class SeatMargin:
     @property
     def clear_of_zero(self) -> bool:
         margin = self.adjusted_margin
-        return margin is not None and abs(self.adjusted_bb_per_100) > margin
+        if margin is None or self.hands < MIN_HANDS_TO_CALL:
+            return False
+        return abs(self.adjusted_bb_per_100) > margin
 
 
 def seat_margins(
@@ -115,6 +120,8 @@ def seat_margins(
 
 def calls(margins: Sequence[SeatMargin]) -> list[str]:
     """The verdict in words: who clears break-even, and who is too close to call."""
+    if margins and all(m.hands < MIN_HANDS_TO_CALL for m in margins):
+        return [f"Too few hands to call anyone: that takes at least {MIN_HANDS_TO_CALL}."]
     clear = [m.name for m in margins if m.clear_of_zero]
     unclear = [m.name for m in margins if not m.clear_of_zero]
     lines = []

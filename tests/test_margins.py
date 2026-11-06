@@ -12,7 +12,7 @@ from poker_table.cli import main
 from poker_table.coach.importers import import_text
 from poker_table.experiments import load_experiment, render_report, seat_results
 from poker_table.history import read_jsonl, write_jsonl
-from poker_table.margins import all_in_adjusted, all_in_early, seat_margins
+from poker_table.margins import SeatMargin, all_in_adjusted, all_in_early, calls, seat_margins
 from poker_table.web.app import HandStore, create_app, margins_payload
 from poker_table.web.export import export_site
 
@@ -131,6 +131,26 @@ def test_play_shows_the_error_bars_after_the_table(capsys) -> None:
     printed = capsys.readouterr().out
     assert printed.index("bb/100  vpip") < printed.index("All-in adjusted bb/100")
     assert "±" in printed and ("Too close" in printed or "Clear of" in printed)
+
+
+def test_a_handful_of_hands_never_gets_a_verdict(capsys) -> None:
+    # Seed 5 has the maniac far ahead after a few hands, on a margin that means nothing.
+    assert main(["play", "-n", "4", "--seats", "maniac,station,tag", "--seed", "5"]) == 0
+    printed = capsys.readouterr().out
+    assert "Too few hands to call anyone: that takes at least 30." in printed
+    assert "Clear of break-even" not in printed and "Too close" not in printed
+
+
+def test_a_seat_with_a_real_lead_is_only_called_once_there_are_enough_hands() -> None:
+    few = SeatMargin("a", 29, 500.0, 10.0, 500.0, 10.0)
+    enough = SeatMargin("a", 30, 500.0, 10.0, 500.0, 10.0)
+    assert not few.clear_of_zero and enough.clear_of_zero
+    assert calls([enough]) == ["Clear of break-even: a."]
+    # Seats short of hands in a file with others that have plenty are just too close to call.
+    assert calls([enough, few]) == [
+        "Clear of break-even: a.",
+        "Too close to break-even to call: a.",
+    ]
 
 
 def test_quiet_play_stays_quiet(capsys) -> None:
