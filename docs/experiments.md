@@ -146,14 +146,15 @@ strong AA" was written about 9♠ 8♦.
 **The other columns.** All 40 of maniac's illegal moves were one mistake: asking to raise when an
 all-in already covered its stack and only fold and call were legal. The table folds those. That did
 not decide its place: holding everyone else's choices fixed, calling all 40 instead would have cost
-it about 80 chips, by a rough estimate. Under "How they played", `ms` averages every decision,
+it about 110 chips, by a rough estimate. Under "How they played", `ms` averages every decision,
 including nerd's 29 automatic folds of junk hands that never reach the model, so it reads lower than
 `s/call`.
 
 So the run shows the runner working against a real model, and how few 100 hands are. Bringing an
 interval of ±800 down to ±200 takes 16 times the hands, about 29 hours on this model. To watch the
-hands:
+hands, or to check the figures above against them:
 
 ```bash
 uv run poker-table serve docs/results/local-league/hands.jsonl --open
+uv run python scripts/check_league.py docs/results/local-league/hands.jsonl
 ```
