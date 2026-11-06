@@ -56,18 +56,24 @@ class Commentator:
 
         ``before`` and ``after`` are everyone's share of the pot either side of the step.
         """
-        text = None
+        said = None
         if step["kind"] == "action":
-            text = self._action(step, before)
+            said = self._action(step, before)
         elif step["kind"] == "street":
-            text = self._cards(step, before, after)
-        return {"step": position, "text": text} if text else None
+            said = self._cards(step, before, after)
+        if said is None:
+            return None
+        kind, text = said
+        line = {"step": position, "kind": kind, "text": text}
+        if kind == "long_shot":  # how long a shot, so that the rarest can rank first
+            line["share"] = before[max(after, key=lambda seat: after[seat])]
+        return line
 
     def _hole(self, seat: int) -> str:
         high_first = sorted(self.holes[seat], key=lambda c: c.rank, reverse=True)
         return " ".join(_card(c) for c in high_first)
 
-    def _action(self, step: dict[str, Any], before: dict[str, float]) -> str | None:
+    def _action(self, step: dict[str, Any], before: dict[str, float]) -> tuple[str, str] | None:
         seat = step["seat"]
         share = before.get(str(seat))
         if share is None or len(before) < 2:
@@ -81,9 +87,9 @@ class Commentator:
             return None
         chance = self._chance(share, len(before) - 1)
         if verb in ("bet", "raise"):
-            return f"{name} moves all in with {self._hole(seat)}, {chance}."
+            return "shove", f"{name} moves all in with {self._hole(seat)}, {chance}."
         if verb == "call":
-            return f"{name} calls all in with {self._hole(seat)}, {chance}."
+            return "all_in_call", f"{name} calls all in with {self._hole(seat)}, {chance}."
         return None
 
     def _chance(self, share: float, others: int) -> str:
@@ -93,18 +99,19 @@ class Commentator:
             return f"{_percent(share)} to win"
         return f"{_percent(share)} against the other {NUMBERS.get(others, others)}"
 
-    def _fold(self, seat: int, share: float, before: dict[str, float]) -> str | None:
+    def _fold(self, seat: int, share: float, before: dict[str, float]) -> tuple[str, str] | None:
         if share < FOLD_WORTH_A_LINE or share < max(before.values()):
             return None
         text = f"{self.names[seat]} folds the best hand: {self._hole(seat)} was {_percent(share)}"
         rest = [int(s) for s in before if int(s) != seat]
         if len(rest) == 1:
-            return f"{text}, and {self.names[rest[0]]} takes it with {self._hole(rest[0])}."
-        return f"{text}."
+            winner = f"{self.names[rest[0]]} takes it with {self._hole(rest[0])}"
+            return "folded_best", f"{text}, and {winner}."
+        return "folded_best", f"{text}."
 
     def _cards(
         self, step: dict[str, Any], before: dict[str, float], after: dict[str, float]
-    ) -> str | None:
+    ) -> tuple[str, str] | None:
         cards = " ".join(_card(c) for c in step["cards"])
         verb = "s" if len(step["cards"]) == 1 else ""  # the turn turns it; the flop's cards turn it
         river = step["street"] == "river"
@@ -117,14 +124,16 @@ class Commentator:
                 was = _percent(before[leaders[0]])
                 if river and before[leaders[0]] <= LONG_SHOT:
                     shot = f"{_article(was)} {was} shot"
-                    return f"{shot} comes in: the {cards} gives {self.names[seat]} the pot."
+                    pot = f"the {cards} gives {self.names[seat]} the pot"
+                    return "long_shot", f"{shot} comes in: {pot}."
                 if river:
-                    return f"The {cards} on the river gives {self.names[seat]} the pot, from {was}."
+                    pot = f"gives {self.names[seat]} the pot, from {was}"
+                    return "comeback", f"The {cards} on the river {pot}."
                 move = f"{self.names[seat]} goes from {was} to {_percent(top)}"
-                return f"The {cards} turn{verb} it around: {move}."
+                return "turnaround", f"The {cards} turn{verb} it around: {move}."
         if river:
             return None
         dead = [s for s, v in after.items() if v == 0 and before[s] >= 0.2]
         if len(dead) == 1:
-            return f"The {cards} leave{verb} {self.names[int(dead[0])]} drawing dead."
+            return "dead", f"The {cards} leave{verb} {self.names[int(dead[0])]} drawing dead."
         return None

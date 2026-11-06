@@ -119,6 +119,10 @@ def test_a_long_shot_on_the_river_is_called() -> None:
     # Two jacks left in the deck, with one card to come.
     history = dealt("Jh Qh Jd Qd 2c 3c 7d 4h Js", Script("queens"), Script("jacks"))
     assert lines_of(history)[-1] == "A 5% shot comes in: the J♠ gives jacks the pot."
+    broadcast = _broadcast(history)
+    assert broadcast is not None
+    assert broadcast.lines[-1]["kind"] == "long_shot"
+    assert broadcast.lines[-1]["share"] == pytest.approx(2 / 44, abs=0.001)
 
 
 @pytest.mark.parametrize(
@@ -147,7 +151,11 @@ def test_drawing_dead_is_said_rather_than_zero_percent() -> None:
     )
     step = {"kind": "action", "seat": 0, "action": "call", "all_in": True}
     line = commentator.take(3, step, {"0": 0.0, "1": 1.0}, {"0": 0.0, "1": 1.0})
-    assert line == {"step": 3, "text": "a calls all in with A♥ K♥, drawing dead."}
+    assert line == {
+        "step": 3,
+        "kind": "all_in_call",
+        "text": "a calls all in with A♥ K♥, drawing dead.",
+    }
 
 
 def test_a_tens_card_reads_as_the_table_draws_it() -> None:

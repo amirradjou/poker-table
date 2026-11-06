@@ -98,6 +98,7 @@ function staticFile(path) {
   if (route === "/api/bankroll") return "data/bankroll.json";
   if (route === "/api/stats") return "data/stats.json";
   if (route === "/api/margins") return "data/margins.json";
+  if (route === "/api/highlights") return "data/highlights.json";
   if (route === "/api/hands") return "data/hands.json";
   if (route.startsWith("/api/hands/")) return `data/hands/${fileId(decodeURIComponent(route.slice(11)))}.json`;
   if (route === "/api/coach") return `data/coach/${fileId(params.get("player"))}.json`;
@@ -133,10 +134,12 @@ async function api(path) {
 async function loadSession() {
   const s = await api("/api/session");
   $("file").textContent = s.hands ? `${s.hands} hand${s.hands === 1 ? "" : "s"} from ${s.file}` : `${s.file} is empty`;
+  setUpFilters(s);
   return s;
 }
 
 async function loadList(reset) {
+  if (filtering()) return [];  // new hands wait until the filter is cleared
   if (reset) { listOffset = 0; $("hand-list").innerHTML = ""; }
   const data = await api(`/api/hands?offset=${listOffset}&limit=100`);
   listTotal = data.total;
@@ -263,8 +266,8 @@ function renderOdds() {
   el.innerHTML = html;
 }
 
-async function openHand(id, { autoplay = false, at = "start" } = {}) {
-  stopAuto();
+async function openHand(id, { autoplay = false, at = "start", inReel = false } = {}) {
+  if (inReel) clearAuto(); else stopAuto();
   hand = await api(`/api/hands/${id}`);
   hand.streaming = false;
   step = at === "end" ? hand.steps.length : 0;
@@ -290,7 +293,8 @@ function handRowHtml(h) {
   const won = h.players.filter(p => p.net > 0).map(p => `${esc(p.name)} <span class="won">+${p.net}</span>`).join(", ");
   return `<span class="id">#${esc(h.hand_id)}</span><span class="who">${won || "no winner"}</span>` +
     `<span class="pot" title="pot">${h.pot}</span>` +
-    `<span class="mini">${miniBoard(h.board)}</span>`;
+    `<span class="mini">${miniBoard(h.board)}</span>` +
+    (h.line ? `<span class="line">${esc(h.line)}</span>` : "");
 }
 // The board as a line of text: rank and suit, red suits in red.
 function miniBoard(board) {
@@ -703,14 +707,23 @@ function startAuto() {
   if (step >= hand.steps.length) step = 0;
   $("auto").setAttribute("aria-pressed", "true");
   autoTimer = setInterval(() => {
-    if (step >= hand.steps.length) { stopAuto(); return; }
-    go(step + 1);
+    if (step < hand.steps.length) { go(step + 1); return; }
+    clearAuto();
+    if (reel) { reel.at += 1; reel.wait = setTimeout(playReelHand, 2500); }  // a beat on the result
   }, 650);
 }
-function stopAuto() {
+function clearAuto() {
   if (autoTimer) clearInterval(autoTimer);
   autoTimer = null;
   $("auto").setAttribute("aria-pressed", "false");
+}
+// Any touch of the controls ends the reel too: whoever does that wants to look at this hand.
+function stopAuto() {
+  clearAuto();
+  if (reel) clearTimeout(reel.wait);
+  reel = null;
+  const button = $("watch-reel");
+  if (button) button.textContent = "Watch these";
 }
 
 // ---- live sessions ----
@@ -1019,12 +1032,14 @@ async function showCoach() {
 
 // The Hands list narrowed to a few hands (a leak's examples); "All hands" brings the list back.
 async function showHandSubset(ids, label) {
+  filterRun += 1;  // a coach's list of hands replaces whatever filter was showing
+  $("filter").value = ""; $("winner").value = "";
   const data = await api(`/api/hands?ids=${encodeURIComponent(ids.join(","))}`);
   const list = $("hand-list"); list.innerHTML = "";
   const head = document.createElement("li"); head.className = "subset";
   head.innerHTML = `<span>${esc(label)}</span>`;
   const back = document.createElement("button"); back.textContent = "All hands";
-  back.onclick = () => loadList(true);
+  back.onclick = clearFilters;
   head.appendChild(back);
   list.appendChild(head);
   for (const h of data.hands) {
@@ -1038,6 +1053,120 @@ async function showHandSubset(ids, label) {
   }
   $("more").classList.add("hidden");
   setTab("hands");
+}
+
+// ---- filters and the highlight reel ----
+const SHOWN_AT_MOST = 200;
+const TOP_HANDS = 30;  // "best" and "biggest" are short lists, whatever the size of the file
+let filterRun = 0;  // a newer choice abandons a scan still in progress
+let reel = null;
+
+function filtering() { return !!($("filter").value || $("winner").value); }
+
+function setUpFilters(session) {
+  const winner = $("winner");
+  const known = new Set([...winner.options].map(o => o.value));
+  for (const name of session.players || []) {
+    if (known.has(name)) continue;
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = `${name} won`;
+    winner.appendChild(option);
+  }
+  // An export made without the odds has no commentary to tag its hands from.
+  if (!session.highlights) for (const o of $("filter").querySelectorAll("option[data-story]")) o.remove();
+}
+
+function pickHands(rows, kind, winner) {
+  let out = winner ? rows.filter(h => h.winners.includes(winner)) : rows;
+  const has = (...kinds) => h => kinds.some(k => h.kinds.includes(k));
+  if (kind === "all_in") out = out.filter(h => h.all_in);
+  if (kind === "long_shot") out = out.filter(has("long_shot")).sort((a, b) => b.score - a.score);
+  if (kind === "turnaround") out = out.filter(has("turnaround", "comeback"));
+  if (kind === "folded_best") out = out.filter(has("folded_best"));
+  if (kind === "big_pot") out = [...out].sort((a, b) => b.pot - a.pot).slice(0, TOP_HANDS);
+  if (kind === "best") out = out.filter(h => h.score >= 3).sort((a, b) => b.score - a.score || b.pot - a.pot).slice(0, TOP_HANDS);
+  return out;
+}
+
+function renderFiltered(rows, scanning) {
+  const list = $("hand-list"); list.innerHTML = "";
+  const head = document.createElement("li"); head.className = "subset";
+  const shown = rows.slice(0, SHOWN_AT_MOST);
+  const count = rows.length > shown.length ? `The first ${shown.length} of ${rows.length} hands` : `${rows.length} hand${rows.length === 1 ? "" : "s"}`;
+  head.innerHTML = `<span class="count">${count}${scanning ? `<span class="scanning">looked through ${scanning.seen} of ${scanning.total}</span>` : ""}</span>`;
+  if (shown.length) {
+    const watch = document.createElement("button"); watch.id = "watch-reel";
+    watch.textContent = reel ? "Stop" : "Watch these";
+    watch.onclick = () => (reel ? stopAuto() : startReel(shown.map(h => h.hand_id)));
+    head.appendChild(watch);
+  }
+  const back = document.createElement("button"); back.textContent = "All hands";
+  back.onclick = clearFilters;
+  head.appendChild(back);
+  list.appendChild(head);
+  for (const h of shown) {
+    const li = document.createElement("li");
+    const b = document.createElement("button");
+    b.dataset.id = h.hand_id;
+    b.setAttribute("aria-current", hand && hand.hand_id === h.hand_id ? "true" : "false");
+    b.innerHTML = handRowHtml(h);
+    b.addEventListener("click", () => openHand(h.hand_id));
+    li.appendChild(b);
+    list.appendChild(li);
+  }
+  $("more").classList.add("hidden");
+}
+
+function clearFilters() {
+  $("filter").value = ""; $("winner").value = "";
+  applyFilter();
+}
+
+async function applyFilter() {
+  const run = ++filterRun;
+  stopAuto();
+  const kind = $("filter").value, winner = $("winner").value;
+  if (!kind && !winner) { await loadList(true); return; }
+  const option = $("filter").selectedOptions[0];
+  if (!option || !("story" in option.dataset)) {
+    const data = await api("/api/hands?offset=0&limit=100000");
+    if (run === filterRun) renderFiltered(pickHands(data.hands, kind, winner));
+    return;
+  }
+  // Tagging a hand is slow, so the hands arrive in small pages and the list fills in as they do.
+  renderFiltered([], { seen: 0, total: listTotal });
+  const rows = [];
+  let offset = 0;
+  while (offset !== null) {
+    const page = await api(`/api/highlights?offset=${offset}&limit=10`);
+    if (run !== filterRun) return;
+    rows.push(...page.hands);
+    offset = page.next;
+    renderFiltered(pickHands(rows, kind, winner), offset === null ? null : { seen: rows.length, total: page.total });
+  }
+}
+$("filter").onchange = applyFilter;
+$("winner").onchange = applyFilter;
+
+function startReel(ids) {
+  follow = false;
+  $("follow").setAttribute("aria-pressed", "false");
+  reel = { ids, at: 0, wait: null };
+  playReelHand();
+}
+
+async function playReelHand() {
+  const current = reel;
+  if (!current) return;
+  if (current.at >= current.ids.length) { stopAuto(); return; }
+  await openHand(current.ids[current.at], { inReel: true });
+  if (reel !== current) return;  // stopped while the hand was loading
+  const row = $("hand-list").querySelector(`button[data-id="${CSS.escape(hand.hand_id)}"]`);
+  if (row) row.scrollIntoView({ block: "nearest" });
+  const button = $("watch-reel");
+  if (button) button.textContent = "Stop";
+  startAuto();
 }
 
 function renderCoach(r) {
@@ -1118,12 +1247,12 @@ $("tab-coach").onclick = () => setTab("coach");
 $("tab-drill").onclick = () => setTab("drill");
 $("more").onclick = () => loadList(false);
 document.addEventListener("keydown", (e) => {
-  if (e.target.tagName === "INPUT") return;
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
   if (e.key === " ") { e.preventDefault(); $("auto").click(); }
-  else if (e.key === "ArrowRight") go(step + 1);
-  else if (e.key === "ArrowLeft") go(step - 1);
-  else if (e.key === "Home") go(0);
-  else if (e.key === "End") go(Infinity);
+  else if (e.key === "ArrowRight") { stopAuto(); go(step + 1); }
+  else if (e.key === "ArrowLeft") { stopAuto(); go(step - 1); }
+  else if (e.key === "Home") { stopAuto(); go(0); }
+  else if (e.key === "End") { stopAuto(); go(Infinity); }
 });
 
 if (STATIC) $("tab-drill").classList.add("hidden");  // drills record answers; a file cannot

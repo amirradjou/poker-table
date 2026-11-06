@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -19,10 +19,25 @@ from poker_table.engine import ActionType, EventKind
 from poker_table.history import HandHistory, filter_by_date, parse_action, read_jsonl, weeks_of
 from poker_table.margins import CAVEAT, all_in_adjusted, all_in_note, calls, seat_margins
 from poker_table.stats import compute_stats, leaderboard
+from poker_table.web.commentary import LONG_SHOT
 from poker_table.web.guard import TableGuard
 from poker_table.web.live import MAX_PACE, Broadcast, LiveSession, live_view_payload
 
 STATIC = Path(__file__).parent / "static"
+
+# How much of a story each kind of commentary line makes, for ranking hands.
+STORY = {
+    "long_shot": 5,
+    "folded_best": 3,
+    "turnaround": 3,
+    "comeback": 3,
+    "dead": 1,
+    "shove": 1,
+    "all_in_call": 1,
+}
+RARITY = 200  # a point per half a percent, so a long shot's odds outweigh the rest of the hand
+HIGHLIGHT_BATCH = 50  # the most hands one request works out, at about 150 ms a hand
+NEWEST_TO_SCAN = 2000  # beyond this a file would take minutes, for hands nobody is looking for
 
 
 class HandStore:
@@ -36,6 +51,7 @@ class HandStore:
         self._drills: dict[tuple[str, int], DrillSession] = {}
         self._odds: dict[str, dict[str, Any]] = {}
         self._worth: dict[tuple[str, int], dict[int, float] | None] = {}
+        self._highlights: dict[tuple[str, int], dict[str, Any]] = {}
         self.reload()
 
     def reload(self) -> int:
@@ -83,6 +99,15 @@ class HandStore:
             self._worth[key] = all_in_adjusted(history)
         return self._worth[key]
 
+    def highlight(self, history: HandHistory) -> dict[str, Any]:
+        """One hand as the filters see it, worked out once: it costs about 150 ms. Two runs
+        appended to one file can repeat a hand id, so the deck's seed is part of the key."""
+        key = (history.hand_id, history.seed)
+        if key not in self._highlights:
+            broadcast = _broadcast(history)
+            self._highlights[key] = highlight_of(history, broadcast.lines if broadcast else [])
+        return self._highlights[key]
+
     def step_of(self, fact: Fact) -> int:
         """Index of the fact's decision among the hand's viewer steps (state just before it)."""
         history = self.by_id.get(fact.hand_id)
@@ -113,6 +138,7 @@ def session_payload(store: HandStore) -> dict[str, Any]:
         "players": store.players(),
         "hero": heroes.pop() if len(heroes) == 1 else None,
         "weeks": weeks_of(store.hands),
+        "highlights": True,
     }
 
 
@@ -123,6 +149,33 @@ def hands_payload(store: HandStore, offset: int = 0, limit: int = 100, ids: str 
     newest_first = list(reversed(store.hands))
     page = newest_first[offset : offset + limit]
     return {"total": len(store.hands), "hands": [summarize(h) for h in page]}
+
+
+def highlight_of(history: HandHistory, lines: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """A hand's summary, and the story its commentary told: which kinds of moment it had, how
+    much of a story that makes, and the line that sums it up."""
+    kinds = sorted({line["kind"] for line in lines})
+    headline = max(lines, key=lambda line: STORY[line["kind"]], default=None)
+    # A 5% shot coming in beats a 20% one, whatever else happened in the hand.
+    rarity = sum(RARITY * (LONG_SHOT - line["share"]) for line in lines if "share" in line)
+    return summarize(history) | {
+        "kinds": kinds,
+        "score": round(sum(STORY[kind] for kind in kinds) + rarity, 2),
+        "line": headline["text"] if headline else "",
+    }
+
+
+def highlights_payload(store: HandStore, offset: int = 0, limit: int = 10) -> dict[str, Any]:
+    """A page of the newest hands, tagged. In pages because tagging is slow: the page asks for
+    one at a time, shows how far it has got and can stop. ``next`` is None at the end."""
+    newest = list(reversed(store.hands))[:NEWEST_TO_SCAN]
+    page = newest[offset : offset + max(1, min(limit, HIGHLIGHT_BATCH))]
+    after = offset + len(page)
+    return {
+        "total": len(newest),
+        "next": after if after < len(newest) else None,
+        "hands": [store.highlight(history) for history in page],
+    }
 
 
 def hand_payload(history: HandHistory) -> dict[str, Any]:
@@ -292,6 +345,7 @@ def summarize(history: HandHistory) -> dict[str, Any]:
         "pot": sum(p["amount"] for p in history.pots),
         "winners": winners,
         "showdown": bool(history.showdown),
+        "all_in": any(action.all_in for action in history.actions()),
         "players": [{"name": p.name, "net": p.net} for p in history.players],
     }
 
@@ -496,6 +550,12 @@ def create_app(
     @app.get("/api/bankroll")
     def bankroll() -> dict[str, Any]:
         return bankroll_payload(store)
+
+    @app.get("/api/highlights")
+    def highlights(offset: int = 0, limit: int = 10) -> dict[str, Any]:
+        if offset == 0:
+            store.reload()
+        return highlights_payload(store, offset, limit)
 
     @app.get("/api/stats")
     def stats() -> dict[str, Any]:
