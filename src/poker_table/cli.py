@@ -26,6 +26,7 @@ from poker_table.league import (
     run_league,
     run_tournament,
 )
+from poker_table.margins import calls, seat_margins
 from poker_table.stats import compute_stats, format_table
 
 DEFAULT_SEATS = "tag,rock,maniac,station,random"
@@ -527,6 +528,8 @@ def cmd_play(args: argparse.Namespace, out) -> int:
                 file=out,
             )
     print(format_table(result.stats), file=out)
+    if not args.quiet and result.histories:
+        print_margins(result.histories, out)
     for line in model_seat_notes(agents):
         print(line, file=out)
     if args.out is not None and not args.quiet:
@@ -697,10 +700,32 @@ def cmd_experiment(args: argparse.Namespace, out) -> int:
     return 130 if outcome.stopped == "interrupted" else 0
 
 
+def print_margins(histories: Sequence[HandHistory], out) -> None:
+    """Who can really be called a winner. This comes after the table and is flushed behind it, so
+    a long run's leaderboard never waits for it, and Ctrl-C only skips this part."""
+    print(flush=True, file=out)
+    try:
+        margins = sorted(
+            seat_margins(histories).values(), key=lambda m: m.adjusted_bb_per_100, reverse=True
+        )
+    except KeyboardInterrupt:
+        print("(error bars skipped)", file=out)
+        return
+    width = max(len(m.name) for m in margins)
+    print("All-in adjusted bb/100, with a 95% interval:", file=out)
+    for m in margins:
+        margin = f"±{m.adjusted_margin:.0f}" if m.adjusted_margin is not None else ""
+        print(f"  {m.name:<{width}}  {m.adjusted_bb_per_100:+7.0f}  {margin}", file=out)
+    for line in calls(margins):
+        print(line, file=out)
+
+
 def cmd_stats(args: argparse.Namespace, out) -> int:
     histories = list(read_jsonl(args.file))
     print(f"{len(histories)} hands from {args.file}", file=out)
     print(format_table(compute_stats(histories)), file=out)
+    if histories:
+        print_margins(histories, out)
     return 0
 
 

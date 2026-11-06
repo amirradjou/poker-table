@@ -65,6 +65,8 @@ as bb/100 with less noise, so the report uses it to name the seats that clear ze
 rest that they are too close to call. Tables where the chips go in early gain the most, as
 [the first league](#the-first-league) shows.
 
+The viewer's Leaderboard tab, `play` and `stats` show the same numbers from the same calculation.
+
 Poker stays noisy even so. Over 300 hands heads-up, a tight-aggressive bot beats a bot that plays
 at random by +152 bb/100 adjusted, and the 95% interval is ±173. That matchup is not close, and 300
 hands still cannot show it. The interval treats hands as independent and looks at one seat at a
