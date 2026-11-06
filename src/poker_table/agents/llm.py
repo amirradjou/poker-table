@@ -19,7 +19,8 @@ from poker_table.engine import Action, ActionType, Street
 if TYPE_CHECKING:
     from poker_table.history import HandHistory
 
-DEFAULT_MODEL = "claude-opus-5"
+DEFAULT_MODEL = "claude-opus-5-5"
+FREE_MODEL = "qwen2.5:3b"  # what to suggest to someone with no key: small, and runs on a CPU
 
 # USD per million tokens (input, output); cache reads cost 10%, cache writes 125% of input.
 PRICES: dict[str, tuple[float, float]] = {
@@ -121,17 +122,44 @@ class Usage:
 def estimate_cost(model: str, usage: Any) -> float:
     if is_local(model):
         return 0.0  # a model on this machine costs electricity, not dollars
-    price_in, price_out = PRICES.get(model, PRICES[DEFAULT_MODEL])
+    priced = model if model in PRICES else DEFAULT_MODEL  # a model newer than this table
+    price_in, price_out = PRICES[priced]
     uncached = getattr(usage, "input_tokens", 0) or 0
     cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
     cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
     output = getattr(usage, "output_tokens", 0) or 0
     return (
         uncached * price_in
-        + cache_read * CACHE_READS.get(model, price_in * 0.1)
+        + cache_read * CACHE_READS.get(priced, price_in * 0.1)
         + cache_write * price_in * 1.25
         + output * price_out
     ) / 1_000_000
+
+
+def explain_model_error(exc: Exception, model: str) -> str:
+    """What went wrong with a model call, in words someone can act on.
+
+    A paid model runs on the key of whoever started the table: this project has none of its own.
+    """
+    import anthropic
+
+    if isinstance(exc, ValueError):  # our own message, already written for a person
+        return str(exc)
+    if isinstance(exc, TypeError) and "authentication" in str(exc):
+        return (
+            f"{model} runs on your own Anthropic API key, and none is set. Set ANTHROPIC_API_KEY, "
+            f"or run it free on a local model: `ollama pull {FREE_MODEL}`, then use "
+            f"ollama/{FREE_MODEL} as the model."
+        )
+    if isinstance(exc, anthropic.AuthenticationError):
+        return f"Anthropic refused this API key for {model}: check ANTHROPIC_API_KEY"
+    if isinstance(exc, anthropic.PermissionDeniedError):
+        return f"this API key is not allowed to use {model}"
+    if isinstance(exc, anthropic.NotFoundError):
+        return f"Anthropic has no model named {model}, or this API key cannot see it"
+    if isinstance(exc, anthropic.APIConnectionError):
+        return f"cannot reach the Anthropic API for {model}: {exc}"
+    return f"{model}: {type(exc).__name__}: {exc}"
 
 
 class LLMAgent:

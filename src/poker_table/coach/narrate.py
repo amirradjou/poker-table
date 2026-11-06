@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from poker_table.agents.llm import DEFAULT_MODEL, MessagesClient, estimate_cost
+from poker_table.agents.ollama import OllamaClient, is_local
 from poker_table.coach.report import Report
 
 SYSTEM = """\
@@ -120,9 +121,14 @@ def narrate(
     if not report.leaks:
         return Narration((), "", 0, model, 0.0)
     if client is None:
-        import anthropic
+        if is_local(model):
+            local = OllamaClient()
+            local.check(model)
+            client = local
+        else:
+            import anthropic
 
-        client = anthropic.Anthropic()
+            client = anthropic.Anthropic()
     payload = report_for_model(report, top=top)
     response = client.messages.create(
         model=model,

@@ -8,8 +8,10 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from poker_table import __version__
+from poker_table.agents.base import Agent
 from poker_table.agents.human import HumanAgent
 from poker_table.agents.llm import LLMAgent
+from poker_table.agents.ollama import is_local
 from poker_table.agents.registry import available_kinds, check_seats_ready, make_agents
 from poker_table.history import HandHistory, filter_by_date, read_jsonl, write_jsonl
 from poker_table.league import (
@@ -193,9 +195,12 @@ def build_parser() -> argparse.ArgumentParser:
     coach.add_argument(
         "--narrate",
         action="store_true",
-        help="ask Claude to explain the leaks in plain language (needs ANTHROPIC_API_KEY)",
+        help="have a model explain the leaks in plain language (on your own ANTHROPIC_API_KEY, "
+        "or free with --model ollama/<name>)",
     )
-    coach.add_argument("--model", default=None, help="model for --narrate (default claude-opus-5)")
+    coach.add_argument(
+        "--model", default=None, help="model for --narrate (default claude-opus-5-5)"
+    )
     coach.add_argument("--since", help="only hands played on/after this date (YYYY-MM-DD)")
     coach.add_argument("--until", help="only hands played before this date (YYYY-MM-DD)")
     coach.add_argument(
@@ -261,6 +266,12 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--seed", type=int, default=0)
     serve.add_argument("--blinds", default="1/2")
     serve.add_argument("--stack", type=int, default=200)
+    serve.add_argument(
+        "--budget",
+        type=float,
+        metavar="USD",
+        help="with --live, stop dealing once the LLM seats have spent this many dollars",
+    )
     serve.add_argument(
         "--pace",
         type=float,
@@ -442,10 +453,22 @@ def hand_writer(args: argparse.Namespace, out, *, every_hand: bool):
     return on_hand
 
 
+def note_spending(agents: Sequence[Agent], budget: float | None) -> None:
+    """A paid seat spends the key of whoever started the table, so say so if nothing limits it."""
+    paid = [a.name for a in agents if isinstance(a, LLMAgent) and not is_local(a.model)]
+    if paid and budget is None:
+        print(
+            f"{', '.join(paid)} will bill your Anthropic key with no limit: "
+            "--budget USD stops the table at that spend",
+            file=sys.stderr,
+        )
+
+
 def cmd_play(args: argparse.Namespace, out) -> int:
     specs = [s for s in args.seats.split(",") if s.strip()]
     agents = make_agents(specs, seed=args.seed, custom=custom_kinds(args))
     check_seats_ready(agents)
+    note_spending(agents, args.budget)
     if args.tournament:
         return play_tournament(args, agents, out)
 
@@ -716,10 +739,14 @@ def cmd_coach(args: argparse.Namespace, out) -> int:
     report = build_report(histories, player, facts)
     print(report.render(top=args.top), file=out)
     if args.narrate:
-        from poker_table.agents.llm import DEFAULT_MODEL
+        from poker_table.agents.llm import DEFAULT_MODEL, explain_model_error
         from poker_table.coach.narrate import narrate
 
-        narration = narrate(report, model=args.model or DEFAULT_MODEL, top=args.top)
+        model = args.model or DEFAULT_MODEL
+        try:
+            narration = narrate(report, model=model, top=args.top)
+        except Exception as exc:  # noqa: BLE001 - no key, network down, model error: say which
+            raise ValueError(explain_model_error(exc, model)) from None
         print("\nCoach's notes", file=out)
         print(narration.render() or "(the model returned nothing usable)", file=out)
         suffix = f", {narration.dropped} unsupported note(s) dropped" if narration.dropped else ""
@@ -796,8 +823,14 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
             for a in make_agents(specs, seed=args.seed, custom=custom_kinds(args))
         ]
         check_seats_ready(agents)
+        note_spending(agents, args.budget)
         config = LeagueConfig(
-            hands=args.hands, small_blind=small, big_blind=big, buy_in=args.stack, seed=args.seed
+            hands=args.hands,
+            small_blind=small,
+            big_blind=big,
+            buy_in=args.stack,
+            seed=args.seed,
+            budget_usd=args.budget,
         )
         args.file.parent.mkdir(parents=True, exist_ok=True)
         args.file.touch()

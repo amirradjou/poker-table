@@ -148,8 +148,30 @@ def test_coach_narrate_without_credentials_is_a_clean_503(hands_file: Path, monk
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:9")  # nothing listens here
     client = TestClient(create_app(hands_file))
     r = client.post("/api/coach/narrate", json={"player": "maniac"})
-    assert r.status_code == 503 and "Error" in r.json()["detail"]
+    assert r.status_code == 503 and "ANTHROPIC_API_KEY" in r.json()["detail"]
     assert client.post("/api/coach/narrate", json={"player": "nobody"}).status_code == 404
+
+
+def test_a_request_cannot_choose_the_model_for_the_coachs_notes(
+    hands_file: Path, monkeypatch
+) -> None:
+    # Whoever reaches this page could otherwise pick the dearest model on the owner's key, or
+    # point the server at its Ollama and read which models are pulled from the error.
+    from poker_table.agents.llm import DEFAULT_MODEL
+    from poker_table.coach.narrate import Narration
+
+    asked = []
+
+    def fake_narrate(report, *, model, **_):
+        asked.append(model)
+        return Narration((), "", 0, model, 0.0)
+
+    monkeypatch.setattr("poker_table.coach.narrate.narrate", fake_narrate)
+    client = TestClient(create_app(hands_file))
+    for model in ("ollama/qwen2.5:3b", "claude-fable-5-1"):
+        body = {"player": "maniac", "model": model}
+        assert client.post("/api/coach/narrate", json=body).status_code == 200
+    assert asked == [DEFAULT_MODEL, DEFAULT_MODEL]
 
 
 def test_an_ante_hand_reaches_the_viewer_as_its_own_step(tmp_path: Path) -> None:

@@ -6,7 +6,7 @@ A seat is anything with `act(view) -> Decision`. The table ships scripted bots (
 
 - what an LLM seat is handed on top of the bare table;
 - how to define your own seats in a TOML file, with no code, or in Python;
-- how to run them on a local model for free;
+- how to run them on your own key, or on a local model for free;
 - and how to measure whether any of it helps.
 
 ```sh
@@ -95,7 +95,7 @@ aids = ["odds", "ranges", "reads", "notes", "playbook"]
 |---|---|---|
 | `prompt` | required, unless `extends` | the personality, in the model's system prompt |
 | `extends` | none | start from `nerd`, `maniac`, `rock` or `storyteller`; any other field overrides it |
-| `model` | `claude-opus-5` | a Claude model, or `ollama/<name>` for a local one |
+| `model` | `claude-opus-5-5` | a Claude model, or `ollama/<name>` for a local one |
 | `effort` | `medium` | Claude's effort level; ignored by local models |
 | `auto_fold_below` | `5` | preflop, facing a raise, hands under this Chen score fold without a model call |
 | `talkative` | `true` | `false` tells the model it almost never talks |
@@ -157,6 +157,25 @@ off the range to the nearest legal action. Anything else becomes a check or a fo
 against the seat on the leaderboard. A `python` kind runs the code it names, so load only
 files you trust.
 
+## Your key
+
+This project has no shared key. A Claude seat runs on the key of whoever starts the table, read by
+the Anthropic SDK from `ANTHROPIC_API_KEY`, so the bill is yours and so is the limit. The key is
+never written to a hand file.
+
+`play`, `serve --live`, `eval` and `experiment run` look the model up before the first hand. That
+lookup is free, and a missing key, a refused key, a wrong model name or no network each stop the
+table there with a plain message, instead of a seat folding every hand. `--budget USD` stops
+`play` and `serve --live` at that spend, and they warn you when no limit is set. An experiment
+refuses a paid seat with no `budget_usd`.
+
+`coach --narrate` runs on your key too, or free with `--model ollama/<name>`.
+
+No paid model has been called from this repo. The requests are tested through the real SDK against
+a stand-in for the API that checks them against its published rules
+([tests/test_anthropic_wire.py](../tests/test_anthropic_wire.py)), so your first run is also the
+first live one. Start with a few hands and a small budget.
+
 ## Local models
 
 `ollama/<name>` in any model field runs the seat on [Ollama](https://ollama.com) on this
@@ -171,8 +190,8 @@ uv run poker-table agents --ollama                     # what this Ollama has pu
 uv run poker-table play -n 20 --seats llm:nerd@ollama/qwen2.5:7b,tag,station --show
 ```
 
-These are the first LLM hands this project has played, because no Claude key has been
-available here yet. On this machine (12 CPU cores, no GPU) `qwen2.5:7b` takes about 18 seconds
+These are the only LLM hands this project has played itself, because it does not pay for model
+calls. On this machine (12 CPU cores, no GPU) `qwen2.5:7b` takes about 18 seconds
 a decision with every aid on. That is fine for watching and for evals, and slow for leagues of
 thousands of hands.
 

@@ -177,7 +177,6 @@ def load_experiment(path: Path | str) -> Experiment:
 
 def _check_seats(experiment: Experiment, agents: Sequence[Agent]) -> None:
     """Refuse anything that would waste a night or spend money without a limit."""
-    check_seats_ready(agents)
     for agent in agents:
         if isinstance(agent, HumanAgent):
             raise ValueError(f"seat {agent.name!r} is a human, and a results run has nobody at it")
@@ -187,15 +186,7 @@ def _check_seats(experiment: Experiment, agents: Sequence[Agent]) -> None:
             f"seat {paid[0].name!r} calls {paid[0].model}, which costs money: "
             "set budget_usd so the run has a limit"
         )
-    # Listing a model is free, and it fails on a missing key or a wrong model name, either of
-    # which would otherwise be found out by folding every hand.
-    for agent in paid:
-        try:
-            agent.client.models.retrieve(agent.model)
-        except Exception as exc:  # noqa: BLE001 - any failure here means the seat cannot play
-            raise ValueError(
-                f"seat {agent.name!r} cannot use {agent.model}: {type(exc).__name__}: {exc}"
-            ) from None
+    check_seats_ready(agents)
 
 
 def _failing(agent: Agent) -> bool:

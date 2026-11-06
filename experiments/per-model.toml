@@ -1,5 +1,6 @@
 # One personality on three models: what does a better model earn, and what does it cost?
-#   ANTHROPIC_API_KEY=... uv run poker-table experiment run experiments/per-model.toml
+# This spends your own money, up to budget_usd:
+#   ANTHROPIC_API_KEY=<your key> uv run poker-table experiment run experiments/per-model.toml
 name = "per-model"
 description = "The math nerd on Opus, Sonnet and Haiku, at one table with a tight-aggressive bot and a calling station."
 seats = [
