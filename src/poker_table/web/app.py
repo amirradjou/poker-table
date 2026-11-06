@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,7 @@ from poker_table.coach.report import Report, build_report
 from poker_table.engine import ActionType, EventKind
 from poker_table.history import HandHistory, filter_by_date, parse_action, read_jsonl, weeks_of
 from poker_table.stats import compute_stats, leaderboard
+from poker_table.web.guard import TableGuard
 from poker_table.web.live import MAX_PACE, Broadcast, LiveSession, live_view_payload
 
 STATIC = Path(__file__).parent / "static"
@@ -312,9 +314,15 @@ class DrillAnswer(BaseModel):
     action: str  # "fold", "check", "call", "bet 12", "raise 30"
 
 
-def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
+def create_app(
+    path: Path | str,
+    live: LiveSession | None = None,
+    *,
+    allowed_hosts: Iterable[str] | None = None,
+) -> FastAPI:
     store = HandStore(Path(path))
     app = FastAPI(title="poker-table", docs_url=None, redoc_url=None)
+    app.add_middleware(TableGuard, allowed_hosts=allowed_hosts)
     app.state.store = store
     app.state.live = live
 

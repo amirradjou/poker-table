@@ -23,5 +23,7 @@ VOLUME /data
 EXPOSE 8765
 ENTRYPOINT ["poker-table"]
 # A table that keeps playing, watchable at a human pace; hands pile up in /data/live.jsonl.
-CMD ["serve", "/data/live.jsonl", "--live", "--host", "0.0.0.0", "-n", "100000", \
+# Bound to every interface inside the container, but answering only to the names you browse with.
+CMD ["serve", "/data/live.jsonl", "--live", "--host", "0.0.0.0", "--allow-host", "localhost", \
+     "-n", "100000", \
      "--seats", "tag,rock,maniac,station,random,tag", "--pace", "0.8"]
