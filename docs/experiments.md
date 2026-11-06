@@ -5,6 +5,7 @@ question so that someone else can check it: the league lives in a file, one comm
 and the folder it writes holds everything needed to read, rebuild or continue the result.
 
 ```sh
+uv run poker-table experiment init                                                       # a starter file, free to run
 uv run poker-table experiment run experiments/local-league.toml
 uv run poker-table experiment run experiments/local-league.toml --hands 5 -o /tmp/trial  # a short trial
 uv run poker-table experiment run experiments/local-league.toml --resume                 # carry on
