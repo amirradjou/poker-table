@@ -77,6 +77,10 @@ A run can stop for four reasons, and each one keeps every finished hand and writ
 - a seat kept failing;
 - you pressed Ctrl-C, which finishes the hands in progress.
 
+If the process is killed outright, or the machine loses power, the finished hands are still there
+and `--resume` carries on from them. Only the hand in progress is lost, and the time and cost in
+the report can run a little short, because they are saved every twentieth of the run.
+
 `--resume` carries on with the same decks, and its dollars count against the same budget. It also
 extends a finished run: `--resume --hands 400` plays the next 200 hands of a 200-hand run. The
 seats get back their reads and notes from the hands already played. The decks repeat exactly, but

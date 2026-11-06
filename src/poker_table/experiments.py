@@ -310,6 +310,7 @@ def run_experiment(
     stopped = "finished"
     played = len(earlier)
     every = max(1, experiment.hands // 20)
+    commit = _commit()
 
     def should_stop() -> bool:
         nonlocal stopped
@@ -324,12 +325,36 @@ def run_experiment(
             stopping.set()
         return stopping.is_set()
 
+    def seconds_so_far() -> float:
+        return previous_seconds + time.monotonic() - started
+
+    def save_run(state: str) -> None:
+        _write_json(
+            folder / "run.json",
+            {
+                "name": experiment.name,
+                "planned_hands": experiment.hands,
+                "hands": played,
+                "stopped": state,
+                "tables": experiment.tables,
+                "seconds": round(seconds_so_far(), 1),
+                "spent_usd": round(earlier_cost + spent_usd(everyone), 6),
+                "last_started": started_at.isoformat(timespec="seconds"),
+                "last_saved": datetime.now(UTC).isoformat(timespec="seconds"),
+                "version": __version__,
+                "commit": commit,
+            },
+        )
+
     def on_hand(history: HandHistory) -> None:
         nonlocal played
         with lock:
             write_jsonl(hands_file, [history], append=True)
             played += 1
             if played % every == 0:
+                save_run(
+                    "running"
+                )  # so a run that is killed outright still knows its time and cost
                 minutes = (time.monotonic() - started) / 60
                 cost = earlier_cost + spent_usd(everyone)
                 log(f"... {played}/{experiment.hands} hands, ${cost:.4f}, {minutes:.1f} min")
@@ -365,24 +390,9 @@ def run_experiment(
 
     if played >= experiment.hands:
         stopped = "finished"
-    seconds = previous_seconds + time.monotonic() - started
+    seconds = seconds_so_far()
     spent = earlier_cost + spent_usd(everyone)
-    _write_json(
-        folder / "run.json",
-        {
-            "name": experiment.name,
-            "planned_hands": experiment.hands,
-            "hands": played,
-            "stopped": stopped,
-            "tables": experiment.tables,
-            "seconds": round(seconds, 1),
-            "spent_usd": round(spent, 6),
-            "last_started": started_at.isoformat(timespec="seconds"),
-            "last_finished": datetime.now(UTC).isoformat(timespec="seconds"),
-            "version": __version__,
-            "commit": _commit(),
-        },
-    )
+    save_run(stopped)
     if played:
         write_report(folder)
     if crash is not None:
@@ -498,6 +508,7 @@ _STOPPED = {
     "budget": "It stopped early because it reached its budget.",
     "errors": "It stopped early because a seat kept failing, so read the failed column first.",
     "interrupted": "It was interrupted before the end.",
+    "running": "It was cut off before the end, so the time and cost may run a little short.",
 }
 
 

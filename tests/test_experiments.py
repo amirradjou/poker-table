@@ -439,6 +439,26 @@ def test_ctrl_c_keeps_the_finished_hands_and_writes_the_report(tmp_path: Path, c
     assert "interrupted" in capsys.readouterr().out
 
 
+def test_a_run_saves_its_progress_so_a_kill_loses_only_the_last_stretch(tmp_path: Path) -> None:
+    path = write_experiment(tmp_path, f"seats = {BOTS}\nhands = 40\nseed = 1")
+    run_file = tmp_path / "out" / "trial" / "run.json"
+    seen = []
+    outcome = run_experiment(
+        path, tmp_path / "out", log=lambda _: seen.append(json.loads(run_file.read_text()))
+    )
+    assert [s["hands"] for s in seen[:3]] == [2, 4, 6]
+    assert {s["stopped"] for s in seen} == {"running"}
+    assert outcome.stopped == "finished"
+    assert json.loads(run_file.read_text())["stopped"] == "finished"
+
+    # what a killed run leaves behind, and what its report then says
+    run_file.write_text(json.dumps(seen[0]))
+    write_report(outcome.folder)
+    assert "cut off" in (outcome.folder / "leaderboard.md").read_text()
+    resumed = run_experiment(path, tmp_path / "out", resume=True, log=lambda _: None)
+    assert resumed.seconds >= seen[0]["seconds"]
+
+
 # ----- the report --------------------------------------------------------------------------
 
 
