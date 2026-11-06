@@ -19,17 +19,17 @@ A stopped run keeps every finished hand, and ``--resume`` carries on with the sa
 report is built from those files alone, so ``experiment report DIR`` can rebuild it at any time.
 
 Running an experiment file can run code: its ``agents`` may name a file with a ``python`` kind
-(see ``agents/custom.py``), so only run files you trust. Rebuilding a report never loads agents,
-so that part is safe on a results folder from anywhere.
+(see ``agents/custom.py``), so only run files you trust. Rebuilding a report never loads agents
+and never writes through a link in the folder, so that part is safe on someone else's results.
 """
 
 from __future__ import annotations
 
 import json
 import math
+import os
 import random
 import re
-import shutil
 import statistics
 import subprocess
 import threading
@@ -278,6 +278,8 @@ def run_experiment(
     hands_file = folder / "hands.jsonl"
     earlier: list[HandHistory] = []
     previous_seconds = 0.0
+    if hands_file.is_symlink():
+        raise ValueError(f"{hands_file} is a link, and hands are only written to a plain file")
     if hands_file.exists() and hands_file.stat().st_size > 0:
         if not resume:
             raise ValueError(
@@ -291,7 +293,7 @@ def run_experiment(
         previous_seconds = _read_run(folder).get("seconds", 0.0)
     folder.mkdir(parents=True, exist_ok=True)
     if path.resolve() != (folder / "experiment.toml").resolve():
-        shutil.copyfile(path, folder / "experiment.toml")
+        _write_text(folder / "experiment.toml", path.read_text(encoding="utf-8"))
 
     by_table: dict[int, list[HandHistory]] = defaultdict(list)
     for history in earlier:
@@ -388,8 +390,22 @@ def run_experiment(
     return Outcome(folder, played, experiment.hands, stopped, spent, seconds)
 
 
+def _write_text(path: Path, text: str) -> None:
+    """Write a file in a results folder without following a link planted there: the folder may
+    have come from someone else, and leaderboard.md could point at ~/.bashrc. Replacing a link
+    swaps the link itself, and leaves what it pointed at alone."""
+    if path.parent.is_symlink():
+        raise ValueError(f"{path.parent} is a link, and reports are only written to a plain folder")
+    path.parent.mkdir(exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.unlink(missing_ok=True)
+    with temporary.open("x", encoding="utf-8") as fh:  # "x" will not open a link left in the way
+        fh.write(text)
+    os.replace(temporary, path)
+
+
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.write_text(json.dumps(payload, indent=1) + "\n", encoding="utf-8")
+    _write_text(path, json.dumps(payload, indent=1) + "\n")
 
 
 def _read_run(folder: Path) -> dict[str, Any]:
@@ -565,13 +581,12 @@ def write_report(folder: Path | str) -> Path:
     experiment = load_experiment(folder / "experiment.toml")
     run = _read_run(folder)
     report = folder / "leaderboard.md"
-    report.write_text(render_report(experiment, histories, run), encoding="utf-8")
+    _write_text(report, render_report(experiment, histories, run))
     if experiment.coach:
         for row in seat_results(histories):
             if row.model_calls:
                 facts = tag_hands(histories, row.name, samples=200)
                 text = build_report(histories, row.name, facts).render(top=5)
                 coach = folder / "coach" / f"{_file_name(row.name)}.md"
-                coach.parent.mkdir(exist_ok=True)
-                coach.write_text(f"# {row.name}\n\n```\n{text}\n```\n", encoding="utf-8")
+                _write_text(coach, f"# {row.name}\n\n```\n{text}\n```\n")
     return report

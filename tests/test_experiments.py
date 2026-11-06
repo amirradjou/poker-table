@@ -153,6 +153,66 @@ def test_rebuilding_a_report_never_loads_the_agents_it_names(tmp_path: Path) -> 
     assert not marker.exists()
 
 
+def test_a_link_in_a_results_folder_cannot_overwrite_what_it_points_at(tmp_path: Path) -> None:
+    path = write_experiment(tmp_path, f"seats = {BOTS}\nhands = 4")
+    outcome = run_experiment(path, tmp_path / "out", log=lambda _: None)
+    precious = tmp_path / "bashrc"
+    precious.write_text("mine", encoding="utf-8")
+    report = outcome.folder / "leaderboard.md"
+    report.unlink()
+    report.symlink_to(precious)
+
+    write_report(outcome.folder)
+    assert precious.read_text() == "mine"
+    assert not report.is_symlink() and report.read_text().startswith("# trial")
+
+
+def test_a_leftover_temporary_link_is_not_written_through(tmp_path: Path) -> None:
+    path = write_experiment(tmp_path, f"seats = {BOTS}\nhands = 4")
+    outcome = run_experiment(path, tmp_path / "out", log=lambda _: None)
+    precious = tmp_path / "bashrc"
+    precious.write_text("mine", encoding="utf-8")
+    (outcome.folder / ".leaderboard.md.tmp").symlink_to(precious)
+
+    write_report(outcome.folder)
+    assert precious.read_text() == "mine"
+
+
+def test_a_linked_coach_folder_is_refused(tmp_path: Path, monkeypatch) -> None:
+    use_client(monkeypatch, Client())
+    path = tmp_path / "paid.toml"
+    path.write_text(
+        'name = "paid"\nseats = ["llm:nerd@claude-sonnet-5-5", "tag"]\nhands = 4\nbudget_usd = 5\n',
+        encoding="utf-8",
+    )
+    outcome = run_experiment(path, tmp_path / "out", log=lambda _: None)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    coach = outcome.folder / "coach"
+    (coach / "nerd.md").unlink()
+    coach.rmdir()
+    coach.symlink_to(elsewhere)
+
+    with pytest.raises(ValueError, match="is a link"):
+        write_report(outcome.folder)
+    assert list(elsewhere.iterdir()) == []
+
+
+def test_resuming_will_not_append_hands_through_a_link(tmp_path: Path) -> None:
+    path = write_experiment(tmp_path, f"seats = {BOTS}\nhands = 4")
+    outcome = run_experiment(path, tmp_path / "out", log=lambda _: None)
+    precious = tmp_path / "elsewhere.jsonl"
+    hands = outcome.folder / "hands.jsonl"
+    precious.write_text(hands.read_text(), encoding="utf-8")
+    before = precious.read_text()
+    hands.unlink()
+    hands.symlink_to(precious)
+
+    with pytest.raises(ValueError, match="is a link"):
+        run_experiment(path, tmp_path / "out", hands=8, resume=True, log=lambda _: None)
+    assert precious.read_text() == before
+
+
 # ----- the seats ---------------------------------------------------------------------------
 
 

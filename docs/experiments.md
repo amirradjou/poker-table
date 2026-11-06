@@ -39,7 +39,8 @@ exist. A human seat is refused too, because nobody is there to answer.
 
 **Only run experiment files you trust.** `agents` can name a file with a `python` kind, which runs
 the code it points at, exactly as `--agents` does ([docs/agents.md](agents.md)). Reading a results
-folder is different: `experiment report` and `serve` never load agents.
+folder is different: `experiment report` and `serve` never load agents, and a report is not written
+through a link in the folder, so a results folder from someone else cannot overwrite your files.
 
 ## The folder
 
