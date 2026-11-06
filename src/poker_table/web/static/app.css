@@ -105,8 +105,13 @@ aside .mini .c.r { color: #ef8a80; }
 aside .mini .none { color: var(--ivory-faint); font-weight: 500; }
 aside .mini .sd { color: var(--ivory-faint); font-weight: 500; }
 aside .more { display: block; width: 100%; margin: 8px 0 20px; background: none; border: 0; color: var(--ivory-soft); }
-aside li.subset { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--room-3); font-size: 14px; }
-aside li.subset button { padding: 2px 10px; font-size: 13px; }
+.filters { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; background: var(--room-2); border-bottom: 1px solid var(--line); }
+.filters select { flex: 1 1 130px; min-width: 0; padding: 4px 6px; font: 500 14px/1.3 "Barlow", system-ui, sans-serif; color: var(--ivory); background: var(--room-3); border: 1px solid var(--room-4); border-radius: 6px; }
+aside .line { grid-column: 2 / -1; font-size: 13px; line-height: 1.3; color: var(--ivory-soft); }
+aside li.subset .count { flex: 1 1 100%; }
+aside li.subset .scanning { display: block; font-size: 13px; font-weight: 400; color: var(--ivory-soft); }
+aside li.subset { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--room-3); font-size: 14px; }
+aside li.subset button { display: inline-block; width: auto; padding: 2px 10px; font-size: 13px; background: var(--room-3); border: 1px solid var(--room-4); border-radius: 6px; }
 
 /* ----- the stage: the table under a lamp, the log beside it ----------------------------- */
 section.hand { padding: 0; }

@@ -27,6 +27,18 @@
 
 <main>
   <aside id="list">
+    <div class="filters">
+      <select id="filter" aria-label="Which hands">
+        <option value="">All hands</option>
+        <option value="best" data-story>Best hands</option>
+        <option value="long_shot" data-story>Long shots</option>
+        <option value="turnaround" data-story>Turnarounds</option>
+        <option value="folded_best" data-story>Best hand folded</option>
+        <option value="all_in">All-ins</option>
+        <option value="big_pot">Biggest pots</option>
+      </select>
+      <select id="winner" aria-label="Who won"><option value="">Anyone won</option></select>
+    </div>
     <ol id="hand-list"></ol>
     <button class="more hidden" id="more">Show older hands</button>
   </aside>

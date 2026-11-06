@@ -35,8 +35,9 @@ seats). Like a poker broadcast, the table puts each player's chance of winning u
 nameplate, live and in replays; the numbers stay off while you are playing, because they come
 from everyone's cards. A line of commentary under the table calls the moments that matter, a shove,
 the best hand folding, the card that turns a hand around, and it needs no model, so it is free and
-runs in the demo. The replay viewer steps through any finished hand with every seat's private
-reasoning in a column beside the table:
+runs in the demo. Filters find the long shots, turnarounds and biggest pots in a file, and "Watch
+these" plays them one after another. The replay viewer steps through any finished hand with every
+seat's private reasoning in a column beside the table:
 
 ![Replay viewer: the maniac bets into the calling station, 82% to 18%, while the odds panel shows
 the station thinks it has 59% and the price asks for 37%](https://raw.githubusercontent.com/amirradjou/poker-table/main/docs/viewer.png)
