@@ -33,8 +33,10 @@ Live tables play out card by card under the lamp — dealing, chips sliding to t
 the winner, table talk beside the seat, and a thinking indicator (with a cost ticker for LLM
 seats). Like a poker broadcast, the table puts each player's chance of winning under their
 nameplate, live and in replays; the numbers stay off while you are playing, because they come
-from everyone's cards. The replay viewer steps through any finished hand with every seat's
-private reasoning in a column beside the table:
+from everyone's cards. A line of commentary under the table calls the moments that matter, a shove,
+the best hand folding, the card that turns a hand around, and it needs no model, so it is free and
+runs in the demo. The replay viewer steps through any finished hand with every seat's private
+reasoning in a column beside the table:
 
 ![Replay viewer: the maniac bets into the calling station, 82% to 18%, while the odds panel shows
 the station thinks it has 59% and the price asks for 37%](https://raw.githubusercontent.com/amirradjou/poker-table/main/docs/viewer.png)
@@ -212,7 +214,7 @@ stats. Model backends behind one interface.
   side-pot edge cases.
 - **v1** — LLM seats with structured actions; leaderboard; reasoning traces.
 - **v2** — human seat in the browser; personality library; opponent-modelling stats.
-- **v3** — tournaments (sit-and-go), commentary track (via `commentator`), published
+- **v3** — tournaments (sit-and-go), commentary track, published
   league results.
 - **v4 (poker-coach)** — hand-history import, equity/pot-odds facts, preflop range
   tagging, first leak report citing hands.
@@ -221,7 +223,8 @@ stats. Model backends behind one interface.
 
 ## Where the brief stands
 
-v0 to v2 are done, and v3's tournaments are in (a freezeout with a blind schedule, antes and
-finishing places; the commentary track is not). v4 and v5 are done bar the postflop solver.
+v0 to v3 are done: tournaments are a freezeout with a blind schedule, antes and finishing places,
+and the commentary track is written from rules rather than by a model. v4 and v5 are done bar the
+postflop solver.
 The stack ended up Python rather than Go, FastAPI with a no-build-step viewer rather than
 WebSockets, and JSONL rather than SQLite — see the Status at the top.
