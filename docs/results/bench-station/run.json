@@ -1,0 +1,13 @@
+{
+ "name": "bench-station",
+ "planned_hands": 200,
+ "hands": 200,
+ "stopped": "finished",
+ "tables": 1,
+ "seconds": 0.3,
+ "spent_usd": 0.0,
+ "last_started": "2026-11-06T22:10:21+00:00",
+ "last_saved": "2026-11-06T22:10:21+00:00",
+ "version": "0.1.0",
+ "commit": "4e0b71c"
+}
