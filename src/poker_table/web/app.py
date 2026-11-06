@@ -17,7 +17,7 @@ from poker_table.coach.report import Report, build_report
 from poker_table.engine import ActionType, EventKind
 from poker_table.history import HandHistory, filter_by_date, parse_action, read_jsonl, weeks_of
 from poker_table.stats import compute_stats, leaderboard
-from poker_table.web.live import MAX_PACE, EquityTrack, LiveSession, live_view_payload
+from poker_table.web.live import MAX_PACE, Broadcast, LiveSession, live_view_payload
 
 STATIC = Path(__file__).parent / "static"
 
@@ -176,7 +176,7 @@ def odds_payload(history: HandHistory, *, samples: int = ODDS_SAMPLES) -> dict[s
     try:
         decisions = list(replay(history))
     except ValueError:  # a hand that will not replay (an import we cannot rebuild)
-        return {"hand_id": history.hand_id, "spots": [], "table": []}
+        return {"hand_id": history.hand_id, "spots": [], "table": [], "commentary": []}
     for index, (view, action) in enumerate(decisions):
         if index >= len(steps):
             break
@@ -206,24 +206,30 @@ def odds_payload(history: HandHistory, *, samples: int = ODDS_SAMPLES) -> dict[s
                 "known": _chance_row(known) if known is not None else None,
             }
         )
-    return {"hand_id": history.hand_id, "spots": spots, "table": _table_equities(history)}
+    broadcast = _broadcast(history)
+    return {
+        "hand_id": history.hand_id,
+        "spots": spots,
+        "table": broadcast.rows if broadcast else [],
+        "commentary": broadcast.lines if broadcast else [],
+    }
 
 
-def _table_equities(history: HandHistory) -> list[dict[str, Any]]:
-    """The hand's :class:`EquityTrack`. Empty when any seat's cards are unknown: an imported hand
-    only knows the cards that were shown, and a broadcast number against a guess would be worse
-    than none.
+def _broadcast(history: HandHistory) -> Broadcast | None:
+    """The hand's win chances and commentary. None when any seat's cards are unknown: an imported
+    hand only knows the cards that were shown, and a broadcast number against a guess would be
+    worse than none.
     """
     holes: dict[int, tuple[Card, Card]] = {}
     for p in history.players:
         if len(p.hole) != 2:
-            return []
+            return None
         a, b = (Card.parse(c) for c in p.hole)
         holes[p.seat] = (a, b)
-    track = EquityTrack(holes)
+    broadcast = Broadcast(holes, {p.seat: p.name for p in history.players})
     for index, step in enumerate(steps_for(history)):
-        track.take(index + 1, step)
-    return track.rows
+        broadcast.take(index + 1, step)
+    return broadcast
 
 
 def _chance_row(spot: Any) -> dict[str, Any]:
