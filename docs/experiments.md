@@ -5,6 +5,7 @@ question so that someone else can check it: the league lives in a file, one comm
 and the folder it writes holds everything needed to read, rebuild or continue the result.
 
 ```sh
+uv run poker-table experiment init                                                       # a starter file, free to run
 uv run poker-table experiment run experiments/local-league.toml
 uv run poker-table experiment run experiments/local-league.toml --hands 5 -o /tmp/trial  # a short trial
 uv run poker-table experiment run experiments/local-league.toml --resume                 # carry on
@@ -64,6 +65,8 @@ counts those hands at each seat's share of the pot at that moment. It estimates 
 as bb/100 with less noise, so the report uses it to name the seats that clear zero, and says of the
 rest that they are too close to call. Tables where the chips go in early gain the most, as
 [the first league](#the-first-league) shows.
+
+The viewer's Leaderboard tab, `play` and `stats` show the same numbers from the same calculation.
 
 Poker stays noisy even so. Over 300 hands heads-up, a tight-aggressive bot beats a bot that plays
 at random by +152 bb/100 adjusted, and the 95% interval is ±173. That matchup is not close, and 300

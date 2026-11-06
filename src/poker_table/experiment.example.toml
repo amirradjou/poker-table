@@ -1,0 +1,28 @@
+# A league in a file. Run it with:
+#   poker-table experiment run league.toml
+# As written it is free and takes a few seconds: scripted bots, no model and no key.
+# Results go to results/<name>/: every hand, a report with error bars, and how the run went.
+
+name = "my-league"                 # the results folder: letters, digits, . _ -
+description = "Five scripted bots, as a starting point."
+
+# Who sits down. Scripted: tag, rock, maniac, station, random.
+# A model: llm:nerd, llm:maniac, llm:rock, llm:storyteller, as llm:<personality>@<model>.
+seats = ["tag", "rock", "maniac", "station", "random"]
+
+# On a local model, free (first run `ollama pull qwen2.5:3b`). Expect about a minute a hand:
+# seats = ["llm:nerd@ollama/qwen2.5:3b", "tag", "station", "random"]
+# On Claude, with your own ANTHROPIC_API_KEY and at your own cost. This needs budget_usd below:
+# seats = ["llm:nerd@claude-haiku-5-5", "tag", "station", "random"]
+
+hands = 500                        # four times the hands halves the error bars
+seed = 1                           # the same seed deals the same decks
+
+# Everything below is optional, and shown with its default where it has one.
+# budget_usd = 1.0                 # stop once model calls have cost this (a paid seat needs it)
+# tables = 1                       # tables at once: this helps seats that wait on an API
+# blinds = "1/2"
+# ante = 0
+# stack = 200                      # the chips every seat starts each hand with
+# coach = true                     # write the coach's report on each model seat
+# agents = ["agents.toml"]         # your own kinds of seat. These can run code: trust them first.

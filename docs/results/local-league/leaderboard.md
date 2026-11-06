@@ -12,7 +12,7 @@ Two LLM personalities on a small local model, against three scripted bots.
 | nerd | llm:nerd on ollama/qwen2.5:3b | -604 | 1587 | +61 | 728 | -1209 | 86 | 30.9 | 0.0000 | 0 | 0 |
 | random | random | -2634 | 1406 | -488 | 777 | -5268 | 0 | - | - | 0 | 0 |
 
-95 of the 100 hands were all in before the last card. All-in adj. counts those at each seat's share of the pot at that moment, which takes out the luck of the cards still to come. It estimates the same win rate as bb/100 with less noise, so the calls below use it.
+95 of the 100 hands were all in before the last card. All-in adj. counts those at each seat's share of the pot at that moment, which takes out the luck of the cards still to come. It estimates the same win rate as bb/100 with less noise, so the calls use it.
 
 Too close to break-even to call: station, tag, maniac, nerd, random.
 
