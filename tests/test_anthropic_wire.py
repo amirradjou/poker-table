@@ -257,6 +257,23 @@ def test_a_free_table_says_nothing_about_money(capsys: pytest.CaptureFixture) ->
     assert "bill" not in capsys.readouterr().err
 
 
+def test_a_trial_prices_its_hands_from_what_the_sdk_reports(
+    api: StandInApi, tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    path = tmp_path / "league.toml"
+    path.write_text(
+        'name = "t"\ncoach = false\nseats = ["llm:maniac@claude-opus-5-5", "station"]\n'
+        "hands = 200\nseed = 1\nbudget_usd = 5\n"
+    )
+    out = tmp_path / "out"
+    assert main(["experiment", "run", str(path), "-o", str(out), "--trial", "2"]) == 0
+    printed = capsys.readouterr().out
+    # Each decision the stand-in answers costs $0.011 at Opus 5.5's prices.
+    spent = len(api.calls) * 0.011
+    assert api.calls and f"cost ${spent:.4f}" in printed
+    assert f"about ${spent * 100:.2f} in all" in printed
+
+
 # ----- the coach's notes -------------------------------------------------------------------
 
 

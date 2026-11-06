@@ -393,6 +393,60 @@ def run_experiment(
     return Outcome(folder, played, experiment.hands, stopped, spent, seconds)
 
 
+@dataclass(frozen=True, slots=True)
+class Projection:
+    """What the rest of a run should take, going by the hands played so far."""
+
+    hands_done: int
+    hands_left: int
+    spent_usd: float
+    seconds: float
+    budget_usd: float | None
+
+    @property
+    def seconds_left(self) -> float:
+        return self.seconds / self.hands_done * self.hands_left
+
+    @property
+    def cost_left_usd(self) -> float:
+        return self.spent_usd / self.hands_done * self.hands_left
+
+    @property
+    def total_usd(self) -> float:
+        return self.spent_usd + self.cost_left_usd
+
+    @property
+    def stops_after(self) -> int | None:
+        """Roughly where the budget would end the run, if it would."""
+        if self.budget_usd is None or self.total_usd <= self.budget_usd:
+            return None
+        return int(self.budget_usd / (self.spent_usd / self.hands_done))
+
+    def describe(self) -> str:
+        planned = self.hands_done + self.hands_left
+        trial = f"{self.hands_done} of {planned} hands took {_duration(self.seconds)}"
+        rest = f"The rest should take about {_duration(self.seconds_left)}"
+        if self.spent_usd == 0:
+            return f"{trial}, for free. {rest}, for free."
+        lines = [
+            f"{trial} and cost ${self.spent_usd:.4f}. {rest} and cost about "
+            f"${self.cost_left_usd:.2f}, so about ${self.total_usd:.2f} in all.",
+            "That is a rough guess from a few hands, and it tends to run high, because a seat's "
+            "first calls cost the most.",
+        ]
+        if self.stops_after is not None:
+            lines.append(
+                f"It is over your budget of ${self.budget_usd:.2f}, so the run would stop after "
+                f"about {self.stops_after} hands."
+            )
+        return "\n".join(lines)
+
+
+def failed_calls(folder: Path) -> int:
+    """Model calls that could not be used in a results folder so far."""
+    return sum(row.failed for row in seat_results(list(read_jsonl(folder / "hands.jsonl"))))
+
+
 def _write_text(path: Path, text: str) -> None:
     """Write a file in a results folder without following a link planted there: the folder may
     have come from someone else, and leaderboard.md could point at ~/.bashrc. Replacing a link

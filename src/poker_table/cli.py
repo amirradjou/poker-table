@@ -6,6 +6,7 @@ import argparse
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from poker_table import __version__
 from poker_table.agents.base import Agent
@@ -163,6 +164,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     exp_run.add_argument(
         "--hands", type=int, help="play this many in all instead (a short trial, or more of a run)"
+    )
+    exp_run.add_argument(
+        "--trial",
+        type=int,
+        metavar="N",
+        help="play N hands, say what the rest would cost and take, and ask before going on",
     )
     exp_report = exp_sub.add_parser("report", help="rebuild the report of a results folder")
     exp_report.add_argument("folder", type=Path)
@@ -638,22 +645,64 @@ def cmd_odds(args: argparse.Namespace, out) -> int:
     return 0
 
 
+def trial_says_go_on(args: argparse.Namespace, outcome: Any, planned: int, out) -> bool:
+    """Show what a trial found, and ask. With nobody at a terminal the answer is no, because a
+    script must not spend someone's money by default, and the command to carry on is printed."""
+    from poker_table.experiments import Projection, failed_calls, load_experiment
+
+    budget = load_experiment(args.file).budget_usd
+    done = outcome.hands
+    projection = Projection(done, planned - done, outcome.spent_usd, outcome.seconds, budget)
+    print(projection.describe(), file=out)
+    failed = failed_calls(outcome.folder)
+    if failed:
+        print(
+            f"{failed} model calls failed, so those seats checked or folded instead: "
+            f"read {outcome.folder / 'leaderboard.md'} first.",
+            file=out,
+        )
+    if sys.stdin.isatty() and input("Carry on? [y/N] ").strip().lower() in ("y", "yes"):
+        return True
+    command = f"poker-table experiment run {args.file} --resume"
+    if args.out != Path("results"):
+        command += f" -o {args.out}"
+    if args.hands:
+        command += f" --hands {args.hands}"
+    print(f"Stopped here, with the hands kept. To carry on: {command}", file=out)
+    return False
+
+
 def cmd_experiment(args: argparse.Namespace, out) -> int:
-    from poker_table.experiments import run_experiment, write_report
+    from poker_table.experiments import load_experiment, run_experiment, write_report
 
     if args.action == "report":
         print(f"wrote {write_report(args.folder)}", file=out)
         return 0
-    outcome = run_experiment(
-        args.file,
-        args.out,
-        hands=args.hands,
-        resume=args.resume,
-        log=lambda line: print(line, file=out, flush=True),
-    )
-    print((outcome.folder / "leaderboard.md").read_text(encoding="utf-8"), file=out)
-    print(f"results in {outcome.folder}", file=out)
-    return 130 if outcome.stopped == "interrupted" else 0
+
+    def log(line: str) -> None:
+        print(line, file=out, flush=True)
+
+    def finish(outcome: Any) -> int:
+        print((outcome.folder / "leaderboard.md").read_text(encoding="utf-8"), file=out)
+        print(f"results in {outcome.folder}", file=out)
+        return 130 if outcome.stopped == "interrupted" else 0
+
+    resume = args.resume
+    if args.trial is not None:
+        if resume:
+            raise ValueError("--trial starts a run and --resume carries one on: choose one")
+        experiment = load_experiment(args.file)
+        if args.trial < experiment.tables:
+            raise ValueError(f"--trial needs a hand for each of the {experiment.tables} tables")
+        planned = args.hands or experiment.hands
+        if args.trial < planned:
+            trial = run_experiment(args.file, args.out, hands=args.trial, log=log)
+            if trial.stopped != "finished":  # it hit the budget or a failing seat: that is the news
+                return finish(trial)
+            if not trial_says_go_on(args, trial, planned, out):
+                return 0
+            resume = True
+    return finish(run_experiment(args.file, args.out, hands=args.hands, resume=resume, log=log))
 
 
 def cmd_stats(args: argparse.Namespace, out) -> int:

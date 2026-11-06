@@ -12,6 +12,7 @@ from poker_table.cli import main
 from poker_table.engine import Action, Hand, Player, Street
 from poker_table.experiments import (
     Experiment,
+    Projection,
     all_in_adjusted,
     load_experiment,
     margin_of_error,
@@ -463,6 +464,130 @@ def test_a_run_saves_its_progress_so_a_kill_loses_only_the_last_stretch(tmp_path
     assert "cut off" in (outcome.folder / "leaderboard.md").read_text()
     resumed = run_experiment(path, tmp_path / "out", resume=True, log=lambda _: None)
     assert resumed.seconds >= seen[0]["seconds"]
+
+
+# ----- a trial before paying ---------------------------------------------------------------
+
+
+def trial_of(tmp_path: Path, *extra: str, body: str = "") -> tuple[list[str], Path]:
+    text = body or f"seats = {STATIONS}\nhands = 20\nseed = 3"
+    path = write_experiment(tmp_path, text)
+    out = tmp_path / "out"
+    return ["experiment", "run", str(path), "-o", str(out), "--trial", "5", *extra], out
+
+
+def test_a_projection_goes_by_the_hands_played() -> None:
+    p = Projection(5, 195, 0.05, 10.0, None)
+    assert p.cost_left_usd == pytest.approx(1.95) and p.total_usd == pytest.approx(2.0)
+    assert p.seconds_left == pytest.approx(390) and p.stops_after is None
+    text = p.describe()
+    assert "5 of 200 hands took 10 seconds and cost $0.0500" in text
+    assert "about 6 minutes and cost about $1.95, so about $2.00 in all" in text
+    assert "budget" not in text
+
+
+def test_a_projection_warns_when_the_budget_would_end_the_run() -> None:
+    p = Projection(5, 195, 0.05, 10.0, 1.0)
+    assert p.stops_after == 100
+    assert "over your budget of $1.00, so the run would stop after about 100 hands" in p.describe()
+    assert Projection(5, 195, 0.05, 10.0, 2.5).stops_after is None
+
+
+def test_a_free_run_says_so_rather_than_quoting_dollars() -> None:
+    text = Projection(2, 98, 0.0, 120.0, None).describe()
+    assert "for free" in text and "$" not in text and "about 1 h 38 min" in text
+
+
+def test_with_no_terminal_a_trial_stops_and_says_how_to_carry_on(tmp_path, capsys) -> None:
+    argv, out = trial_of(tmp_path)
+    assert main(argv) == 0
+    printed = capsys.readouterr().out
+    assert "5 of 20 hands took" in printed and "for free" in printed
+    assert f"--resume -o {out}" in printed
+    assert len(hands_of(out / "trial")) == 5
+
+
+@pytest.mark.parametrize("tables", [1, 2])
+def test_carrying_on_deals_what_an_unbroken_run_deals(tmp_path, capsys, tables: int) -> None:
+    body = f"seats = {STATIONS}\nhands = 20\nseed = 3\ntables = {tables}"
+    unbroken = run_experiment(
+        write_experiment(tmp_path, body), tmp_path / "whole", log=lambda _: None
+    )
+    argv, out = trial_of(tmp_path, body=body)
+    assert main(argv) == 0
+    assert main(["experiment", "run", argv[2], "-o", str(out), "--resume"]) == 0
+    decks = {(h.hand_id, h.seed) for h in hands_of(out / "trial")}
+    assert decks == {(h.hand_id, h.seed) for h in hands_of(unbroken.folder)}
+    assert len(decks) == 20
+
+
+@pytest.mark.parametrize(("answer", "hands"), [("y", 20), ("yes", 20), ("", 5), ("n", 5)])
+def test_at_a_terminal_it_asks(tmp_path, monkeypatch, capsys, answer: str, hands: int) -> None:
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True, raising=False)
+    asked = []
+    monkeypatch.setattr("builtins.input", lambda prompt: asked.append(prompt) or answer)
+    argv, out = trial_of(tmp_path)
+    assert main(argv) == 0
+    assert asked == ["Carry on? [y/N] "]
+    assert len(hands_of(out / "trial")) == hands
+    assert ("results in" in capsys.readouterr().out) == (hands == 20)
+
+
+def test_a_paid_trial_quotes_dollars_and_warns_about_the_budget(tmp_path, capsys) -> None:
+    body = (
+        custom_seats(tmp_path)
+        + 'seats = ["costly", "b:station"]\nhands = 400\nseed = 3\nbudget_usd = 1.0'
+    )
+    argv, _ = trial_of(tmp_path, body=body)
+    assert main(argv) == 0
+    printed = capsys.readouterr().out
+    assert "and cost $0." in printed and "so about $" in printed
+    assert "over your budget of $1.00" in printed
+
+
+def test_a_trial_that_hits_the_budget_reports_rather_than_asking(tmp_path, capsys) -> None:
+    body = (
+        custom_seats(tmp_path)
+        + 'seats = ["costly", "b:station"]\nhands = 400\nseed = 3\nbudget_usd = 0.01'
+    )
+    argv, out = trial_of(tmp_path, body=body)
+    assert main(argv) == 0
+    printed = capsys.readouterr().out
+    assert "reached its budget" in printed and "Carry on" not in printed
+    assert "should take" not in printed and "results in" in printed
+
+
+def test_failing_calls_are_flagged_before_anyone_pays_for_more(tmp_path, monkeypatch, capsys):
+    use_client(monkeypatch, Client(fail=True))
+    body = 'seats = ["llm:maniac@claude-sonnet-5-5", "station"]\nhands = 400\nbudget_usd = 5'
+    path = write_experiment(tmp_path, body)
+    argv = ["experiment", "run", str(path), "-o", str(tmp_path / "out"), "--trial", "1"]
+    assert main(argv) == 0
+    printed = capsys.readouterr().out
+    assert "model calls failed" in printed and "leaderboard.md first" in printed
+
+
+def test_a_trial_as_long_as_the_run_is_just_the_run(tmp_path, capsys) -> None:
+    body = f"seats = {STATIONS}\nhands = 4\nseed = 3"
+    argv, out = trial_of(tmp_path, body=body)
+    assert main(argv) == 0
+    printed = capsys.readouterr().out
+    assert "should take" not in printed and "results in" in printed
+    assert len(hands_of(out / "trial")) == 4
+
+
+@pytest.mark.parametrize(
+    ("extra", "body", "message"),
+    [
+        (["--resume"], "", "choose one"),
+        ([], f"seats = {STATIONS}\nhands = 20\ntables = 8", "each of the 8 tables"),
+    ],
+)
+def test_a_trial_that_makes_no_sense_is_refused(tmp_path, capsys, extra, body, message) -> None:
+    argv, out = trial_of(tmp_path, *extra, body=body)
+    assert main(argv) != 0
+    assert message in capsys.readouterr().err
+    assert not out.exists()
 
 
 # ----- the report --------------------------------------------------------------------------
