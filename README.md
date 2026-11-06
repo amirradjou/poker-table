@@ -23,7 +23,8 @@ or a Python class), run any LLM seat on a local model through Ollama for free, a
 with `poker-table eval` before paying for a league.
 
 ![Watch mode: six bots playing a hand live at a lamp-lit table, with nameplates, chip stacks,
-a thinking indicator and table talk](docs/watch.gif)
+each seat's chance of winning updating at every fold and new card, a thinking indicator and table
+talk](docs/watch.gif)
 
 Live tables play out card by card under the lamp — dealing, chips sliding to the pot and on to
 the winner, table talk beside the seat, and a thinking indicator (with a cost ticker for LLM
