@@ -219,7 +219,7 @@ the playbook added one at a time, and prints a row for each.
 
 ### What the aids were worth to a small local model
 
-`qwen2.5:3b` on a laptop CPU, 80 questions per row, about an hour and five minutes in all:
+`qwen2.5:3b` on a laptop CPU, 80 questions per row, about an hour in all:
 
 ```sh
 uv run python scripts/measure_aids.py ollama/qwen2.5:3b 80
@@ -248,7 +248,7 @@ What this supports:
 - **The odds help, and not by making the model fold.** It folded slightly less with them. The gain
   is on the 28 questions where folding is wrong, which went from 12 right to 20. This is the only
   step that clears the noise, and at p = 0.02 across three steps it is evidence rather than proof.
-- **Ranges show no effect here.** They changed 12 answers, 6 each way.
+- **Ranges show no effect here.** They turned 6 wrong answers right and 6 right answers wrong.
 - **The playbook made it tighter, not better.** It folded 48 times instead of 35, gaining on
   questions where folding is right (31 → 38 of 52) and losing where it is wrong (20 → 15 of 28).
 - **The full set only ties always folding,** and it gets different questions right.
