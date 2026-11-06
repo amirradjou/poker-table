@@ -13,12 +13,56 @@ from pathlib import Path
 from typing import Any
 
 from poker_table.agents.base import Agent, Decision, SeatView, position_name
+from poker_table.cards import Card
 from poker_table.engine import Action, Event, EventKind, Hand
 from poker_table.history import HandHistory, parse_action, write_jsonl
 from poker_table.league import LeagueConfig, run_league
+from poker_table.odds import table_equities
 from poker_table.table import DecisionRecord
 
 MAX_PACE = 5.0
+
+
+class EquityTrack:
+    """Everyone's share of the pot through a hand, re-computed whenever it can change.
+
+    A fold or a new card adds a row, and each row holds from viewer position ``step`` on. A live
+    table and the replay of the same hand build this from the same steps with the same seeds,
+    so the numbers do not jump when a finished hand opens as a replay.
+    """
+
+    def __init__(self, holes: dict[int, tuple[Card, Card]], *, samples: int = 600) -> None:
+        self.holes = holes
+        self.samples = samples
+        self.live = set(holes)
+        self.board: list[Card] = []
+        self.rows: list[dict[str, Any]] = []
+        self._snapshot(0)
+
+    def take(self, position: int, step: dict[str, Any]) -> dict[str, Any] | None:
+        """Note the step that brings the viewer to ``position``; the new row, if it adds one."""
+        if step["kind"] == "action" and step["action"] == "fold" and step["seat"] in self.live:
+            self.live.discard(step["seat"])
+        elif step["kind"] == "street":
+            self.board += [Card.parse(c) for c in step["cards"]]
+        else:
+            return None
+        return self._snapshot(position)
+
+    def _snapshot(self, position: int) -> dict[str, Any]:
+        shares, exact = table_equities(
+            {s: self.holes[s] for s in sorted(self.live)},
+            self.board,
+            samples=self.samples,
+            seed=position,
+        )
+        row = {
+            "step": position,
+            "exact": exact,
+            "equity": {str(s): round(v, 4) for s, v in shares.items()},
+        }
+        self.rows.append(row)
+        return row
 
 
 @dataclass(slots=True)
@@ -30,6 +74,10 @@ class LiveSession:
     thinking), one ``step`` per engine event (posts, actions with their decision details,
     streets, showdown, wins), ``hand`` once it is on disk, ``turn`` when the browser seat must
     act and ``done`` at the end. ``pace`` slows a bot-only table down to watching speed.
+
+    With nobody human at the table the steps also carry everyone's win chances (``equity``),
+    like a broadcast. Those numbers are worked out from every seat's cards, so a table with a
+    player at it must never send them: they would tell the player how strong the others are.
     """
 
     agents: Sequence[Agent]
@@ -45,6 +93,7 @@ class LiveSession:
     _lock: threading.Lock = field(default_factory=threading.Lock)
     _thread: threading.Thread | None = None
     _published: int = 0  # engine events of the current hand already turned into steps
+    _track: EquityTrack | None = None  # the current hand's win chances, for spectators only
 
     @property
     def human(self) -> WebHumanAgent | None:
@@ -92,7 +141,7 @@ class LiveSession:
 
     def _on_hand_start(self, hand: Hand) -> None:
         reveal = self.spectator
-        self.current = {
+        current: dict[str, Any] = {
             "hand_id": hand.hand_id,
             "button": hand.button,
             "small_blind": hand.small_blind,
@@ -117,6 +166,13 @@ class LiveSession:
             "decisions": [],
         }
         self._published = 0
+        self._track = None
+        # The maths costs up to 40 ms a row: nothing at watching speed, but real on a full-speed
+        # session nobody has opened, so that one skips it.
+        if reveal and (self.pace > 0 or self._subscribers):
+            self._track = EquityTrack({s.index: tuple(s.hole) for s in hand.seats if s.hole})
+            current["equity"] = self._track.rows
+        self.current = current  # a request thread may serialize it from here on
         self._flush(hand, publish=False)  # the blind posts travel inside hand_start
         self.publish({"type": "hand_start", "hand": copy.deepcopy(self.current)})  # a snapshot
         self._sleep()
@@ -158,9 +214,12 @@ class LiveSession:
                 decision = None
             if event.kind is EventKind.STREET:
                 self.current["board"] = [str(c) for c in hand.board]
+            at = len(self.current["steps"])
+            row = self._track.take(at + 1, step) if self._track else None
             self.current["steps"].append(step)
             if publish:
-                self.publish({"type": "step", "hand_id": hand.hand_id, "step": step})
+                message = {"type": "step", "hand_id": hand.hand_id, "at": at, "step": step}
+                self.publish(message | {"equity": row} if row else message)
 
     def _sleep(self) -> None:
         if self.pace > 0:
@@ -209,7 +268,11 @@ class LiveSession:
         }
 
     def sse(self, keepalive: float = 15.0) -> Iterator[str]:
-        """Server-sent events: a hello with the status, then every published event."""
+        """Server-sent events: a hello with the status, then every published event.
+
+        The queue exists before the status is read, so nothing falls between the two. A step may
+        arrive twice, in the hello's hand and as an event; its ``at`` says which one it is.
+        """
         q = self.subscribe()
         try:
             yield f"data: {json.dumps({'type': 'hello', **self.status()})}\n\n"
@@ -234,21 +297,25 @@ class WebHumanAgent:
         self.session: LiveSession | None = None
         self.pending: dict[str, Any] | None = None
         self._answer: queue.Queue[Decision] = queue.Queue()
+        self._submitting = threading.Lock()
 
     def act(self, view: SeatView) -> Decision:
         self.pending = live_view_payload(view)
         if self.session is not None:
             self.session.publish({"type": "turn", "seat": view.seat, "hand_id": view.hand_id})
-        try:
-            return self._answer.get()
-        finally:
-            self.pending = None
+        return self._answer.get()
 
     def submit(self, action_text: str, table_talk: str = "") -> Action:
-        """Called from the request thread; the table's sanitizer handles off-by-a-bit sizes."""
-        if self.pending is None:
-            raise LookupError("it is not your turn")
-        action = parse_action(action_text)
+        """Called from the request thread; the table's sanitizer handles off-by-a-bit sizes.
+
+        The turn closes here rather than when the table wakes up, so a double click cannot
+        leave a second answer waiting to play the seat's next turn unseen.
+        """
+        with self._submitting:
+            if self.pending is None:
+                raise LookupError("it is not your turn")
+            action = parse_action(action_text)
+            self.pending = None
         self._answer.put(Decision(action, reasoning="human (browser)", table_talk=table_talk))
         return action
 

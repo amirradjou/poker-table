@@ -38,6 +38,14 @@ on, so replaying your own session does not spoil it.
 
 ![The odds panel under the table: two equity bars, the outs, and the price](odds.png)
 
+## On a live table
+
+A table with nobody human at it shows the win chances while the hand is played: each seat's
+share of the pot, worked out again at every fold and every new card. The server uses the same
+code and seeds as the replay, so the numbers do not change when the finished hand opens as a
+replay. A table with a player at it never sends these numbers. They come from everyone's cards,
+so your own 20% would tell you how strong the others are.
+
 ## The formulas
 
 Written out because the point of a calculator is that its numbers can be checked.
