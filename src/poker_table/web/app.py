@@ -293,8 +293,7 @@ class ActRequest(BaseModel):
 
 
 class NarrateRequest(BaseModel):
-    player: str
-    model: str | None = None
+    player: str  # no model here: the page must not choose what the owner's key pays for
 
 
 class PaceRequest(BaseModel):
@@ -393,11 +392,10 @@ def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
         if body.player not in store.players():
             raise HTTPException(404, f"no seat named {body.player!r}")
         report = store.report(body.player, 200)
-        model = body.model or DEFAULT_MODEL
         try:
-            narration = narrate(report, model=model)
+            narration = narrate(report, model=DEFAULT_MODEL)
         except Exception as exc:  # noqa: BLE001 - no key, network down, model error: tell the page
-            raise HTTPException(503, explain_model_error(exc, model)) from None
+            raise HTTPException(503, explain_model_error(exc, DEFAULT_MODEL)) from None
         return {
             "notes": [
                 {
