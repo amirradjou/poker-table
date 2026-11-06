@@ -493,6 +493,11 @@ def test_a_projection_warns_when_the_budget_would_end_the_run() -> None:
     assert Projection(5, 195, 0.05, 10.0, 2.5).stops_after is None
 
 
+def test_a_very_short_time_reads_properly() -> None:
+    text = Projection(5, 495, 0.0, 0.01, None).describe()
+    assert "took a second or less" in text and "about 1 seconds" not in text
+
+
 def test_a_free_run_says_so_rather_than_quoting_dollars() -> None:
     text = Projection(2, 98, 0.0, 120.0, None).describe()
     assert "for free" in text and "$" not in text and "about 1 h 38 min" in text

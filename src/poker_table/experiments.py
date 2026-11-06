@@ -587,6 +587,8 @@ def seat_results(histories: Sequence[HandHistory]) -> list[SeatResult]:
 
 
 def _duration(seconds: float) -> str:
+    if seconds < 1.5:
+        return "a second or less"
     if seconds < 90:
         return f"{seconds:.0f} seconds"
     minutes = round(seconds / 60)
