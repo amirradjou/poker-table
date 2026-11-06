@@ -182,4 +182,4 @@ def test_an_llm_seat_reports_what_it_cost_and_what_it_was_given() -> None:
     from poker_table.cli import llm_seat_note
 
     seat = LLMAgent("x", "rock", aids=["odds"], client=object())
-    assert llm_seat_note(seat) == "x: 0 model calls to claude-opus-5, $0.0000; aids: odds"
+    assert llm_seat_note(seat) == "x: 0 model calls to claude-opus-5-5, $0.0000; aids: odds"

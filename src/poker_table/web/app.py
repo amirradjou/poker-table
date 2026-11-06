@@ -387,16 +387,17 @@ def create_app(path: Path | str, live: LiveSession | None = None) -> FastAPI:
 
     @app.post("/api/coach/narrate")
     def coach_narrate(body: NarrateRequest) -> dict[str, Any]:
-        from poker_table.agents.llm import DEFAULT_MODEL
+        from poker_table.agents.llm import DEFAULT_MODEL, explain_model_error
         from poker_table.coach.narrate import narrate
 
         if body.player not in store.players():
             raise HTTPException(404, f"no seat named {body.player!r}")
         report = store.report(body.player, 200)
+        model = body.model or DEFAULT_MODEL
         try:
-            narration = narrate(report, model=body.model or DEFAULT_MODEL)
+            narration = narrate(report, model=model)
         except Exception as exc:  # noqa: BLE001 - no key, network down, model error: tell the page
-            raise HTTPException(503, f"{type(exc).__name__}: {exc}") from None
+            raise HTTPException(503, explain_model_error(exc, model)) from None
         return {
             "notes": [
                 {

@@ -148,7 +148,7 @@ def test_coach_narrate_without_credentials_is_a_clean_503(hands_file: Path, monk
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:9")  # nothing listens here
     client = TestClient(create_app(hands_file))
     r = client.post("/api/coach/narrate", json={"player": "maniac"})
-    assert r.status_code == 503 and "Error" in r.json()["detail"]
+    assert r.status_code == 503 and "ANTHROPIC_API_KEY" in r.json()["detail"]
     assert client.post("/api/coach/narrate", json={"player": "nobody"}).status_code == 404
 
 

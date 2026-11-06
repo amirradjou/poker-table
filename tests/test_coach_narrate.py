@@ -79,7 +79,7 @@ def test_narration_keeps_supported_notes_and_drops_the_rest() -> None:
     assert f"#{good_hand}" in text and "Do this: Use the chart." in text
     request = client.requests[0]
     assert request["output_config"]["format"]["schema"] == NOTES_SCHEMA
-    assert request["model"] == "claude-opus-5"
+    assert request["model"] == "claude-opus-5-5"
     assert "only cite hands" in request["system"][0]["text"]
     body = json.loads(request["messages"][0]["content"])
     assert body["player"] == "maniac"

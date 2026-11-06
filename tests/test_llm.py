@@ -68,7 +68,7 @@ def test_request_shape_uses_structured_output_and_a_cached_system_prompt() -> No
     assert decision.action == Action.raise_to(6)
     assert decision.reasoning == "AA" and decision.table_talk == ""
     request = client.messages.requests[0]
-    assert request["model"] == "claude-opus-5"
+    assert request["model"] == "claude-opus-5-5"
     assert request["output_config"]["format"] == {"type": "json_schema", "schema": NOTE_SCHEMA}
     assert request["output_config"]["effort"] == "high"  # the nerd thinks hard
     assert request["system"][0]["cache_control"] == {"type": "ephemeral"}
@@ -89,7 +89,7 @@ def test_usage_is_accounted_per_decision_and_in_stats() -> None:
     decision = agent.act(make_view(hand, 0))
     assert decision.meta["input_tokens"] == 1000 and decision.meta["output_tokens"] == 50
     assert agent.usage.calls == 1 and agent.usage.cost_usd > 0
-    assert decision.meta["cost_usd"] == pytest.approx((1000 * 5 + 50 * 25) / 1e6)
+    assert decision.meta["cost_usd"] == pytest.approx((1000 * 4 + 50 * 20) / 1e6)
 
 
 def test_estimate_cost_prices_cache_reads_at_ten_percent() -> None:
@@ -102,7 +102,7 @@ def test_estimate_cost_prices_cache_reads_at_ten_percent() -> None:
     assert estimate_cost("claude-haiku-4-5", usage) == pytest.approx(
         (100 * 1 + 900 * 0.1 + 10 * 5) / 1e6
     )
-    assert estimate_cost("unknown-model", usage) == estimate_cost("claude-opus-5", usage)
+    assert estimate_cost("unknown-model", usage) == estimate_cost("claude-opus-5-5", usage)
 
 
 def test_junk_facing_a_raise_is_folded_without_a_model_call() -> None:
@@ -167,7 +167,7 @@ def test_full_hand_with_llm_seats_records_talk_cost_and_slips(tmp_path) -> None:
     assert hand.finished
     history = HandHistory.from_played(played)
     first, second = history.decisions[0], history.decisions[1]
-    assert first.table_talk == "raising it up" and first.meta["model"] == "claude-opus-5"
+    assert first.table_talk == "raising it up" and first.meta["model"] == "claude-opus-5-5"
     assert second.seat == 1
     # bob saw alice's table talk in his prompt
     prompt = bob.client.messages.requests[0]["messages"][0]["content"]
@@ -295,13 +295,13 @@ def test_a_league_stops_dealing_when_the_budget_is_spent() -> None:
     from poker_table.agents import CallingStation
     from poker_table.league import LeagueConfig, run_league
 
-    # Every call costs 1000 input + 50 output tokens on claude-opus-5: $0.00625.
+    # Every call costs 1000 input + 50 output tokens on claude-opus-5-5: $0.005.
     agent = LLMAgent("llm", "maniac", client=FakeClient(), aids=())
     config = LeagueConfig(hands=50, seed=1, budget_usd=0.02)
     result = run_league([agent, CallingStation("station")], config)
     assert result.over_budget and result.hands < 50 and len(result.histories) == result.hands
     assert result.spent_usd == pytest.approx(agent.usage.cost_usd) and result.spent_usd >= 0.02
-    assert result.spent_usd < 0.02 + 0.00625 * 4  # stopped within the hand that crossed it
+    assert result.spent_usd < 0.02 + 0.005 * 4  # stopped within the hand that crossed it
     unlimited = run_league(
         [LLMAgent("llm", "maniac", client=FakeClient(), aids=()), CallingStation("station")],
         LeagueConfig(hands=5, seed=1),

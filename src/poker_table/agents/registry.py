@@ -13,7 +13,7 @@ from poker_table.agents.base import Agent
 from poker_table.agents.human import HumanAgent
 from poker_table.agents.laya import DEFAULT_MODEL as LAYA_MODEL
 from poker_table.agents.laya import INSTALL_HINT, LayaAgent
-from poker_table.agents.llm import DEFAULT_MODEL, LLMAgent
+from poker_table.agents.llm import DEFAULT_MODEL, LLMAgent, explain_model_error
 from poker_table.agents.ollama import is_local
 from poker_table.agents.personalities import PERSONALITIES
 from poker_table.agents.scripted import CallingStation, Maniac, RandomAgent, TightAggressive
@@ -137,8 +137,14 @@ def check_seats_ready(agents: Sequence[Agent]) -> None:
     for agent in agents:
         if isinstance(agent, LayaAgent) and not agent.loadable:
             raise ValueError(f"seat {agent.name!r}: {INSTALL_HINT}")
-        if isinstance(agent, LLMAgent) and is_local(agent.model):
-            try:
+        if not isinstance(agent, LLMAgent):
+            continue
+        try:
+            if is_local(agent.model):
                 agent.client.check(agent.model)
-            except ValueError as exc:
-                raise ValueError(f"seat {agent.name!r}: {exc}") from None
+            else:
+                # Looking a model up is free, and fails on a missing key or a wrong name.
+                agent.client.models.retrieve(agent.model)
+        except Exception as exc:  # noqa: BLE001 - any failure here means the seat cannot play
+            reason = explain_model_error(exc, agent.model)
+            raise ValueError(f"seat {agent.name!r}: {reason}") from None

@@ -277,7 +277,7 @@ def test_a_paid_seat_that_cannot_connect_is_found_before_the_first_hand(
     path = write_experiment(
         tmp_path, 'seats = ["llm:nerd@claude-sonnet-5-5", "tag"]\nhands = 5\nbudget_usd = 1'
     )
-    with pytest.raises(ValueError, match="cannot use claude-sonnet-5-5.*no credentials"):
+    with pytest.raises(ValueError, match="claude-sonnet-5-5.*no credentials"):
         run_experiment(path, tmp_path / "out")
     assert client.messages.calls == 0
 
