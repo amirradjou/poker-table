@@ -179,6 +179,17 @@ function equityAt(n) {
   for (const r of rows) if (r.step <= n) row = r;
   return row ? Object.fromEntries(Object.entries(row.equity).map(([k, v]) => [+k, v])) : null;
 }
+// The commentary line in force at position n: the same sources and the same rule as the numbers.
+function callAt(n) {
+  if (!showOdds || !showCards || !hand || hand.drill) return "";
+  const lines = hand.streaming ? hand.commentary
+    : oddsData && oddsData.hand_id === hand.hand_id ? oddsData.commentary
+    : liveHand && liveHand.hand_id === hand.hand_id ? liveHand.commentary
+    : null;
+  let text = "";
+  for (const line of lines || []) if (line.step <= n) text = line.text;
+  return text;
+}
 function equityEl(seat, share, shares) {
   const pct = Math.round(share * 100);
   const lead = share === Math.max(...Object.values(shares)) && share > 0;
@@ -341,6 +352,7 @@ function render() {
   $("scrub").style.setProperty("--pct", `${hand.steps.length ? (100 * step) / hand.steps.length : 0}%`);
   $("summary").classList.toggle("pending", !st.done && !hand.streaming);
   $("street").textContent = st.done ? "Hand over" : st.street[0].toUpperCase() + st.street.slice(1);
+  $("call").textContent = callAt(step);
   // board
   const board = $("board"); board.innerHTML = "";
   st.board.forEach(c => board.appendChild(cardEl(c)));
@@ -726,6 +738,8 @@ function takeLiveStep(ev) {
   if (!liveHand || ev.hand_id !== liveHand.hand_id) return;
   const rows = liveHand.equity;
   if (ev.equity && !rows.some(r => r.step === ev.equity.step)) rows.push(ev.equity);
+  const lines = liveHand.commentary;
+  if (ev.line && lines && !lines.some(l => l.step === ev.line.step)) lines.push(ev.line);
   if (ev.at < liveHand.steps.length) return;  // the hello already brought this one
   const s = ev.step;
   liveHand.steps.push(s);

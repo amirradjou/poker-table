@@ -316,6 +316,13 @@ section.hand { padding: 0; }
 .ghost { position: absolute; pointer-events: none; z-index: 5; }
 
 /* ----- transport ------------------------------------------------------------------------ */
+/* The commentary, under the table like a broadcast caption. The height is held so that the
+   controls below stay put when a line comes and goes. */
+.call {
+  max-width: 1040px; min-height: 1.3em; margin: 12px auto;
+  font: 500 clamp(17px, 2.1cqi, 21px)/1.3 var(--condensed); color: var(--ivory); text-align: center;
+}
+@container (max-width: 700px) { .call { min-height: 2.6em; } }
 .controls {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   max-width: 1040px; margin: 0 auto; padding: 8px 10px; border-radius: var(--radius-panel);

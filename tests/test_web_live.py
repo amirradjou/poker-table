@@ -190,6 +190,30 @@ def test_a_spectator_table_streams_the_numbers_its_replay_will_show(tmp_path: Pa
         assert streamed[history.hand_id] == odds_payload(history)["table"]
 
 
+def test_a_spectator_table_streams_the_lines_its_replay_will_show(tmp_path: Path) -> None:
+    from poker_table.web.app import odds_payload
+
+    path = tmp_path / "live.jsonl"
+    session = LiveSession(
+        [Maniac("m"), CallingStation("s"), TightAggressive("tag")],
+        LeagueConfig(hands=12, seed=4),
+        path,
+    )
+    events = session.subscribe()
+    session.start()
+    session.join(10)
+    assert session.error == ""
+    streamed: dict[str, list[dict]] = {}
+    for event in drain(events):
+        if event["type"] == "hand_start":
+            streamed[event["hand"]["hand_id"]] = list(event["hand"]["commentary"])
+        elif event["type"] == "step" and "line" in event:
+            streamed[event["hand_id"]].append(event["line"])
+    assert any(streamed.values())  # a maniac at the table gives it something to say
+    for history in read_jsonl(path):
+        assert streamed[history.hand_id] == odds_payload(history)["commentary"]
+
+
 def test_a_hand_joined_midway_already_has_its_numbers(tmp_path: Path) -> None:
     path = tmp_path / "live.jsonl"
     session = LiveSession(
@@ -221,7 +245,9 @@ def test_a_table_with_a_player_never_sends_the_win_chances(tmp_path: Path) -> No
         human.submit("fold")
     session.join(5)
     assert session.error == "" and len(seen) >= 3
-    assert "equity" not in json.dumps(drain(events)) + json.dumps(seen)
+    sent = json.dumps(drain(events)) + json.dumps(seen)
+    assert "equity" not in sent
+    assert "commentary" not in sent and '"line"' not in sent  # it says what everyone holds
 
 
 def test_nobody_watching_a_full_speed_table_skips_the_maths(tmp_path: Path, monkeypatch) -> None:

@@ -19,6 +19,7 @@ from poker_table.history import HandHistory, parse_action, write_jsonl
 from poker_table.league import LeagueConfig, run_league
 from poker_table.odds import table_equities
 from poker_table.table import DecisionRecord
+from poker_table.web.commentary import Commentator
 
 MAX_PACE = 5.0
 
@@ -65,6 +66,33 @@ class EquityTrack:
         return row
 
 
+class Broadcast:
+    """What a hand's viewers are told about everyone's cards: the win chances and the commentary.
+
+    One object for a live table and for a replay, so the two can never tell a hand differently.
+    """
+
+    def __init__(self, holes: dict[int, tuple[Card, Card]], names: dict[int, str]) -> None:
+        self.track = EquityTrack(holes)
+        self.commentator = Commentator(holes, names)
+        self.lines: list[dict[str, Any]] = []
+
+    @property
+    def rows(self) -> list[dict[str, Any]]:
+        return self.track.rows
+
+    def take(
+        self, position: int, step: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        """Note the step that brings the viewer to ``position``; any new row, and any new line."""
+        before = self.track.rows[-1]["equity"]
+        row = self.track.take(position, step)
+        line = self.commentator.take(position, step, before, row["equity"] if row else before)
+        if line:
+            self.lines.append(line)
+        return row, line
+
+
 @dataclass(slots=True)
 class LiveSession:
     """Plays ``config.hands`` between ``agents`` on a thread, appending to ``path``.
@@ -93,7 +121,7 @@ class LiveSession:
     _lock: threading.Lock = field(default_factory=threading.Lock)
     _thread: threading.Thread | None = None
     _published: int = 0  # engine events of the current hand already turned into steps
-    _track: EquityTrack | None = None  # the current hand's win chances, for spectators only
+    _broadcast: Broadcast | None = None  # the current hand's win chances, for spectators only
 
     @property
     def human(self) -> WebHumanAgent | None:
@@ -166,12 +194,16 @@ class LiveSession:
             "decisions": [],
         }
         self._published = 0
-        self._track = None
+        self._broadcast = None
         # The maths costs up to 40 ms a row: nothing at watching speed, but real on a full-speed
         # session nobody has opened, so that one skips it.
         if reveal and (self.pace > 0 or self._subscribers):
-            self._track = EquityTrack({s.index: tuple(s.hole) for s in hand.seats if s.hole})
-            current["equity"] = self._track.rows
+            self._broadcast = Broadcast(
+                {s.index: tuple(s.hole) for s in hand.seats if s.hole},
+                {s.index: s.name for s in hand.seats},
+            )
+            current["equity"] = self._broadcast.rows
+            current["commentary"] = self._broadcast.lines
         self.current = current  # a request thread may serialize it from here on
         self._flush(hand, publish=False)  # the blind posts travel inside hand_start
         self.publish({"type": "hand_start", "hand": copy.deepcopy(self.current)})  # a snapshot
@@ -215,11 +247,15 @@ class LiveSession:
             if event.kind is EventKind.STREET:
                 self.current["board"] = [str(c) for c in hand.board]
             at = len(self.current["steps"])
-            row = self._track.take(at + 1, step) if self._track else None
+            row, line = self._broadcast.take(at + 1, step) if self._broadcast else (None, None)
             self.current["steps"].append(step)
             if publish:
                 message = {"type": "step", "hand_id": hand.hand_id, "at": at, "step": step}
-                self.publish(message | {"equity": row} if row else message)
+                if row:
+                    message["equity"] = row
+                if line:
+                    message["line"] = line
+                self.publish(message)
 
     def _sleep(self) -> None:
         if self.pace > 0:
