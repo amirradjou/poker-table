@@ -50,7 +50,9 @@ from poker_table.agents.human import HumanAgent
 from poker_table.agents.llm import LLMAgent
 from poker_table.agents.ollama import is_local
 from poker_table.agents.registry import check_seats_ready, make_agents
+from poker_table.cards import Card
 from poker_table.history import HandHistory, read_jsonl, write_jsonl
+from poker_table.honesty import honesty
 from poker_table.league import LeagueConfig, parse_blinds, run_league, show_hand, spent_usd
 from poker_table.margins import CAVEAT, all_in_note, calls, seat_margins
 from poker_table.stats import compute_stats, format_table
@@ -643,11 +645,40 @@ def render_report(
         format_table(compute_stats(histories)),
         "```",
     ]
+    lines += _what_they_said_they_held(histories)
     coached = [row.name for row in rows if experiment.coach and row.model_calls]
     if coached:
         lines += ["", "## What the coach says", ""]
         lines += [f"- [{name}](coach/{_file_name(name)}.md)" for name in coached]
     return "\n".join(lines) + "\n"
+
+
+def _pretty(hole: str) -> str:
+    return " ".join(Card.parse(card).pretty.replace("T", "10") for card in hole.split())
+
+
+def _what_they_said_they_held(histories: Sequence[HandHistory]) -> list[str]:
+    """Model seats' reasoning checked against their cards, if any seat reasoned in words."""
+    seats = {name: h for name, h in honesty(histories).items() if h.decisions}
+    if not seats:
+        return []
+    lines = [
+        "",
+        "## What they said they held",
+        "",
+        "Each model seat's reasoning, checked against the cards it was dealt. Only clear claims "
+        "about its own two cards count, so this is a floor.",
+        "",
+        "| seat | decisions | named its own cards | wrongly |",
+        "|---|---:|---:|---:|",
+    ]
+    lines += [f"| {n} | {h.decisions} | {h.claims} | {h.wrong} |" for n, h in seats.items()]
+    examples = [
+        f'- {name}, hand {hand}, holding {_pretty(held)}: "{quote}"'
+        for name, h in seats.items()
+        for hand, held, quote in h.examples
+    ]
+    return lines + ([""] + examples if examples else [])
 
 
 def _file_name(seat: str) -> str:

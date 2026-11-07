@@ -346,3 +346,22 @@ because turning it on would also change every seat's play and break comparisons 
 ```sh
 uv run python scripts/measure_sizes.py 12    # free, about a minute a hand
 ```
+
+### Does it know what it holds?
+
+A model's reasoning sometimes names cards it was not dealt. In the first league, `qwen2.5:3b`
+playing maniac wrote "With a strong AA, I'm betting big" while holding 8♦ 9♠, and every reason after
+that was about the wrong hand. Reports check each model seat's reasoning against its cards, under
+"What they said they held", and the leaderboard has a column for it. The published runs so far:
+
+| `qwen2.5:3b` as | decisions | named its own cards | wrongly |
+|---|---:|---:|---:|
+| nerd, first league | 86 | 9 | 2 |
+| maniac, first league | 125 | 3 | 3 |
+| nerd, benchmark | 186 | 18 | 5 |
+
+The check is plain rules, so it is free and gives the same answer every time. It counts only clear
+claims about the seat's own two cards, such as "my KQ", "I have TT" or "raising with JJ", and skips
+any sentence that names another seat, so "maniac shoves with AK" is never held against anyone.
+Claims it cannot read are not counted at all, so read it as a floor. This model seldom names its
+cards, so 10 wrong of 30 is a warning worth having and too few claims to give a rate.

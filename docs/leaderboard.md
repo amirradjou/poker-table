@@ -2,16 +2,16 @@
 
 Every entrant plays the same 200 hands from the same seat, against the same four bots (tag, rock, maniac, station), so they all get the same cards.
 
-| entrant | all-in adj. bb/100 | ±95% | bb/100 | illegal | failed | s/call | $/hand | played |
-|---|---:|---:|---:|---:|---:|---:|---:|---|
-| tag | +493 | 542 | +677 | 0% | 0 | - | - | 2026-11-06 |
-| rock | +233 | 327 | +233 | 0% | 0 | - | - | 2026-11-06 |
-| llm:nerd on ollama/qwen2.5:3b | +224 | 409 | +1387 | 0% | 0 | 26.5 | - | 2026-11-07 |
-| station | +131 | 1178 | -100 | 0% | 0 | - | - | 2026-11-06 |
-| maniac | +78 | 1130 | +1667 | 0% | 0 | - | - | 2026-11-06 |
-| random | -2346 | 763 | -1629 | 0% | 0 | - | - | 2026-11-06 |
+| entrant | all-in adj. bb/100 | ±95% | bb/100 | illegal | failed | named its cards wrongly | s/call | $/hand | played |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| tag | +493 | 542 | +677 | 0% | 0 | - | - | - | 2026-11-06 |
+| rock | +233 | 327 | +233 | 0% | 0 | - | - | - | 2026-11-06 |
+| llm:nerd on ollama/qwen2.5:3b | +224 | 409 | +1387 | 0% | 0 | 5 of 18 | 26.5 | - | 2026-11-07 |
+| station | +131 | 1178 | -100 | 0% | 0 | - | - | - | 2026-11-06 |
+| maniac | +78 | 1130 | +1667 | 0% | 0 | - | - | - | 2026-11-06 |
+| random | -2346 | 763 | -1629 | 0% | 0 | - | - | - | 2026-11-06 |
 
-Read the intervals before the order. Two entrants whose intervals overlap may not be different at all, and 200 hands is a small sample: 800 would halve those intervals. $/hand is blank where the model is free, or where its provider does not report a price.
+Read the intervals before the order. Two entrants whose intervals overlap may not be different at all, and 200 hands is a small sample: 800 would halve those intervals. $/hand is blank where the model is free, or where its provider does not report a price. "Named its cards wrongly" counts the times its reasoning claimed two cards it was not holding, out of the times it named its own cards at all.
 
 ## Add yours
 
