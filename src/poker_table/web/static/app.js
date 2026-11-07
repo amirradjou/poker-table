@@ -312,7 +312,7 @@ async function openHand(id, { autoplay = false, at = "start", inReel = false } =
   $("empty").classList.add("hidden");
   $("replay").classList.remove("hidden");
   $("hand-title").textContent = `Hand #${hand.hand_id}`;
-  $("hand-sub").textContent = `Blinds ${hand.small_blind}/${hand.big_blind}${hand.ante ? `, ante ${hand.ante}` : ""}`;
+  $("hand-sub").textContent = handSub(hand);
   $("hand-sub").title = `seed ${hand.seed}`;
   $("scrub").max = hand.steps.length;
   buildLog();
@@ -329,7 +329,8 @@ function handRowHtml(h) {
   return `<span class="id">#${esc(h.hand_id)}</span><span class="who">${won || "no winner"}</span>` +
     `<span class="pot" title="pot">${h.pot}</span>` +
     `<span class="mini">${miniBoard(h.board)}</span>` +
-    (h.line ? `<span class="line">${esc(h.line)}</span>` : "");
+    (h.line ? `<span class="line">${esc(h.line)}</span>` : "") +
+    (h.out && Object.keys(h.out).length ? `<span class="line out">${esc(outLine(h.out))}</span>` : "");
 }
 // The board as a line of text: rank and suit, red suits in red.
 function miniBoard(board) {
@@ -612,10 +613,31 @@ function buildSummary() {
     return `<tr><td>${esc(p.name)}</td><td>${p.position}</td><td>${p.hole.join(" ")}${sd}</td><td class="num ${cls}">${p.net > 0 ? "+" : ""}${p.net}</td></tr>`;
   }).join("");
   const pots = hand.pots.map((p, i) => `${i === 0 ? "main pot" : "side pot " + i} ${p.amount}`).join(", ");
-  $("summary").innerHTML = `<table><tr><th>Seat</th><th></th><th>Cards</th><th class="num">Result</th></tr>${rows}</table><p>${pots}. Board ${hand.board.join(" ") || "never dealt"}.</p>`;
+  const out = hand.tournament ? outLine(hand.tournament.out) : "";
+  $("summary").innerHTML = `<table><tr><th>Seat</th><th></th><th>Cards</th><th class="num">Result</th></tr>${rows}</table><p>${pots}. Board ${hand.board.join(" ") || "never dealt"}.</p>` +
+    (out ? `<p class="out">${esc(out)}.</p>` : "");  // seat names stay as written
 }
 
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+// ---- tournaments: levels, bust-outs and standings ----
+function nth(n) {
+  const teen = n % 100 >= 11 && n % 100 <= 13;
+  return n + (teen ? "th" : ({ 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th"));
+}
+// "rock is out in 4th", or two seats in one hand: "rock and nit are out in 4th and 5th".
+function outLine(out) {
+  const gone = Object.entries(out || {}).sort((a, b) => a[1] - b[1]);
+  if (!gone.length) return "";
+  const names = gone.map(([name]) => name), places = gone.map(([, place]) => nth(place));
+  const join = xs => xs.length < 3 ? xs.join(" and ") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;
+  return `${join(names)} ${gone.length === 1 ? "is" : "are"} out in ${join(places)}`;
+}
+function blindsText(h) { return `blinds ${h.small_blind}/${h.big_blind}${h.ante ? `, ante ${h.ante}` : ""}`; }
+function handSub(h) {
+  const t = h.tournament;
+  return t && t.level ? `Level ${t.level}: ${blindsText(h)}, ${t.left} left` : blindsText(h)[0].toUpperCase() + blindsText(h).slice(1);
+}
 
 const SVG = "http://www.w3.org/2000/svg";
 function svgEl(tag, attrs, parent) {
@@ -704,8 +726,9 @@ $("bankroll-table-toggle").onclick = (e) => {
 
 async function showBoard() {
   drawBankroll().catch(() => $("bankroll").classList.add("hidden"));
-  const data = await api("/api/stats");
+  const [data, session] = await Promise.all([api("/api/stats"), api("/api/session")]);
   $("board-title").textContent = `${data.hands} hands, sorted by chips won`;
+  showStandings(session.tournament);
   const cols = data.rows.length ? Object.keys(data.rows[0]) : [];
   cols.splice(cols.indexOf("bb/100") + 1, 0, "adj", "margin");
   const head = cols.map(c => `<th${STAT_HELP[c] ? ` title="${STAT_HELP[c]}"` : ""}>${STAT_NAME[c] || c}</th>`).join("");
@@ -721,6 +744,20 @@ async function showBoard() {
   fillMargins().catch(() => {
     for (const td of $("board-table").querySelectorAll("td.adj, td.margin")) td.textContent = "–";
   });
+}
+
+// A freezeout is decided by who is left, not by chips per hand: its standings come first.
+function showStandings(t) {
+  const el = $("standings");
+  el.classList.toggle("hidden", !t);
+  if (!t) return;
+  const winner = t.over ? t.standings[0].name : null;
+  $("board-title").textContent = winner
+    ? `Tournament over after ${t.hands} hands: ${winner} wins`
+    : `Tournament after ${t.hands} hands: level ${t.level} (${t.blinds}), ${t.left} left`;
+  const body = t.standings.map(r => `<tr><td>${r.place ? nth(r.place) : "–"}</td><td>${esc(r.name)}</td>` +
+    `<td>${r.out_in ? "–" : r.chips}</td><td>${r.out_in ? `hand #${esc(r.out_in)}` : r.place === 1 ? "won" : "still in"}</td></tr>`).join("");
+  el.innerHTML = `<table><thead><tr><th>Place</th><th>Seat</th><th>Chips</th><th>Out</th></tr></thead><tbody>${body}</tbody></table>`;
 }
 
 // A big file takes a while to work these out, so they arrive after the table has been drawn.
@@ -765,6 +802,15 @@ function stopAuto() {
 // ---- live sessions ----
 function liveText(st) {
   if (st.error) return `live session failed: ${st.error}`;
+  const t = st.tournament;
+  if (t) {
+    const out = t.out || {};
+    const left = (st.seats || []).filter(name => !(name in out));
+    if (st.finished) return left.length === 1 ? `tournament over: ${left[0]} wins after ${st.hands_played} hands` : `tournament stopped after ${st.hands_played} hands`;
+    if (st.turn) return "waiting for you";
+    if (st.human && st.human in out) return `you went out in ${nth(out[st.human])}; level ${t.level}, ${t.left} left`;
+    return t.level ? `live: level ${t.level} (${t.blinds}), ${t.left} left` : "live: dealing";
+  }
   if (st.finished) return `session over, ${st.hands_played} hands`;
   if (st.turn) return "waiting for you";
   return `live: hand ${st.hands_played + 1} of ${st.hands_total}`;
@@ -793,7 +839,8 @@ function showLive() {
   $("action-bar").classList.toggle("hidden", !turn);
   $("summary").classList.add("hidden");
   $("hand-title").textContent = `Hand #${liveHand.hand_id}`;
-  $("hand-sub").textContent = turn ? `your turn on the ${turn.street}` : `live, blinds ${liveHand.small_blind}/${liveHand.big_blind}`;
+  const sub = handSub(liveHand);
+  $("hand-sub").textContent = turn ? `your turn on the ${turn.street}` : `live, ${sub[0].toLowerCase()}${sub.slice(1)}`;
   $("scrub").max = liveHand.steps.length;
   for (const b of $("hand-list").querySelectorAll("button[data-id]")) b.setAttribute("aria-current", "false");
   buildLog();

@@ -104,6 +104,7 @@ aside .more { display: block; width: 100%; margin: 8px 0 20px; background: none;
 .filters { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; background: var(--room-2); border-bottom: 1px solid var(--line); }
 .filters select { flex: 1 1 130px; min-width: 0; padding: 4px 6px; font: 500 14px/1.3 "Barlow", system-ui, sans-serif; color: var(--ivory); background: var(--room-3); border: 1px solid var(--room-4); border-radius: 6px; }
 aside .line { grid-column: 2 / -1; font-size: 13px; line-height: 1.3; color: var(--ivory-soft); }
+aside .line.out { color: var(--brass-hi); }
 aside li.subset .count { flex: 1 1 100%; }
 aside li.subset .scanning { display: block; font-size: 13px; font-weight: 400; color: var(--ivory-soft); }
 aside li.subset { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--room-3); font-size: 14px; }
@@ -438,6 +439,7 @@ input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 
 .summary .plus { color: var(--up); font-weight: 600; }
 .summary .minus { color: var(--down); }
 .summary p { margin: 8px 0 0; }
+.summary p.out { color: var(--brass-hi); font-weight: 500; }
 
 /* ----- the empty table, before a hand is picked ---------------------------------------- */
 .empty { display: grid; place-items: center; min-height: 100%; padding: 40px 24px;
@@ -507,6 +509,10 @@ section.board-view h2, section.coach-view h2 { margin: 0 0 16px; font: 700 26px/
 .leaderboard td.plus { color: var(--up); font-weight: 700; }
 .leaderboard td.minus { color: var(--down); }
 .leaderboard tbody tr:hover { background: var(--room-3); }
+.leaderboard.standings { max-width: 560px; margin-bottom: 18px; }
+.leaderboard.standings table { min-width: 0; }
+.leaderboard.standings td:first-child, .leaderboard.standings th:first-child { width: 4.5em; }
+.leaderboard.standings td:nth-child(2), .leaderboard.standings th:nth-child(2) { text-align: left; }
 
 /* bankroll chart: the reference categorical palette, dark steps, in its fixed order.
    Validated on this surface (#231d18): every slot inside the lightness band and >= 3:1,

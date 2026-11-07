@@ -26,6 +26,20 @@ place  name     hands  out at
 
 `hands` is how many hands the seat was dealt into, so it doubles as how long it lasted.
 
+## Watch one
+
+```sh
+poker-table watch --tournament                           # five bots, live in your browser
+poker-table watch --tournament --seats me:human,tag,maniac,rock   # or play it yourself
+poker-table serve tt.jsonl                               # replay one played with -o
+```
+
+Each hand of a freezeout records its level, how many seats it began with and who went out in it,
+with the place they finished. The viewer shows the level beside the blinds, marks the hands where
+someone went out, and puts the standings first on the Leaderboard tab: who is left with how many
+chips, and who went out in which hand. A live table says the level and how many are left as it
+plays. If you go out, the table plays on to the end, and you watch.
+
 ## Measured: 500 seeded freezeouts
 
 `uv run python scripts/measure_tournaments.py` — the default turbo schedule (1/2 doubling to

@@ -146,6 +146,39 @@ def session_payload(store: HandStore) -> dict[str, Any]:
         "weeks": weeks_of(store.hands),
         "highlights": True,
         "odds": True,
+    } | ({"tournament": standing} if (standing := tournament_standing(store.hands)) else {})
+
+
+def tournament_standing(hands: Sequence[HandHistory]) -> dict[str, Any] | None:
+    """Where a freezeout stands after its last hand: the level, who is left with how many chips,
+    and who went out in what place and in which hand. None for a file of cash hands."""
+    played = [h for h in hands if h.tournament]
+    if not played:
+        return None
+    gone: dict[str, tuple[int, str]] = {}  # name -> (place, hand it went out in)
+    for history in played:
+        for name, place in history.tournament.get("out", {}).items():
+            gone[name] = (place, history.hand_id)
+    last = played[-1]
+    left = sorted(
+        ((p.name, p.stack + p.net) for p in last.players if p.name not in gone),
+        key=lambda row: -row[1],
+    )
+    over = len(left) == 1
+    rows = [
+        {"name": name, "place": 1 if over else None, "chips": chips, "out_in": None}
+        for name, chips in left
+    ] + [
+        {"name": name, "place": place, "chips": 0, "out_in": hand_id}
+        for name, (place, hand_id) in sorted(gone.items(), key=lambda item: item[1][0])
+    ]
+    return {
+        "level": last.tournament.get("level"),
+        "blinds": f"{last.small_blind}/{last.big_blind}" + (f"+{last.ante}" if last.ante else ""),
+        "left": len(left),
+        "over": over,
+        "hands": len(played),
+        "standings": rows,
     }
 
 
@@ -335,7 +368,7 @@ def summarize(history: HandHistory) -> dict[str, Any]:
         "showdown": bool(history.showdown),
         "all_in": any(action.all_in for action in history.actions()),
         "players": [{"name": p.name, "net": p.net} for p in history.players],
-    }
+    } | ({"out": history.tournament.get("out", {})} if history.tournament else {})
 
 
 def steps_for(history: HandHistory) -> list[dict[str, Any]]:

@@ -22,6 +22,7 @@ docker run --rm $(docker build -q .) play -n 200 --seats tag,maniac,station
 ```sh
 poker-table                                     # a live table of five bots, in your browser
 poker-table watch --seats me:human,tag,maniac   # sit down yourself
+poker-table watch --tournament                  # a freezeout: rising blinds, play to the last seat
 # a live table that keeps its hands (--pace = seconds per decision)
 poker-table serve live.jsonl --live -n 200 --seats tag,maniac,llm:nerd --pace 0.8 --open
 poker-table serve live.jsonl --live -n 20 --seats me:human,tag,maniac --open

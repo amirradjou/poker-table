@@ -75,6 +75,9 @@ class HandHistory:
     version: int = FORMAT_VERSION
     played_at: str = ""  # ISO 8601 UTC; empty when unknown (older files)
     hero: str = ""  # whose hand this is: the imported file's hero, or the one human seat
+    # In a freezeout: the blind level, how many seats the hand began with, and who went out in it
+    # with the place they finished ({"level": 3, "left": 5, "out": {"rock": 5}}). Empty in cash.
+    tournament: dict[str, Any] = field(default_factory=dict)
 
     @property
     def played(self) -> datetime | None:
@@ -139,6 +142,8 @@ class HandHistory:
         data = asdict(self)
         data["payouts"] = {str(k): v for k, v in self.payouts.items()}
         data["showdown"] = {str(k): v for k, v in self.showdown.items()}
+        if not self.tournament:  # cash hands are written exactly as before
+            del data["tournament"]
         return data
 
     def to_json(self) -> str:
@@ -163,6 +168,7 @@ class HandHistory:
             version=data.get("version", FORMAT_VERSION),
             played_at=data.get("played_at", ""),
             hero=data.get("hero", ""),
+            tournament=dict(data.get("tournament", {})),
         )
 
     @classmethod

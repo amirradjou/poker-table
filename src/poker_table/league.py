@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import random
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from poker_table.agents.base import Agent, SeatView
 from poker_table.engine import Hand
@@ -313,24 +313,29 @@ def run_tournament(
         if on_hand_start is not None:
             on_hand_start(hand)
         played = play_hand(hand, players, on_view=on_view, on_decision=on_decision)
-        history = HandHistory.from_played(played)
-        show_hand(seated, history)
         for seat, index in enumerate(live):
             stacks[names[index]] = hand.seats[seat].stack
-        if keep_histories:
-            result.histories.append(history)
-        if on_hand is not None:
-            on_hand(history)
 
+        result.level = config.level_number(number)
         number += 1
-        result.level = config.level_number(number - 1)
         # Everyone who lost their last chip is out. Several can bust in one hand; the one
         # that sat down with more chips outlasted the other, so it finishes higher.
         busted = sorted((i for i in live if stacks[names[i]] == 0), key=lambda i: before[i])
         survivors = len(live) - len(busted)
+        out: dict[str, int] = {}
         for offset, index in enumerate(busted):
-            result.finishes[names[index]] = survivors + len(busted) - offset
+            out[names[index]] = survivors + len(busted) - offset
+            result.finishes[names[index]] = out[names[index]]
             result.out_at[names[index]] = result.level
+        history = replace(
+            HandHistory.from_played(played),
+            tournament={"level": result.level, "left": len(live), "out": out},
+        )
+        show_hand(seated, history)
+        if keep_histories:
+            result.histories.append(history)
+        if on_hand is not None:
+            on_hand(history)
         live = [i for i in live if stacks[names[i]] > 0]
         button = (button + 1) % len(agents)
         result.spent_usd = spent_usd(agents)
