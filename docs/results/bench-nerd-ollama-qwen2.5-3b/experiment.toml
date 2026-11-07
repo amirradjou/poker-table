@@ -1,0 +1,6 @@
+name = "bench-nerd-ollama-qwen2.5-3b"
+description = "The benchmark: llm:nerd@ollama/qwen2.5:3b against the four bots."
+seats = ["entrant:llm:nerd@ollama/qwen2.5:3b", "tag", "rock", "maniac", "station"]
+hands = 200
+seed = 2026
+coach = false
