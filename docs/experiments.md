@@ -136,7 +136,7 @@ with the same seed and seats.
 The three files in `experiments/`:
 
 - `local-league`: free, on a small local model. Its first run is written up below.
-- `four-personalities`: the league the README asks for, on your own key.
+- `four-personalities`: the four LLM personalities on one model against two bots, on your own key.
 - `per-model`: one personality on Opus, Sonnet and Haiku, bb/100 against $/hand, on your own key.
 
 This project does not pay for model calls, so neither of the last two has been run, and their

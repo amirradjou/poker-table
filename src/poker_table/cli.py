@@ -888,7 +888,7 @@ def cmd_import(args: argparse.Namespace, out) -> int:
     print(f"{total} hands written to {args.out}", file=out)
     if heroes:
         who = ", ".join(sorted(heroes))
-        print(f"next: uv run poker-table coach {args.out} --player {who}", file=out)
+        print(f"next: poker-table coach {args.out} --player {who}", file=out)
     return 0
 
 
