@@ -136,13 +136,22 @@ async function loadSession() {
   const s = await api("/api/session");
   $("file").textContent = s.hands ? `${s.hands} hand${s.hands === 1 ? "" : "s"} from ${s.file}` : `${s.file} is empty`;
   setUpFilters(s);
+  if (s.odds === false) {  // a site exported without --export-odds has no odds files to show
+    showOdds = false;
+    $("toggle-odds").classList.add("hidden");
+  }
   return s;
 }
 
+// A fast live table finishes hands quicker than the list reloads. Only the newest load may draw,
+// or each overlapping one would add its own copy of every hand.
+let listRun = 0;
 async function loadList(reset) {
   if (filtering()) return [];  // new hands wait until the filter is cleared
+  const run = ++listRun;
+  const data = await api(`/api/hands?offset=${reset ? 0 : listOffset}&limit=100`);
+  if (run !== listRun) return data.hands;
   if (reset) { listOffset = 0; $("hand-list").innerHTML = ""; }
-  const data = await api(`/api/hands?offset=${listOffset}&limit=100`);
   listTotal = data.total;
   for (const h of data.hands) {
     const li = document.createElement("li");

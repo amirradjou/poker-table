@@ -79,7 +79,7 @@ def export_site(
     )
 
     # Tagging hands costs what the odds cost, so it comes with them.
-    session = session_payload(store) | {"highlights": odds}
+    session = session_payload(store) | {"highlights": odds, "odds": odds}
     bytes_written = _write(out / "data" / "session.json", session)
     # The list the viewer pages through is newest first, all of it: the page slices it itself.
     bytes_written += _write(out / "data" / "hands.json", hands_payload(store, 0, len(store.hands)))

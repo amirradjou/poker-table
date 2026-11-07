@@ -145,6 +145,7 @@ def session_payload(store: HandStore) -> dict[str, Any]:
         "hero": heroes.pop() if len(heroes) == 1 else None,
         "weeks": weeks_of(store.hands),
         "highlights": True,
+        "odds": True,
     }
 
 
