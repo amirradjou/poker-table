@@ -333,3 +333,121 @@ def test_a_tournament_stops_unfinished_at_the_budget() -> None:
 def test_the_current_models_are_priced_as_themselves(model: str, expected: float) -> None:
     usage = SimpleNamespace(input_tokens=1000, output_tokens=100, cache_read_input_tokens=1000)
     assert estimate_cost(model, usage) == pytest.approx(expected / 1e6)
+
+
+# ----- named sizes ---------------------------------------------------------------------------
+
+
+def size_reply(action: str, size: str) -> dict:
+    return {"action": action, "size": size, "table_talk": "", "reasoning": "x", "note": ""}
+
+
+def sized_seat(*replies) -> LLMAgent:
+    client = FakeClient(*replies)
+    return LLMAgent("alice", "maniac", client=client, aids=("sizes", "notes"))
+
+
+def test_a_seat_only_gets_sizes_when_it_asks() -> None:
+    from poker_table.agents.personalities import AIDS, DEFAULT_AIDS, PERSONALITIES
+
+    assert "sizes" in AIDS and "sizes" not in DEFAULT_AIDS
+    assert all("sizes" not in p.aids for p in PERSONALITIES.values())
+    agent = LLMAgent("alice", "maniac", client=FakeClient())
+    assert "amount" in agent.schema["properties"] and "size" not in agent.schema["properties"]
+
+
+def test_the_sizes_are_the_four_a_person_gets_as_buttons() -> None:
+    from poker_table.agents.base import named_sizes
+
+    hand = hand_with({0: "Ac Kd", 1: "2c 7d", 2: "3c 8d"})
+    view = make_view(hand, hand.actor.index)  # the button, facing the big blind's 2 with 3 in
+    assert view.pot == 3 and view.current_bet == 2 and view.legal.call_amount == 2
+    assert named_sizes(view) == {
+        "min": 4,
+        "half_pot": 5,  # 2 to match, then half of the 5 that makes
+        "pot": 7,
+        "all_in": 200,
+    }
+
+
+def test_a_size_too_small_or_too_big_comes_back_inside_the_limits() -> None:
+    from poker_table.agents.base import named_sizes
+
+    players = [Player("a", 9), Player("b", 200), Player("c", 200)]
+    hand = Hand(players, button=2, small_blind=1, big_blind=2, seed=0)
+    view = make_view(hand, hand.actor.index)
+    sizes = named_sizes(view)
+    assert all(view.legal.min_raise_to <= v <= view.legal.max_raise_to for v in sizes.values())
+    assert sizes["all_in"] == view.legal.max_raise_to
+
+
+def test_no_raise_left_means_no_sizes_offered() -> None:
+    from poker_table.agents.base import named_sizes
+
+    hand = hand_with({0: "Ac Kd", 1: "2c 7d", 2: "3c 8d"})
+    hand.apply(Action.raise_to(200))  # the button shoves, and the small blind's raise is gone
+    view = make_view(hand, hand.actor.index)
+    assert not view.legal.can_raise and named_sizes(view) == {}
+    client = FakeClient(size_reply("fold", "none"))
+    LLMAgent("alice", "maniac", client=client, aids=("sizes",)).act(view)
+    assert "Sizes:" not in client.messages.requests[0]["messages"][0]["content"]
+
+
+@pytest.mark.parametrize(
+    ("size", "amount"),
+    [("min", 4), ("half_pot", 5), ("pot", 7), ("all_in", 200), ("none", 4), ("nonsense", 4)],
+)
+def test_a_named_size_becomes_chips(size: str, amount: int) -> None:
+    from poker_table.table import sanitize
+
+    hand = hand_with({0: "Ac Kd", 1: "2c 7d", 2: "3c 8d"})
+    view = make_view(hand, hand.actor.index)
+    decision = sized_seat(size_reply("raise", size)).act(view)
+    # The table takes a raise with no usable size as the smallest it can be.
+    assert sanitize(decision.action, view.legal) == Action.raise_to(amount)
+
+
+def test_a_fold_or_a_call_ignores_any_size() -> None:
+    hand = hand_with({0: "Ac Kd", 1: "2c 7d", 2: "3c 8d"})
+    view = make_view(hand, hand.actor.index)
+    assert sized_seat(size_reply("call", "pot")).act(view).action == Action.call()
+    assert sized_seat(size_reply("fold", "all_in")).act(view).action == Action.fold()
+
+
+def test_the_model_is_told_the_sizes_and_never_asked_for_a_number() -> None:
+    hand = hand_with({0: "Ac Kd", 1: "2c 7d", 2: "3c 8d"})
+    view = make_view(hand, hand.actor.index)
+    client = FakeClient(size_reply("fold", "none"))
+    LLMAgent("alice", "maniac", client=client, aids=("sizes", "notes")).act(view)
+    request = client.messages.requests[0]
+    prompt = request["messages"][0]["content"]
+    assert (
+        "Sizes: min = raise to 4, half_pot = raise to 5, pot = raise to 7, all_in = raise to 200"
+        in prompt
+    )  # noqa: E501
+    system = request["system"][0]["text"]
+    assert '"size" says how much' in system and "TOTAL you will have put in" not in system
+    schema = request["output_config"]["format"]["schema"]
+    assert "amount" not in schema["properties"] and schema["additionalProperties"] is False
+    assert sorted(schema["required"]) == sorted(schema["properties"])
+    assert schema["properties"]["size"]["enum"] == ["none", "min", "half_pot", "pot", "all_in"]
+
+
+def test_a_seat_without_sizes_is_asked_for_a_number_as_before() -> None:
+    client = FakeClient({"action": "fold", "amount": 0, "table_talk": "", "reasoning": "x"})
+    LLMAgent("alice", "maniac", client=client).act(
+        make_view(hand_with({0: "Ac Kd", 1: "2c 7d", 2: "3c 8d"}), 0)
+    )
+    assert "TOTAL you will have put in" in client.messages.requests[0]["system"][0]["text"]
+
+
+def test_an_agents_file_can_turn_sizes_on(tmp_path) -> None:
+    from poker_table.agents.custom import load_agent_files
+
+    path = tmp_path / "a.toml"
+    path.write_text(
+        '[agents.tidy]\ntype = "llm"\nextends = "nerd"\nmodel = "ollama/x"\n'
+        'aids = ["odds", "sizes"]\n'
+    )
+    kinds = load_agent_files([path])
+    assert "sizes" in kinds["tidy"].personality.aids

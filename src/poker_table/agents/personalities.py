@@ -11,7 +11,10 @@ from dataclasses import dataclass
 #   reads     a HUD from earlier hands: style, VPIP/PFR, aggression, hands they showed
 #   notes     a notebook the model writes to itself and reads back in later hands
 #   playbook  a short primer on sizing and hand selection, in the system prompt
-AIDS: tuple[str, ...] = ("odds", "ranges", "reads", "notes", "playbook")
+AIDS: tuple[str, ...] = ("odds", "ranges", "reads", "notes", "playbook", "sizes")
+# What a seat gets unless told otherwise. `sizes` changes how a seat plays, so it stays out of this
+# until it has been measured: turning it on for everyone would break comparisons between runs.
+DEFAULT_AIDS: tuple[str, ...] = ("odds", "ranges", "reads", "notes", "playbook")
 
 
 def check_aids(aids) -> frozenset[str]:
@@ -30,7 +33,7 @@ class Personality:
     # model call. None disables the gate (the maniac wants to see every flop).
     auto_fold_below: float | None = 5
     talkative: bool = True
-    aids: tuple[str, ...] = AIDS
+    aids: tuple[str, ...] = DEFAULT_AIDS
     description: str = ""  # one line for listings; the prompt is for the model
 
 
