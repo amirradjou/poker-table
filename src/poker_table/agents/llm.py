@@ -9,7 +9,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
-from poker_table.agents.base import Decision, SeatView
+from poker_table.agents.base import Decision, SeatView, named_sizes
 from poker_table.agents.compat import CompatClient, is_compat
 from poker_table.agents.ollama import OllamaClient, is_local
 from poker_table.agents.personalities import Personality, check_aids, get_personality
@@ -41,20 +41,22 @@ PRICES: dict[str, tuple[float, float]] = {
 # A cache read is a tenth of the input price, except on these ($ per million tokens).
 CACHE_READS: dict[str, float] = {"claude-fable-5-1": 0.25, "claude-opus-5-5": 0.20}
 
+AMOUNT_RULE = """\
+- Amounts for bet/raise are the TOTAL you will have put in on this street ("raise to 12"),
+  and must lie inside the legal range given. Use 0 for fold/check/call.
+"""
 RULES = """\
 You are playing no-limit Texas hold'em for play money against other bots and, sometimes, humans.
 Each turn you get the state of the hand as seen from your seat and the list of legal actions.
 
 Interface rules:
 - Reply with exactly one action from the legal list.
-- Amounts for bet/raise are the TOTAL you will have put in on this street ("raise to 12"),
-  and must lie inside the legal range given. Use 0 for fold/check/call.
-- "reasoning" is private. Think about ranges, position, pot odds, stack depth and what the
+{amounts}- "reasoning" is private. Think about ranges, position, pot odds, stack depth and what the
   action so far says about each opponent. Keep it under 80 words.
 - "table_talk" is shown to every other seat. Leave it empty unless you have something to say
   in character. You may bluff in words as well as in chips; nobody has to believe you.
 - Illegal actions are converted to a check or a fold and counted against you.
-"""
+""".replace("{amounts}", AMOUNT_RULE)
 
 PLAYBOOK = """\
 How strong players play (follow it unless your personality says otherwise):
@@ -99,6 +101,21 @@ NOTE_SCHEMA: dict[str, Any] = {
     "properties": {**ACTION_SCHEMA["properties"], "note": {"type": "string"}},
     "required": [*ACTION_SCHEMA["required"], "note"],
 }
+
+
+SIZES = ("none", "min", "half_pot", "pot", "all_in")
+SIZES_RULE = """\
+- "size" says how much to bet or raise, from the sizes listed for this turn. Use "none" for fold,
+  check and call.
+"""
+
+
+def with_sizes(schema: dict[str, Any]) -> dict[str, Any]:
+    """The same reply with a named size in place of a number, which a model cannot get wrong."""
+    properties = {k: v for k, v in schema["properties"].items() if k != "amount"}
+    properties["size"] = {"type": "string", "enum": list(SIZES)}
+    required = ["size" if key == "amount" else key for key in schema["required"]]
+    return {**schema, "properties": properties, "required": required}
 
 
 class MessagesClient(Protocol):
@@ -222,7 +239,8 @@ class LLMAgent:
 
     @property
     def schema(self) -> dict[str, Any]:
-        return NOTE_SCHEMA if "notes" in self.aids else ACTION_SCHEMA
+        schema = NOTE_SCHEMA if "notes" in self.aids else ACTION_SCHEMA
+        return with_sizes(schema) if "sizes" in self.aids else schema
 
     def observe(self, history: HandHistory) -> None:
         """Called by the league after every hand, with what this seat could see of it."""
@@ -237,7 +255,8 @@ class LLMAgent:
 
     @property
     def system_prompt(self) -> str:
-        rules = RULES + (NOTES_RULE if "notes" in self.aids else "")
+        rules = RULES.replace(AMOUNT_RULE, SIZES_RULE) if "sizes" in self.aids else RULES
+        rules += NOTES_RULE if "notes" in self.aids else ""
         playbook = f"\n{PLAYBOOK}" if "playbook" in self.aids else ""
         talk = "" if self.personality.talkative else "\nYou almost never use table_talk."
         return (
@@ -312,6 +331,10 @@ class LLMAgent:
         if self.notes:
             lines.append("Your notes from earlier hands:")
             lines += [f"  {note}" for note in self.notes]
+        if "sizes" in self.aids and view.legal.can_raise:
+            verb = "bet" if view.legal.is_bet else "raise to"
+            named = ", ".join(f"{name} = {verb} {v}" for name, v in named_sizes(view).items())
+            lines.append(f"Sizes: {named}")
         lines.append("Decide now.")
         return "\n".join(lines)
 
@@ -350,7 +373,10 @@ class LLMAgent:
         except ValueError:
             self.usage.errors += 1
             return self._fallback(view, f"unknown action {data.get('action')!r}", meta)
-        amount = int(data.get("amount") or 0)
+        if "sizes" in self.aids:  # a size this turn does not have reads as the smallest
+            amount = named_sizes(view).get(str(data.get("size")), 0)
+        else:
+            amount = int(data.get("amount") or 0)
         action = Action(kind, amount if kind in (ActionType.BET, ActionType.RAISE) else 0)
         note = str(data.get("note", "")).strip() if "notes" in self.aids else ""
         if note:

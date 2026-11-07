@@ -147,6 +147,21 @@ class SeatView:
         return "\n".join(lines)
 
 
+def named_sizes(view: SeatView) -> dict[str, int]:
+    """The amounts a raise could be, by name: the same four a person gets as buttons."""
+    legal = view.legal
+    if not legal.can_raise:
+        return {}
+    after_call = view.pot + legal.call_amount
+    sizes = {
+        "min": legal.min_raise_to,
+        "half_pot": view.current_bet + int(after_call / 2 + 0.5),
+        "pot": view.current_bet + after_call,
+        "all_in": legal.max_raise_to,
+    }
+    return {name: min(max(v, legal.min_raise_to), legal.max_raise_to) for name, v in sizes.items()}
+
+
 def describe_event(event: Event, players: tuple[PlayerView, ...]) -> str:
     name = players[event.seat].name if event.seat is not None else ""
     match event.kind:

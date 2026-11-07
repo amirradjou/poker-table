@@ -45,6 +45,7 @@ from poker_table.agents.llm import DEFAULT_MODEL, LLMAgent
 from poker_table.agents.ollama import OllamaClient, is_local
 from poker_table.agents.personalities import (
     AIDS,
+    DEFAULT_AIDS,
     PERSONALITIES,
     Personality,
     check_aids,
@@ -187,7 +188,7 @@ def _llm(key: str, table: dict[str, Any], description: str, where: str) -> Custo
     elif isinstance(gate, bool) or not isinstance(gate, (int, float, type(None))):
         raise AgentFileError(f"{where}: auto_fold_below is a Chen score, or false for no gate")
     talkative = _take(table, "talkative", bool, where, parent.talkative if parent else True)
-    aids = _take(table, "aids", list, where, list(parent.aids if parent else AIDS))
+    aids = _take(table, "aids", list, where, list(parent.aids if parent else DEFAULT_AIDS))
     try:
         aids = tuple(a for a in AIDS if a in check_aids(aids))
     except ValueError as exc:

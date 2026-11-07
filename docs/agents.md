@@ -23,7 +23,7 @@ A bare seat sees what a player at the table sees: its cards, the board, the stac
 so far, the table talk and the legal moves (`SeatView.describe()`). A strong player also carries
 things in their head that a model would otherwise have to guess, or would get wrong. Each of
 those is an **aid**. Every aid can be switched off per personality or per seat, so its worth can
-be measured (see [Does it help?](#does-it-help)). All five are on by default.
+be measured (see [Does it help?](#does-it-help)). The first five are on by default.
 
 | aid | what the model gets | where it comes from |
 |---|---|---|
@@ -32,6 +32,7 @@ be measured (see [Does it help?](#does-it-help)). All five are on by default.
 | `reads` | per opponent: sample size, style, VPIP/PFR/3-bet, aggression, fold-to-bet, showdown rate, the last hands they turned over | `agents/reads.py`, built only from hands the seat was shown |
 | `notes` | a notebook: the reply gains a `note` field, and the latest twelve lines come back in later prompts | the model itself |
 | `playbook` | a short primer on sizing, hand selection and opponent types | the system prompt |
+| `sizes` | off by default. Named sizes (min, half pot, pot, all in) instead of a number, the same four a person gets as buttons | `named_sizes` in the seat's view |
 
 The `ranges` aid is the one that changes decisions most visibly. The calculator answers "how
 often do I win against any two cards". Nobody holds any two cards after opening from early
@@ -319,3 +320,29 @@ What this supports:
 What it does not say: this is one small model and one sample, and a run on another model could
 come out differently. Reads and notes are not in it, because these questions are asked one at a
 time with no session behind them. A model's answers also vary, so a re-run will not match exactly.
+
+### What named sizes did for a small local model
+
+The first league found `qwen2.5:3b` shoving: 91 of 131 bets and raises were all in, and 54 asked for
+more chips than a stack holds, up to `raise 1000000000000000`. That looked like a model fumbling
+numbers, so the `sizes` aid replaces the number with a choice of four. Here are the same seats on the
+same decks, over the league's first 12 hands:
+
+| | bare numbers | named sizes |
+|---|---:|---:|
+| model decisions | 26 | 28 |
+| after the flop | 0 | 3 |
+| bets and raises | 16 | 18 |
+| of those all in | 12 | 12 |
+| asked for more than a stack | 9 | 0 |
+| illegal moves | 4 | 1 |
+
+It fixed the mistakes and not the habit. Impossible amounts are gone, as they must be, and illegal
+moves fell. But offered four clean choices, the model still picked all in for most of its bets, so
+the shoving is what it wants to do and not a slip with numbers. Twelve hands can show the impossible
+amounts going, and cannot show a small change in how often it shoves. The aid stays off by default,
+because turning it on would also change every seat's play and break comparisons between runs.
+
+```sh
+uv run python scripts/measure_sizes.py 12    # free, about a minute a hand
+```
