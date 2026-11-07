@@ -80,10 +80,6 @@ header .live.turn::before { animation: pulse 1s infinite alternate; }
 /* ----- the room ----------------------------------------------------------------------- */
 main { flex: 1; min-height: 0; display: grid; grid-template-columns: 232px minmax(0, 1fr); }
 main > * { overflow-y: auto; min-height: 0; }
-@media (max-width: 860px) {
-  main { grid-template-columns: 1fr; grid-template-rows: 30vh 1fr; }
-  aside { border-right: 0 !important; border-bottom: 1px solid var(--line); }
-}
 
 /* hand list: the result first, the board underneath, the pot on the right */
 aside { background: var(--room-2); border-right: 1px solid var(--line); overflow-x: hidden; }
@@ -129,6 +125,16 @@ section.hand { padding: 0; }
   .side { border-left: 0; border-top: 1px solid var(--line); }
   .side .log { max-height: 60vh; }
 }
+/* A phone scrolls the page as one, the way phones do. Boxes that each scroll left the table and
+   the action bar fighting over what was left under the list, and gave the leaderboard the list's
+   short row. The list keeps a short box of its own, and an empty one takes no room. */
+@media (max-width: 860px) {
+  html, body { height: auto; overflow: visible; }
+  body { min-height: 100%; }
+  main { display: block; }
+  main > *, section.hand { overflow-y: visible; }
+  main > aside { max-height: 30vh; overflow-y: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+}
 
 .hand-title { margin: 0; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; font-weight: 400; }
 .hand-title strong { font: 700 26px/1.1 var(--condensed); }
@@ -146,7 +152,8 @@ section.hand { padding: 0; }
   /* no transform, perspective or z-index here: any of them makes the table a stacking context,
      and the rail and racetrack behind it would paint over the baize */
 }
-.table { --seat-rx: 44; --seat-ry: 50; }  /* where the seats sit, in % of the table; read by the script */
+/* where the seats sit, in % of the table, and how far their bets go toward the pot; read by the script */
+.table { --seat-rx: 44; --seat-ry: 50; --bet-reach: .56; }
 .table::before {  /* the rail */
   content: ""; position: absolute; inset: -32px; border-radius: 9999px; z-index: -1;
   background: radial-gradient(ellipse 80% 90% at 50% 18%, #5b3526 0%, #3a2019 40%, #1e0f0b 100%);
@@ -160,28 +167,6 @@ section.hand { padding: 0; }
 .table .board { display: flex; gap: clamp(4px, .7cqi, 8px); justify-content: center; min-height: clamp(48px, 7.6cqi, 82px); perspective: 900px; }
 .table .pot { min-height: 30px; display: flex; align-items: center; justify-content: center; gap: 10px; }
 .table .pot .pot-label { font: 600 clamp(16px, 2.1cqi, 22px)/1 var(--condensed); color: var(--ivory); letter-spacing: .01em; text-shadow: 0 1px 2px rgba(0, 0, 0, .6); }
-
-/* On a phone the table stands up, the way mobile poker clients draw it, and the plates keep
-   only what fits: name, stack, win chance, with the seat's colour as an edge. */
-@media (max-width: 640px) {
-  .stage { padding: 12px 12px 20px; }
-  .hand-title strong { font-size: 22px; }
-  .table { --seat-rx: 38; --seat-ry: 46; width: calc(100% - 40px); aspect-ratio: .8 / 1; margin: 50px auto 54px; }
-  .table::before { inset: -17px; }
-  .table::after { inset: -5px; }
-  .table .center { top: 58%; }  /* below the upper seats' bets, which come in at a steep angle */
-  .seat { width: 108px; }
-  .seat .plate { grid-template-columns: 1fr auto; grid-template-areas: "name stack"; padding: 5px 8px; border-left: 3px solid var(--c, #4a3e33); }
-  .seat .plate .avatar, .seat .plate .pos { display: none; }
-  .seat .name, .seat .stack { font-size: 15px; }
-  .seat .equity { margin-top: 4px; gap: 6px; }
-  .seat .equity b { font-size: 14px; }
-  .seat .bubble { max-width: 150px; font-size: 13px; }
-  .card.small { --w: 30px; }
-  .controls { gap: 6px 10px; padding: 6px; }
-  .controls .street { min-width: 0; }
-  .switches { margin-left: 0; }
-}
 
 /* ----- seats: broadcast nameplates at the rail ------------------------------------------- */
 .seat { position: absolute; width: clamp(150px, 21cqi, 204px); transform: translate(-50%, -50%); z-index: 2; }
@@ -371,6 +356,33 @@ input[type=range]::-moz-range-progress { height: 4px; border-radius: 2px; backgr
 input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 50%; background: var(--brass-hi); border: 0; box-shadow: 0 0 0 3px rgba(202, 162, 76, .25); }
 input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--brass-hi); border: 0; }
 
+/* On a phone the table stands up, the way mobile poker clients draw it, and the plates keep
+   only what fits: name, stack, win chance, with the seat's colour as an edge. This block must
+   come after the seat, card and transport rules it overrides: in a tie, the later rule wins. */
+@media (max-width: 640px) {
+  .stage { padding: 12px 12px 20px; }
+  .hand-title strong { font-size: 22px; }
+  /* Bets stop short of the middle, so they sit beside the board rather than on it, and the
+     board moves up into the room that leaves. */
+  .table { --seat-rx: 38; --seat-ry: 46; --bet-reach: .42; width: calc(100% - 40px); aspect-ratio: .8 / 1; margin: 50px auto 54px; }
+  .table::before { inset: -17px; }
+  .table::after { inset: -5px; }
+  .table .center { top: 47%; }
+  .table .board { gap: 3px; }
+  .table .board .card { --w: 30px; }
+  .seat { width: 108px; }
+  .seat .plate { grid-template-columns: 1fr auto; grid-template-areas: "name stack"; padding: 5px 8px; border-left: 3px solid var(--c, #4a3e33); }
+  .seat .plate .avatar, .seat .plate .pos { display: none; }
+  .seat .name, .seat .stack { font-size: 15px; }
+  .seat .equity { margin-top: 4px; gap: 6px; }
+  .seat .equity b { font-size: 14px; }
+  .seat .bubble { max-width: 150px; font-size: 13px; }
+  .card.small { --w: 30px; }
+  .controls { gap: 6px 10px; padding: 6px; }
+  .controls .street { min-width: 0; }
+  .switches { margin-left: 0; }
+}
+
 /* ----- the numbers for the seat to act ------------------------------------------------ */
 .odds { max-width: 1040px; margin: 10px auto 0; padding: 12px 16px; border-radius: var(--radius-panel); background: rgba(35, 29, 24, .92); border: 1px solid var(--line); font-size: 14px; }
 .odds .head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin-bottom: 8px; }
@@ -467,6 +479,13 @@ input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 
 .action-bar .quick { display: inline-flex; gap: 4px; }
 .action-bar .quick button { font: 500 14px var(--condensed); padding: 4px 9px; }
 .action-bar .talk-list { width: 100%; color: var(--ivory-soft); font-style: italic; }
+@media (max-width: 640px) {
+  .action-bar { gap: 8px; padding: 10px 12px; }
+  .action-bar .size { flex-wrap: wrap; width: 100%; }
+  .action-bar #act-raise { white-space: nowrap; }
+  .action-bar .quick { flex: 1 1 100%; }
+  .action-bar .quick button { flex: 1; }
+}
 
 /* ----- leaderboard ---------------------------------------------------------------------- */
 section.board-view, section.coach-view { grid-column: 1 / -1; padding: 22px 28px 48px; }
