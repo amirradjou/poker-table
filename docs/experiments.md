@@ -77,6 +77,10 @@ Check the `failed` column before the winners. It counts decisions where the mode
 not be used, so the seat checked or folded instead, and that seat's result is partly its fallback's.
 A run stops by itself once a seat has failed ten times and on at least half of its calls.
 
+Where a model played, "What they said they held" checks its reasoning against the cards it was
+dealt and quotes the times they differ. A seat that reasons about the wrong hand can still win
+chips, and this is where that shows. [Seats](agents.md#does-it-know-what-it-holds) has the details.
+
 ## Stopping and carrying on
 
 A run can stop for four reasons, and each one keeps every finished hand and writes the report:

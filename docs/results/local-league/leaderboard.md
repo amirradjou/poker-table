@@ -29,6 +29,21 @@ nerd       100  -1209   -604.5   55%  54%   24%  100%    -  100%   38%      -   
 random     100  -5268  -2634.0   57%  20%    4%   46%  1.5   95%   16%    33%       0%      0.0       -
 ```
 
+## What they said they held
+
+Each model seat's reasoning, checked against the cards it was dealt. Only clear claims about its own two cards count, so this is a floor.
+
+| seat | decisions | named its own cards | wrongly |
+|---|---:|---:|---:|
+| nerd | 86 | 9 | 2 |
+| maniac | 125 | 3 | 3 |
+
+- nerd, hand 16, holding K♥ K♣: "My KQ is strong against station's loose-passive play and random's conservative range."
+- nerd, hand 85, holding 9♥ 10♦: "I have the nuts with TT and they've all shown weak hands."
+- maniac, hand 11, holding 6♠ 4♦: "My A6 is too strong to fold and my position allows for a big raise."
+- maniac, hand 15, holding 8♦ 9♠: "With a strong AA, I'm betting big to showboat."
+- maniac, hand 75, holding 8♥ K♥: "My AA hand dominates the turn with a flush draw and trips."
+
 ## What the coach says
 
 - [maniac](coach/maniac.md)

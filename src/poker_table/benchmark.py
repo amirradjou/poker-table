@@ -15,6 +15,7 @@ from pathlib import Path
 
 from poker_table.experiments import load_experiment, seat_results
 from poker_table.history import read_jsonl
+from poker_table.honesty import honesty
 from poker_table.verify import CANNOT_PROVE, verify_folder
 
 ENTRANT = "entrant"
@@ -82,6 +83,7 @@ class Entry:
     seconds_per_call: float | None
     dollars_per_hand: float | None
     played_on: str
+    named_wrongly: str  # "5 of 18": claims about its own cards, and how many were wrong
 
 
 def entry_of(folder: Path | str) -> Entry:
@@ -99,7 +101,13 @@ def entry_of(folder: Path | str) -> Entry:
         seconds_per_call=row.seconds_per_call,
         dollars_per_hand=row.cost_usd / row.hands if row.cost_usd else None,
         played_on=str(run.get("last_saved", ""))[:10],
+        named_wrongly=_named_wrongly(histories),
     )
+
+
+def _named_wrongly(histories) -> str:
+    said = honesty(histories).get(ENTRANT)
+    return f"{said.wrong} of {said.claims}" if said and said.decisions else "-"
 
 
 def render_leaderboard(folders: Sequence[Path | str]) -> str:
@@ -110,22 +118,25 @@ def render_leaderboard(folders: Sequence[Path | str]) -> str:
         f"Every entrant plays the same {HANDS} hands from the same seat, against the same four "
         f"bots ({', '.join(OPPONENTS)}), so they all get the same cards.",
         "",
-        "| entrant | all-in adj. bb/100 | ±95% | bb/100 | illegal | failed | s/call | $/hand | played |",  # noqa: E501
-        "|---|---:|---:|---:|---:|---:|---:|---:|---|",
+        "| entrant | all-in adj. bb/100 | ±95% | bb/100 | illegal | failed "
+        "| named its cards wrongly | s/call | $/hand | played |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
     for e in entries:
         seconds = f"{e.seconds_per_call:.1f}" if e.seconds_per_call is not None else "-"
         dollars = f"{e.dollars_per_hand:.4f}" if e.dollars_per_hand is not None else "-"
         lines.append(
             f"| {e.entrant} | {e.adjusted:+.0f} | {e.margin:.0f} | {e.bb_per_100:+.0f} "
-            f"| {e.illegal:.0%} | {e.failed} | {seconds} | {dollars} | {e.played_on} |"
+            f"| {e.illegal:.0%} | {e.failed} | {e.named_wrongly} | {seconds} | {dollars} "
+            f"| {e.played_on} |"
         )
     lines += [
         "",
         "Read the intervals before the order. Two entrants whose intervals overlap may not be "
         f"different at all, and {HANDS} hands is a small sample: {HANDS * 4} would halve those "
         "intervals. $/hand is blank where the model is free, or where its provider does not "
-        "report a price.",
+        'report a price. "Named its cards wrongly" counts the times its reasoning claimed '
+        "two cards it was not holding, out of the times it named its own cards at all.",
         "",
         "## Add yours",
         "",

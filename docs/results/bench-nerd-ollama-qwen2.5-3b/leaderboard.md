@@ -29,3 +29,15 @@ tag        200   1140    285.0    8%   6%    2%   12%   1.3   40%   83%    11%  
 maniac     200  -2846   -711.5   94%  51%   12%    3%  32.7  100%   40%    41%       0%      0.0       -
 station    200  -5549  -1387.2   96%   0%    0%     -   0.0   99%   35%      -       0%      0.0       -
 ```
+
+## What they said they held
+
+Each model seat's reasoning, checked against the cards it was dealt. Only clear claims about its own two cards count, so this is a floor.
+
+| seat | decisions | named its own cards | wrongly |
+|---|---:|---:|---:|
+| entrant | 186 | 18 | 5 |
+
+- entrant, hand 24, holding J♠ J♥: "My JsJs are strong, and maniac has shown consistent aggression regardless of hand strength."
+- entrant, hand 33, holding 7♠ Q♦: "Raising with JJ in early position puts good pressure on loose-aggressive players like station and maniac, while not overextending myself gi…"
+- entrant, hand 66, holding Q♠ 6♥: "My QQ has poor equity against the maniac’s loose-aggressive style and station's passive play."
