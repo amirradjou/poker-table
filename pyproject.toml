@@ -44,6 +44,9 @@ build-backend = "uv_build"
 source-exclude = [".graphify"]  # a local code graph's cache: it is not part of the package
 
 [dependency-groups]
+browser = [
+    "playwright>=1.64.1",
+]
 dev = [
   "httpx>=0.28.1",
   "pytest>=8",
