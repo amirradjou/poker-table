@@ -410,6 +410,7 @@ function render() {
   const shape = getComputedStyle(table);
   const rx = parseFloat(shape.getPropertyValue("--seat-rx")) || 44;
   const ry = parseFloat(shape.getPropertyValue("--seat-ry")) || 50;
+  const reach = parseFloat(shape.getPropertyValue("--bet-reach")) || 0.56;  // how far bets go toward the pot
   const W = table.clientWidth, H = table.clientHeight;
   st.seats.forEach((s, i) => {
     const el = document.createElement("div");
@@ -420,9 +421,9 @@ function render() {
       + (acting ? " acting" : "") + (s.won ? " winner" : "");
     el.dataset.seat = i;
     el.style.left = x + "%"; el.style.top = y + "%";
-    // chips go a little over halfway to the pot: clear of the cards, short of the pot
-    el.style.setProperty("--bx", `${((50 - x) / 100) * W * 0.56}px`);
-    el.style.setProperty("--by", `${((50 - y) / 100) * H * 0.56}px`);
+    // chips go part of the way to the pot: clear of the cards, short of the pot
+    el.style.setProperty("--bx", `${((50 - x) / 100) * W * reach}px`);
+    el.style.setProperty("--by", `${((50 - y) / 100) * H * reach}px`);
     const info = kindInfo(s.kind);
 
     const reveal = showCards || st.showdown || (st.done && s.won);
@@ -912,7 +913,8 @@ function fillActionBar(t) {
   talks.classList.toggle("hidden", !t.talk.length);
   talks.textContent = t.talk.map(([who, text]) => `${who}: “${text}”`).join("   ");
   $("action-bar").classList.remove("hidden");
-  $("action-bar").scrollIntoView({ block: "nearest" });
+  // Wait for the fonts: text that grows after the scroll would push the bar back off a phone's screen.
+  document.fonts.ready.then(() => $("action-bar").scrollIntoView({ block: "nearest" }));
 }
 
 async function sendAction(text) {
@@ -1290,8 +1292,8 @@ document.addEventListener("keydown", (e) => {
   if (e.key === " ") { e.preventDefault(); $("auto").click(); }
   else if (e.key === "ArrowRight") { stopAuto(); go(step + 1); }
   else if (e.key === "ArrowLeft") { stopAuto(); go(step - 1); }
-  else if (e.key === "Home") { stopAuto(); go(0); }
-  else if (e.key === "End") { stopAuto(); go(Infinity); }
+  else if (e.key === "Home") { e.preventDefault(); stopAuto(); go(0); }  // not also a scroll
+  else if (e.key === "End") { e.preventDefault(); stopAuto(); go(Infinity); }
 });
 
 if (STATIC) $("tab-drill").classList.add("hidden");  // drills record answers; a file cannot

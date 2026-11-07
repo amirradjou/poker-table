@@ -86,15 +86,10 @@ def serve() -> Iterator[Callable[[Any], str]]:
         thread.join(10)
 
 
-@pytest.fixture
-def page(browser: Any, serve: Callable[[Any], str]) -> Iterator[Page]:
-    """A fresh page that fails the test on any script error or console error.
-
-    It depends on ``serve`` so it closes before the servers stop: a live page whose server has
-    gone logs a connection error that is not the viewer's fault.
-    """
-    context = browser.new_context(viewport={"width": 1280, "height": 900})
-    page = context.new_page()
+def _watched(browser: Any, **context: Any) -> Iterator[Page]:
+    """A fresh page that fails the test on any script error, console error or failed request."""
+    ctx = browser.new_context(**context)
+    page = ctx.new_page()
     errors: list[str] = []
     page.on("pageerror", lambda exc: errors.append(f"script error: {exc}"))
     page.on("console", lambda msg: errors.append(msg.text) if msg.type == "error" else None)
@@ -105,8 +100,27 @@ def page(browser: Any, serve: Callable[[Any], str]) -> Iterator[Page]:
     page.set_default_timeout(15_000)
     expect.set_options(timeout=15_000)
     yield page
-    context.close()
+    ctx.close()
     assert errors == []
+
+
+# Both depend on ``serve`` so they close before the servers stop: a live page whose server has
+# gone logs a connection error that is not the viewer's fault.
+@pytest.fixture
+def page(browser: Any, serve: Callable[[Any], str]) -> Iterator[Page]:
+    yield from _watched(browser, viewport={"width": 1280, "height": 900})
+
+
+@pytest.fixture
+def phone(browser: Any, serve: Callable[[Any], str]) -> Iterator[Page]:
+    """A small phone: 360 by 740, touch, two pixels to the point."""
+    yield from _watched(
+        browser,
+        viewport={"width": 360, "height": 740},
+        device_scale_factor=2,
+        is_mobile=True,
+        has_touch=True,
+    )
 
 
 @pytest.fixture(scope="module")
@@ -224,3 +238,68 @@ def test_the_published_demo_works_with_no_server_behind_it(
     page.locator("#tab-board").click()
     expect(page.locator("#board-table tbody tr")).to_have_count(3)
     expect(page.locator("#board-call")).not_to_be_empty()
+
+
+def _box(page: Page, selector: str) -> dict[str, float]:
+    return page.locator(selector).first.bounding_box()
+
+
+def _overflowing(page: Page) -> list[str]:
+    """Whatever sticks out past the sides of the screen, which a phone would cut off."""
+    return page.evaluate(
+        """() => {
+          const width = document.documentElement.clientWidth;
+          const out = [];
+          for (const el of document.querySelectorAll("#table .seat .plate, #action-bar *")) {
+            const r = el.getBoundingClientRect();
+            if (r.width && (r.left < 0 || r.right > width)) out.push(el.className || el.id);
+          }
+          if (document.documentElement.scrollWidth > width) out.push("the page scrolls sideways");
+          return out;
+        }"""
+    )
+
+
+def test_a_phone_fits_the_table_and_gives_the_leaderboard_the_screen(
+    phone: Page, serve, tmp_path
+) -> None:
+    path = tmp_path / "five.jsonl"
+    seats = "tag,station,maniac,rock,random"
+    assert main(["play", "-n", "6", "--seats", seats, "--seed", "11", "-o", str(path), "-q"]) == 0
+    phone.goto(serve(create_app(path)))
+    phone.locator("#hand-list button").first.tap()
+    expect(phone.locator("#table .seat")).to_have_count(5)
+    phone.keyboard.press("End")
+    expect(phone.locator("#street")).to_have_text("Hand over")
+    assert _box(phone, "#table .seat .plate")["width"] <= 120  # the phone's plates, not the desk's
+    assert _overflowing(phone) == []
+
+    phone.locator("#tab-board").tap()
+    expect(phone.locator("#board-table tbody tr")).to_have_count(5)
+    # it used to get the hand list's short row and scroll inside it
+    assert _box(phone, "#board-view")["height"] > 740 * 0.6
+
+
+def test_a_phone_player_sees_the_board_and_the_buttons_at_once(
+    phone: Page, serve, tmp_path
+) -> None:
+    path = tmp_path / "live.jsonl"
+    bots = [CallingStation("station"), TightAggressive("tag"), CallingStation("fish")]
+    session = LiveSession(
+        [WebHumanAgent("me"), *bots], LeagueConfig(hands=1, seed=3, buy_in=100), path
+    )
+    url = serve(create_app(path, session))
+    session.start()
+    phone.goto(url)
+    expect(phone.locator("#action-bar")).to_be_visible()
+    expect(phone.locator("#act-quick button")).to_have_count(4)
+    phone.wait_for_function(  # both on screen together, once the bar has scrolled into view
+        """() => {
+          const board = document.querySelector("#board").getBoundingClientRect();
+          const bar = document.querySelector("#action-bar").getBoundingClientRect();
+          return board.top >= 0 && bar.bottom <= innerHeight;
+        }"""
+    )
+    assert _overflowing(phone) == []
+    phone.locator("#act-fold").tap()
+    expect(phone.locator("#live")).to_have_text("session over, 1 hands")
