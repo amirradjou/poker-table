@@ -16,7 +16,7 @@ from poker_table.agents.base import Agent, Decision, SeatView, position_name
 from poker_table.cards import Card
 from poker_table.engine import Action, Event, EventKind, Hand
 from poker_table.history import HandHistory, parse_action, write_jsonl
-from poker_table.league import LeagueConfig, run_league
+from poker_table.league import LeagueConfig, TournamentConfig, run_league, run_tournament
 from poker_table.odds import chance_row, for_view, table_equities
 from poker_table.table import DecisionRecord
 from poker_table.web.commentary import Commentator
@@ -107,6 +107,9 @@ class LiveSession:
     streets, showdown, wins), ``hand`` once it is on disk, ``turn`` when the browser seat must
     act and ``done`` at the end. ``pace`` slows a bot-only table down to watching speed.
 
+    With ``tournament`` it plays that freezeout instead of ``config.hands`` cash hands, and the
+    status says the level, how many are left and who went out in what place.
+
     With nobody human at the table the steps also carry everyone's win chances (``equity``),
     like a broadcast. Those numbers are worked out from every seat's cards, so a table with a
     player at it must never send them: they would tell the player how strong the others are.
@@ -116,6 +119,7 @@ class LiveSession:
     config: LeagueConfig
     path: Path
     pace: float = 0.0
+    tournament: TournamentConfig | None = None
     hands_played: int = 0
     running: bool = False
     finished: bool = False
@@ -127,6 +131,7 @@ class LiveSession:
     _published: int = 0  # engine events of the current hand already turned into steps
     _broadcast: Broadcast | None = None  # the current hand's win chances, for spectators only
     review: dict[str, Any] | None = None  # the coach on the last hand, at a human's table
+    _standing: dict[str, Any] = field(default_factory=dict)  # a freezeout's level, left, out
 
     @property
     def human(self) -> WebHumanAgent | None:
@@ -152,16 +157,18 @@ class LiveSession:
             self._thread.join(timeout)
 
     def _run(self) -> None:
+        hooks = {
+            "on_hand": self._on_hand,
+            "on_hand_start": self._on_hand_start,
+            "on_view": self._on_view,
+            "on_decision": self._on_decision,
+            "keep_histories": False,
+        }
         try:
-            run_league(
-                self.agents,
-                self.config,
-                on_hand=self._on_hand,
-                on_hand_start=self._on_hand_start,
-                on_view=self._on_view,
-                on_decision=self._on_decision,
-                keep_histories=False,
-            )
+            if self.tournament is not None:
+                run_tournament(self.agents, self.tournament, **hooks)
+            else:
+                run_league(self.agents, self.config, **hooks)
         except Exception as exc:  # noqa: BLE001 - surfaced to the browser, not swallowed
             self.error = f"{type(exc).__name__}: {exc}"
         finally:
@@ -198,6 +205,15 @@ class LiveSession:
             "pots": [],
             "decisions": [],
         }
+        if self.tournament is not None:
+            level = self.tournament.level_number(self.hands_played)
+            current["tournament"] = {"level": level, "left": hand.num_players, "out": {}}
+            self._standing = {
+                "level": level,
+                "blinds": str(self.tournament.schedule[level - 1]),
+                "left": hand.num_players,
+                "out": self._standing.get("out", {}),
+            }
         self._published = 0
         self._broadcast = None
         # The maths costs up to 40 ms a row: nothing at watching speed, but real on a full-speed
@@ -269,6 +285,12 @@ class LiveSession:
     def _on_hand(self, history: HandHistory) -> None:
         write_jsonl(self.path, [history], append=True)
         self.hands_played += 1
+        if history.tournament:
+            out = history.tournament["out"]
+            self._standing = self._standing | {
+                "left": history.tournament["left"] - len(out),
+                "out": self._standing.get("out", {}) | out,
+            }
         self.current = None
         human = self.human
         if human is not None:
@@ -302,7 +324,8 @@ class LiveSession:
             "finished": self.finished,
             "error": self.error,
             "hands_played": self.hands_played,
-            "hands_total": self.config.hands,
+            "hands_total": None if self.tournament is not None else self.config.hands,
+            "tournament": dict(self._standing) if self.tournament is not None else None,
             "seats": [a.name for a in self.agents],
             "kinds": [getattr(a, "kind", "") for a in self.agents],
             "spectator": self.spectator,

@@ -23,9 +23,11 @@ import pytest
 import uvicorn
 from starlette.staticfiles import StaticFiles
 
+from poker_table.agents.registry import make_agents
 from poker_table.agents.scripted import CallingStation, TightAggressive
 from poker_table.cli import main
-from poker_table.league import LeagueConfig
+from poker_table.history import read_jsonl
+from poker_table.league import LeagueConfig, TournamentConfig
 from poker_table.web.app import create_app
 from poker_table.web.export import export_site
 from poker_table.web.live import LiveSession, WebHumanAgent
@@ -303,3 +305,32 @@ def test_a_phone_player_sees_the_board_and_the_buttons_at_once(
     assert _overflowing(phone) == []
     phone.locator("#act-fold").tap()
     expect(phone.locator("#live")).to_have_text("session over, 1 hands")
+
+
+def test_a_freezeout_shows_its_levels_bust_outs_and_standings(page: Page, serve, tmp_path) -> None:
+    path = tmp_path / "freezeout.jsonl"
+    session = LiveSession(
+        make_agents(["tag", "station", "maniac", "rock", "random"], seed=3),
+        LeagueConfig(hands=1, seed=3),
+        path,
+        tournament=TournamentConfig(seed=3, hands_per_level=10),
+    )
+    url = serve(create_app(path, session))
+    session.start()
+    page.goto(url)
+    expect(page.locator("#live")).to_contain_text("tournament over:", timeout=60_000)
+    winner = page.locator("#live").inner_text().split(": ")[1].split(" wins")[0]
+
+    page.locator("#tab-board").click()
+    expect(page.locator("#board-title")).to_contain_text("Tournament over after")
+    expect(page.locator("#standings tbody tr")).to_have_count(5)
+    first = page.locator("#standings tbody tr").first.locator("td")
+    expect(first.nth(0)).to_have_text("1st")
+    expect(first.nth(1)).to_have_text(winner)
+
+    bust = next(h for h in read_jsonl(path) if h.tournament["out"])
+    name, place = next(iter(bust.tournament["out"].items()))
+    page.locator("#tab-hands").click()
+    page.evaluate(f"openHand({bust.hand_id!r}, {{at: 'end'}})")
+    expect(page.locator("#hand-sub")).to_contain_text(f"Level {bust.tournament['level']}: blinds")
+    expect(page.locator("#summary p.out")).to_contain_text(f"{name} is out in")

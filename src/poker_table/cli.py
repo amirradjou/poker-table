@@ -77,21 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="USD",
         help="stop dealing at this spend (sees Claude and OpenRouter costs only)",
     )
-    play.add_argument(
-        "--tournament",
-        action="store_true",
-        help="play a freezeout instead: rising blinds, no rebuys, until one seat has every chip",
-    )
-    play.add_argument(
-        "--levels",
-        help=(
-            "tournament blind schedule, e.g. '1/2,2/4,5/10+1' (sb/bb+ante); "
-            "the default doubles every level and antes from level 4"
-        ),
-    )
-    play.add_argument(
-        "--level-hands", type=int, default=20, help="hands per tournament level (default 20)"
-    )
+    add_tournament_options(play)
     play.add_argument("-o", "--out", type=Path, help="append every hand history to this JSONL file")
     play.add_argument(
         "--show", action="store_true", help="print each hand as it is played (with reasoning)"
@@ -276,7 +262,13 @@ def build_parser() -> argparse.ArgumentParser:
         "-s", "--seats", default=DEFAULT_SEATS, help=f"who sits down ({DEFAULT_SEATS})"
     )
     add_agents_option(watch)
-    watch.add_argument("-n", "--hands", type=int, default=100_000, help="hands to deal")
+    watch.add_argument(
+        "-n",
+        "--hands",
+        type=int,
+        help="hands to deal (default 100000; with --tournament, the hand limit, default 5000)",
+    )
+    add_tournament_options(watch)
     watch.add_argument("--seed", type=int, help="deal these decks again (default: new ones)")
     watch.add_argument("--pace", type=float, default=0.8, help="seconds per decision (0.8)")
     watch.add_argument(
@@ -321,7 +313,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="also play a session in the background and stream it to the page",
     )
-    serve.add_argument("-n", "--hands", type=int, default=100, help="hands to play with --live")
+    serve.add_argument(
+        "-n",
+        "--hands",
+        type=int,
+        help="hands to play with --live (default 100; with --tournament, the limit, default 5000)",
+    )
+    add_tournament_options(serve)
     serve.add_argument("-s", "--seats", default=DEFAULT_SEATS, help="seats for --live ('human' ok)")
     add_agents_option(serve)
     serve.add_argument("--seed", type=int, default=0)
@@ -340,6 +338,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="seconds between bot decisions with --live, so hands can be watched (default 0.8)",
     )
     return parser
+
+
+def add_tournament_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--tournament",
+        action="store_true",
+        help="play a freezeout instead: rising blinds, no rebuys, until one seat has every chip",
+    )
+    parser.add_argument(
+        "--levels",
+        help=(
+            "tournament blind schedule, e.g. '1/2,2/4,5/10+1' (sb/bb+ante); "
+            "the default doubles every level and antes from level 4"
+        ),
+    )
+    parser.add_argument(
+        "--level-hands", type=int, default=20, help="hands per tournament level (default 20)"
+    )
+
+
+def tournament_config(args: argparse.Namespace) -> TournamentConfig:
+    return TournamentConfig(
+        starting_stack=args.stack,
+        schedule=parse_levels(args.levels) if args.levels else DEFAULT_SCHEDULE,
+        hands_per_level=args.level_hands,
+        max_hands=args.hands if args.hands is not None else 5000,
+        seed=args.seed,
+        budget_usd=args.budget,
+    )
 
 
 def add_agents_option(parser: argparse.ArgumentParser) -> None:
@@ -586,14 +613,7 @@ def seat_list(agents) -> str:
 
 
 def play_tournament(args: argparse.Namespace, agents, out) -> int:
-    config = TournamentConfig(
-        starting_stack=args.stack,
-        schedule=parse_levels(args.levels) if args.levels else DEFAULT_SCHEDULE,
-        hands_per_level=args.level_hands,
-        max_hands=args.hands if args.hands is not None else 5000,
-        seed=args.seed,
-        budget_usd=args.budget,
-    )
+    config = tournament_config(args)
     if args.blinds or args.ante:
         print("note: a tournament takes its blinds and antes from --levels", file=out)
     human_seated = any(isinstance(a, HumanAgent) for a in agents)
@@ -1001,7 +1021,10 @@ def cmd_watch(args: argparse.Namespace, out) -> int:
             port=args.port or free_port(),
             open=not args.no_open,
             live=True,
-            hands=args.hands,
+            hands=args.hands if args.hands is not None or args.tournament else 100_000,
+            tournament=args.tournament,
+            levels=args.levels,
+            level_hands=args.level_hands,
             seats=args.seats,
             agents=args.agents,
             seed=random.randrange(2**32) if args.seed is None else args.seed,
@@ -1051,7 +1074,7 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
         check_seats_ready(agents)
         note_spending(agents, args.budget)
         config = LeagueConfig(
-            hands=args.hands,
+            hands=args.hands if args.hands is not None else 100,
             small_blind=small,
             big_blind=big,
             buy_in=args.stack,
@@ -1060,7 +1083,10 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
         )
         args.file.parent.mkdir(parents=True, exist_ok=True)
         args.file.touch()
-        live = LiveSession(agents, config, args.file, pace=max(0.0, args.pace))
+        tournament = tournament_config(args) if args.tournament else None
+        live = LiveSession(
+            agents, config, args.file, pace=max(0.0, args.pace), tournament=tournament
+        )
     allowed_hosts = hosts_to_answer(args.host, args.allow_host)
     if allowed_hosts is None:
         print(
@@ -1073,7 +1099,12 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
     print(f"poker-table viewer on {url} (Ctrl-C to stop)", file=out)
     if live is not None:
         seats = ", ".join(a.name for a in live.agents)
-        print(f"live: {args.hands} hands between {seats}, appending to {args.file}", file=out)
+        if live.tournament is not None:
+            stack = live.tournament.starting_stack
+            what = f"a freezeout between {seats}, {stack} chips each"
+        else:
+            what = f"{live.config.hands} hands between {seats}"
+        print(f"live: {what}, appending to {args.file}", file=out)
         live.start()
     if args.open:
         import webbrowser
