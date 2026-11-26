@@ -1,7 +1,8 @@
 """Train the cfr:blueprint seat's strategy and write src/poker_table/agents/data/blueprint.bin.
 
     uv run python scripts/train_blueprint.py             # about 20 minutes on one core
-    uv run python scripts/train_blueprint.py --check     # a tiny run, twice, to show it repeats
+    uv run python scripts/train_blueprint.py --check DIR     # a tiny run, for the tests
+    uv run python scripts/train_blueprint.py --iterations 500 --reuse --out /tmp/bp500.bin
 
 One fixed game: heads-up, 200-chip stacks, blinds 1/2, no ante (the table's defaults).
 
@@ -105,6 +106,7 @@ def train(
     out: Path,
     cache: Path | None,
     flops: int | None = None,
+    saved: Path | None = None,
 ) -> str:
     started = time.monotonic()
     log(f"start: {load()}")
@@ -112,8 +114,11 @@ def train(
     dealt = np.array([rng.choice(52, 5, replace=False) for _ in range(cut_boards + boards)])
     cards = model.strength_cuts(dealt[:cut_boards], QUANTILES)
     log(f"cut points: {cards}")
-    chances = chance_model(cards, dealt[cut_boards:], started, flops)
-    if cache is not None:
+    if saved is not None:  # a chance model this script saved before, from the same seed
+        chances = dict(np.load(saved))
+    else:
+        chances = chance_model(cards, dealt[cut_boards:], started, flops)
+    if cache is not None and saved is None:
         cache.parent.mkdir(parents=True, exist_ok=True)
         np.savez(cache, **chances)
     betting = Betting()
@@ -167,12 +172,19 @@ def main() -> int:
     parser.add_argument(
         "--check", type=Path, metavar="DIR", help="train a tiny blueprint into DIR, for tests"
     )
+    parser.add_argument(
+        "--iterations", type=int, default=ITERATIONS, help="for the trend in docs/solver-seats.md"
+    )
+    parser.add_argument(
+        "--reuse", action="store_true", help="read the chance model from --cache, do not recount"
+    )
     args = parser.parse_args()
     if args.check is not None:
         args.check.mkdir(parents=True, exist_ok=True)
         print(train(2, 6, 6, args.check / "blueprint.bin", None, flops=12))
         return 0
-    train(ITERATIONS, CUT_BOARDS, BOARDS, args.out, args.cache)
+    saved = args.cache if args.reuse else None
+    train(args.iterations, CUT_BOARDS, BOARDS, args.out, args.cache, saved=saved)
     return 0
 
 

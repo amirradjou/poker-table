@@ -1,6 +1,7 @@
 """How exploitable the shipped cfr:blueprint is inside its own abstract game.
 
     uv run python scripts/measure_blueprint.py
+    uv run python scripts/measure_blueprint.py --strategy /tmp/bp500.bin --no-uniform
 
 It rebuilds the abstract game the blueprint was trained in (the chance model that
 scripts/train_blueprint.py saved, recounted from the same seed if that file is missing), reads the
@@ -21,6 +22,7 @@ import os
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 
+import argparse  # noqa: E402
 import subprocess  # noqa: E402
 import sys  # noqa: E402
 import time  # noqa: E402
@@ -31,7 +33,7 @@ import numpy as np  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import train_blueprint as training  # noqa: E402
 
-from poker_table.agents.abstraction import Cards  # noqa: E402
+from poker_table.agents.abstraction import Cards, read_strategy  # noqa: E402
 from poker_table.agents.blueprint import shipped  # noqa: E402
 from poker_table.solvers import blueprint as model  # noqa: E402
 from poker_table.solvers.cfr import best_response_value, expected_value  # noqa: E402
@@ -69,10 +71,17 @@ def strategy_arrays(strategy) -> list[np.ndarray]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--strategy", type=Path, help="another strategy file (default: shipped)")
+    parser.add_argument("--no-uniform", action="store_true", help="skip the uniform reference")
+    args = parser.parse_args()
     print(f"start: {load()}", file=sys.stderr)
-    strategy = shipped()
+    strategy = read_strategy(args.strategy.read_bytes()) if args.strategy else shipped()
     _, game = training.build(chances(strategy.cards), strategy.betting)
-    for name, played in (("blueprint", strategy_arrays(strategy)), ("uniform", game.uniform())):
+    measured = [(f"{strategy.header['iterations']} iterations", strategy_arrays(strategy))]
+    if not args.no_uniform:
+        measured.append(("uniform", game.uniform()))
+    for name, played in measured:
         started = time.monotonic()
         as_sb = best_response_value(game, played, 0)
         as_bb = best_response_value(game, played, 1)
