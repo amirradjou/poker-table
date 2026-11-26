@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -16,7 +17,14 @@ from poker_table.coach.drills import DrillLog, DrillSession, spots_from
 from poker_table.coach.facts import Fact, replay, tag_hands
 from poker_table.coach.report import Report, build_report
 from poker_table.engine import ActionType, EventKind
-from poker_table.history import HandHistory, filter_by_date, parse_action, read_jsonl, weeks_of
+from poker_table.history import (
+    HandHistory,
+    filter_by_date,
+    parse_action,
+    public_view,
+    read_jsonl,
+    weeks_of,
+)
 from poker_table.margins import CAVEAT, all_in_adjusted, all_in_note, calls, seat_margins
 from poker_table.stats import compute_stats, leaderboard
 from poker_table.web.commentary import LONG_SHOT
@@ -26,6 +34,7 @@ from poker_table.web.live import (
     ODDS_SAMPLES,
     Broadcast,
     LiveSession,
+    WebHumanAgent,
     live_view_payload,
 )
 
@@ -47,21 +56,36 @@ NEWEST_TO_SCAN = 2000  # beyond this a file would take minutes, for hands nobody
 
 
 class HandStore:
-    """Hand histories loaded from a JSONL file; ``reload()`` picks up appended hands."""
+    """Hand histories loaded from a JSONL file; ``reload()`` picks up appended hands.
 
-    def __init__(self, path: Path) -> None:
+    With ``view``, each hand is kept only as ``view`` turns it, so nothing this store answers
+    can hold more than that: a shared table gives each reader a store of their own. Without
+    ``broadcast`` it never works out the win chances and commentary, which a table with people
+    at it does not send.
+    """
+
+    def __init__(
+        self,
+        path: Path,
+        view: Callable[[HandHistory], HandHistory] | None = None,
+        *,
+        broadcast: bool = True,
+    ) -> None:
         self.path = path
+        self.view = view
+        self.broadcast = broadcast
         self.hands: list[HandHistory] = []
         self.by_id: dict[str, HandHistory] = {}
         self._reports: dict[tuple[str, int, int, str, str], Report] = {}
         self._drills: dict[tuple[str, int], DrillSession] = {}
         self._odds: dict[str, dict[str, Any]] = {}
-        self._worth: dict[tuple[str, int], dict[int, float] | None] = {}
-        self._highlights: dict[tuple[str, int], dict[str, Any]] = {}
+        self._worth: dict[tuple[str, int, str], dict[int, float] | None] = {}
+        self._highlights: dict[tuple[str, int, str], dict[str, Any]] = {}
         self.reload()
 
     def reload(self) -> int:
-        self.hands = list(read_jsonl(self.path)) if self.path.exists() else []
+        hands = list(read_jsonl(self.path)) if self.path.exists() else []
+        self.hands = [self.view(h) for h in hands] if self.view is not None else hands
         self.by_id = {h.hand_id: h for h in self.hands}
         return len(self.hands)
 
@@ -94,23 +118,23 @@ class HandStore:
     def odds(self, hand_id: str) -> dict[str, Any]:
         """The per-decision probabilities for one hand, computed once and kept."""
         if hand_id not in self._odds:
-            self._odds[hand_id] = odds_payload(self.by_id[hand_id])
+            self._odds[hand_id] = odds_payload(self.by_id[hand_id], broadcast=self.broadcast)
         return self._odds[hand_id]
 
     def worth(self, history: HandHistory) -> dict[int, float] | None:
         """One hand's all-in adjusted result, kept: a live table only pays for its new hands. Two
-        runs appended to one file can repeat a hand id, so the deck's seed is part of the key."""
-        key = (history.hand_id, history.seed)
+        runs appended to one file can repeat a hand id, so the seed and time are in the key."""
+        key = (history.hand_id, history.seed, history.played_at)
         if key not in self._worth:
             self._worth[key] = all_in_adjusted(history)
         return self._worth[key]
 
     def highlight(self, history: HandHistory) -> dict[str, Any]:
         """One hand as the filters see it, worked out once: it costs about 150 ms. Two runs
-        appended to one file can repeat a hand id, so the deck's seed is part of the key."""
-        key = (history.hand_id, history.seed)
+        appended to one file can repeat a hand id, so the seed and time are in the key."""
+        key = (history.hand_id, history.seed, history.played_at)
         if key not in self._highlights:
-            broadcast = _broadcast(history)
+            broadcast = _broadcast(history) if self.broadcast else None
             self._highlights[key] = highlight_of(history, broadcast.lines if broadcast else [])
         return self._highlights[key]
 
@@ -286,13 +310,17 @@ def coach_payload(
     return data
 
 
-def odds_payload(history: HandHistory, *, samples: int = ODDS_SAMPLES) -> dict[str, Any]:
+def odds_payload(
+    history: HandHistory, *, samples: int = ODDS_SAMPLES, broadcast: bool = True
+) -> dict[str, Any]:
     """The probability calculation at every decision of one hand, both ways round.
 
     ``blind`` is what the seat itself could work out — its cards against the hands still in,
     unseen. ``known`` is what a replay can also say, because the file has everyone's cards:
     the same spot against the actual holdings, enumerated where that is cheap. A hand
-    imported from a site keeps ``known`` empty for the seats whose cards were never shown.
+    imported from a site keeps ``known`` empty for the seats whose cards were never shown, and
+    a seat whose own cards the file does not hold has no spot: the replay deals it stand-ins,
+    and their numbers would be about cards nobody held.
     """
     from poker_table.odds import calculate, chance_row
 
@@ -306,6 +334,8 @@ def odds_payload(history: HandHistory, *, samples: int = ODDS_SAMPLES) -> dict[s
     for index, (view, action) in enumerate(decisions):
         if index >= len(steps):
             break
+        if len(holes.get(view.seat, [])) != 2:
+            continue
         others = [p.seat for p in view.players if p.seat != view.seat and not p.folded]
         price = {"pot": view.pot, "to_call": view.to_call}
         blind = calculate(view.hole, view.board, max(1, len(others)), samples=samples, **price)
@@ -332,12 +362,12 @@ def odds_payload(history: HandHistory, *, samples: int = ODDS_SAMPLES) -> dict[s
                 "known": chance_row(known) if known is not None else None,
             }
         )
-    broadcast = _broadcast(history)
+    table = _broadcast(history) if broadcast else None
     return {
         "hand_id": history.hand_id,
         "spots": spots,
-        "table": broadcast.rows if broadcast else [],
-        "commentary": broadcast.lines if broadcast else [],
+        "table": table.rows if table else [],
+        "commentary": table.lines if table else [],
     }
 
 
@@ -423,6 +453,43 @@ class DrillAnswer(BaseModel):
     action: str  # "fold", "check", "call", "bet 12", "raise 30"
 
 
+def seat_view(history: HandHistory, name: str) -> HandHistory:
+    """A finished hand as one person at a shared table may see it: the public view (the board,
+    every action and table talk, the cards turned over at showdown) plus their own cards and
+    reasoning. With ``name`` empty, as someone with no seat sees it. The deck's seed goes too,
+    because it deals the whole hand again, folded cards and all."""
+    return replace(public_view(history, name), seed=0, hero=name)
+
+
+@dataclass(frozen=True, slots=True)
+class Reader:
+    """Who a request is from: a person at the live table, or nobody, and the hands they may read.
+
+    At a shared table ``store`` holds only :func:`seat_view` of each hand, so whatever a route
+    works out from it cannot hold another seat's hidden cards or reasoning.
+    """
+
+    person: WebHumanAgent | None
+    store: HandStore
+    shared: bool = False
+
+    @property
+    def name(self) -> str | None:
+        return self.person.name if self.person is not None else None
+
+    def own_seat_only(self, player: str) -> None:
+        if self.shared and player != self.name:
+            raise HTTPException(403, "at a shared table the coach reads only your own seat")
+
+
+def _reader(request: Request, seat: str = "") -> Reader:
+    """The reader a request's seat link names; ``create_app`` keeps the table it looks in."""
+    return request.app.state.reader(seat)
+
+
+Who = Annotated[Reader, Depends(_reader)]
+
+
 def create_app(
     path: Path | str,
     live: LiveSession | None = None,
@@ -434,64 +501,94 @@ def create_app(
     app.add_middleware(TableGuard, allowed_hosts=allowed_hosts)
     app.state.store = store
     app.state.live = live
+    shared = live is not None and live.shared
+    seat_stores: dict[str, HandStore] = {}
+
+    def reader(seat: str = "") -> Reader:
+        """The seat link's token names the reader. A page with no token is the one person at a
+        table for one, as it always was, and nobody at a shared table."""
+        if seat:
+            person = live.seat_for(seat) if live is not None else None
+            if person is None:
+                raise HTTPException(403, "this seat link is not one of this table's")
+        else:
+            person = live.person(None) if live is not None else None
+        if not shared:
+            return Reader(person, store)
+        name = person.name if person is not None else ""
+        if name not in seat_stores:
+            # Even a hand shown down by everyone gets no broadcast: a shared table never sends one.
+            seat_stores[name] = HandStore(
+                store.path, view=lambda h: seat_view(h, name), broadcast=False
+            )
+        return Reader(person, seat_stores[name], shared=True)
+
+    app.state.reader = reader
 
     @app.get("/")
     def index() -> FileResponse:
         return FileResponse(STATIC / "index.html")
 
     @app.get("/api/session")
-    def session() -> dict[str, Any]:
-        store.reload()
-        return session_payload(store)
+    def session(who: Who) -> dict[str, Any]:
+        who.store.reload()
+        payload = session_payload(who.store)
+        if who.shared:  # most hands hide someone's folded cards, which the stories need
+            payload |= {"shared": True, "you": who.name, "highlights": False}
+        return payload
 
     @app.get("/api/hands")
-    def hands(offset: int = 0, limit: int = 100, ids: str = "") -> dict[str, Any]:
-        return hands_payload(store, offset, limit, ids)
+    def hands(who: Who, offset: int = 0, limit: int = 100, ids: str = "") -> dict[str, Any]:
+        return hands_payload(who.store, offset, limit, ids)
 
     @app.get("/api/hands/{hand_id}")
-    def hand(hand_id: str) -> dict[str, Any]:
-        history = store.by_id.get(hand_id)
+    def hand(hand_id: str, who: Who) -> dict[str, Any]:
+        history = who.store.by_id.get(hand_id)
         if history is None:
             raise HTTPException(404, f"no hand {hand_id!r}")
-        return hand_payload(history)
+        payload = hand_payload(history)
+        if who.shared:
+            payload.pop("seed")  # nought in a seat's view, so the page should not claim one
+        return payload
 
     @app.get("/api/odds/{hand_id}")
-    def odds(hand_id: str) -> dict[str, Any]:
-        history = store.by_id.get(hand_id)
+    def odds(hand_id: str, who: Who) -> dict[str, Any]:
+        history = who.store.by_id.get(hand_id)
         if history is None:
             raise HTTPException(404, f"no hand {hand_id!r}")
-        return store.odds(hand_id)
+        return who.store.odds(hand_id)
 
     @app.get("/api/live")
-    def live_status() -> dict[str, Any]:
+    def live_status(who: Who) -> dict[str, Any]:
         if live is None:
             return {"live": False}
-        return live.status()
+        return live.status(who.name)
 
     @app.get("/api/events")
-    def events() -> StreamingResponse:
+    def events(who: Who) -> StreamingResponse:
         if live is None:
             raise HTTPException(404, "not a live session")
         return StreamingResponse(
-            live.sse(),
+            live.sse(who.name),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
     @app.post("/api/live/pace")
-    def set_pace(body: PaceRequest) -> dict[str, Any]:
+    def set_pace(body: PaceRequest, who: Who) -> dict[str, Any]:
         if live is None:
             raise HTTPException(404, "not a live session")
         live.pace = min(max(body.pace, 0.0), MAX_PACE)
         return {"pace": live.pace}
 
     @app.post("/api/act")
-    def act(body: ActRequest) -> dict[str, Any]:
-        human = live.human if live is not None else None
-        if human is None:
+    def act(body: ActRequest, who: Who) -> dict[str, Any]:
+        if who.person is None:
+            if shared:
+                raise HTTPException(403, "this page has no seat: open your own seat link to play")
             raise HTTPException(404, "no human seat at this table")
         try:
-            action = human.submit(body.action, body.table_talk)
+            action = who.person.submit(body.action, body.table_talk)
         except LookupError as exc:
             raise HTTPException(409, str(exc)) from None
         except ValueError as exc:
@@ -499,19 +596,28 @@ def create_app(
         return {"ok": True, "action": str(action)}
 
     @app.get("/api/coach")
-    def coach(player: str, samples: int = 200, since: str = "", until: str = "") -> dict[str, Any]:
-        if player not in store.players():
+    def coach(
+        player: str, who: Who, samples: int = 200, since: str = "", until: str = ""
+    ) -> dict[str, Any]:
+        who.own_seat_only(player)
+        if player not in who.store.players():
             raise HTTPException(404, f"no seat named {player!r}")
         try:
-            return coach_payload(store, player, samples, since, until)
+            return coach_payload(who.store, player, samples, since, until)
         except ValueError as exc:  # a malformed date
             raise HTTPException(400, str(exc)) from None
 
     @app.post("/api/coach/narrate")
-    def coach_narrate(body: NarrateRequest) -> dict[str, Any]:
+    def coach_narrate(body: NarrateRequest, who: Who) -> dict[str, Any]:
         from poker_table.agents.llm import DEFAULT_MODEL, explain_model_error
         from poker_table.coach.narrate import narrate
 
+        if who.shared:  # a friend's link must not spend the host's key
+            raise HTTPException(
+                403,
+                "Claude's notes run on the host's key, so a shared table does not offer them: "
+                "`poker-table coach FILE --narrate` gives them afterwards",
+            )
         if body.player not in store.players():
             raise HTTPException(404, f"no seat named {body.player!r}")
         report = store.report(body.player, 200)
@@ -537,10 +643,11 @@ def create_app(
         }
 
     @app.get("/api/drill/next")
-    def drill_next(player: str, restart: bool = False) -> dict[str, Any]:
-        if player not in store.players():
+    def drill_next(player: str, who: Who, restart: bool = False) -> dict[str, Any]:
+        who.own_seat_only(player)
+        if player not in who.store.players():
             raise HTTPException(404, f"no seat named {player!r}")
-        session = store.drill(player)
+        session = who.store.drill(player)
         if restart:
             session.restart()
         spot = session.next()
@@ -554,10 +661,11 @@ def create_app(
         return out
 
     @app.post("/api/drill/answer")
-    def drill_answer(body: DrillAnswer) -> dict[str, Any]:
-        if body.player not in store.players():
+    def drill_answer(body: DrillAnswer, who: Who) -> dict[str, Any]:
+        who.own_seat_only(body.player)
+        if body.player not in who.store.players():
             raise HTTPException(404, f"no seat named {body.player!r}")
-        session = store.drill(body.player)
+        session = who.store.drill(body.player)
         try:
             action = parse_action(body.action)
         except ValueError as exc:
@@ -569,22 +677,22 @@ def create_app(
         return verdict | {"progress": session.progress()}
 
     @app.get("/api/bankroll")
-    def bankroll() -> dict[str, Any]:
-        return bankroll_payload(store)
+    def bankroll(who: Who) -> dict[str, Any]:
+        return bankroll_payload(who.store)
 
     @app.get("/api/highlights")
-    def highlights(offset: int = 0, limit: int = 10) -> dict[str, Any]:
+    def highlights(who: Who, offset: int = 0, limit: int = 10) -> dict[str, Any]:
         if offset == 0:
-            store.reload()
-        return highlights_payload(store, offset, limit)
+            who.store.reload()
+        return highlights_payload(who.store, offset, limit)
 
     @app.get("/api/stats")
-    def stats() -> dict[str, Any]:
-        return stats_payload(store)
+    def stats(who: Who) -> dict[str, Any]:
+        return stats_payload(who.store)
 
     @app.get("/api/margins")
-    def margins() -> dict[str, Any]:
-        return margins_payload(store)
+    def margins(who: Who) -> dict[str, Any]:
+        return margins_payload(who.store)
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     return app
