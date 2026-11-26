@@ -57,8 +57,9 @@ SECONDS` changes that, and 0 waits for ever. Opening your link again, after a re
 connection, picks your seat up where it was.
 
 Each page sees what a player at a real table would. During a hand: your own cards, the actions and
-table talk, your own odds on your turn, and nobody's win chances. After it: the board, every action,
-the cards turned over at showdown, your own cards and your own coach line. Folded cards stay hidden,
+table talk, and your own odds on your turn. After it: the board, every action, the cards turned over
+at showdown, your own cards and your own coach line. Nobody's win chances, ever, and no commentary,
+since both are worked out from every seat's cards. Folded cards stay hidden,
 a bot's as well as a person's, and so does every other seat's reasoning. The watching link sees the
 same without a seat. The Coach tab reads only your own seat, and Claude's notes are off, because
 they would run on your key. The hand file on your machine keeps everything: `poker-table serve
