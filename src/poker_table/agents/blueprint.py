@@ -176,7 +176,8 @@ class BlueprintAgent:
         state = self._state(view)
         probabilities = self.strategy.probabilities(node, state)
         dealer = random.Random(f"{self.seed}:{view.hand_id}:{len(view.events)}")
-        roll, label = dealer.random(), node.labels[-1]
+        # The likeliest action catches a roll past the rounded total, never an unplayed one.
+        roll, label = dealer.random(), node.labels[probabilities.index(max(probabilities))]
         for candidate, p in zip(node.labels, probabilities, strict=True):
             if roll < p:
                 label = candidate
