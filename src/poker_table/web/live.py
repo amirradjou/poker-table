@@ -23,7 +23,6 @@ from poker_table.table import DecisionRecord
 from poker_table.web.commentary import Commentator
 
 MAX_PACE = 5.0
-SHARED_TIME_LIMIT = 60.0  # seconds per decision at a table with two or more people, by default
 
 
 ODDS_SAMPLES = 800  # a seat's own odds: the same count live and in a replay, so they match

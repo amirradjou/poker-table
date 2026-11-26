@@ -34,7 +34,7 @@ from poker_table.margins import calls, seat_margins
 from poker_table.stats import compute_stats, format_table
 
 DEFAULT_SEATS = "tag,rock,maniac,station,random"
-SHARED_TIME_LIMIT = 60.0  # the same as poker_table.web.live's, which needs the web extra
+SHARED_TIME_LIMIT = 60.0  # seconds a decision, by default, at a table with two or more people
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1112,7 +1112,7 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
     import uvicorn
 
     from poker_table.web.app import create_app
-    from poker_table.web.guard import hosts_to_answer
+    from poker_table.web.guard import EVERY_INTERFACE, hosts_to_answer
 
     if args.export is not None:
         from poker_table.web.export import export_site
@@ -1182,7 +1182,9 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
             file=sys.stderr,
         )
     app = create_app(args.file, live, allowed_hosts=allowed_hosts)
-    url = f"http://{args.host}:{args.port}/"
+    # A browser cannot open 0.0.0.0 by name once --allow-host guards the table: use this machine.
+    local = "127.0.0.1" if args.host in EVERY_INTERFACE else args.host
+    url = f"http://{local}:{args.port}/"
     print(f"poker-table viewer on {url} (Ctrl-C to stop)", file=out)
     if live is not None:
         seats = ", ".join(a.name for a in live.agents)
