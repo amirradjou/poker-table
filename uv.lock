@@ -922,6 +922,7 @@ browser = [
 ]
 dev = [
     { name = "httpx" },
+    { name = "numpy" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -939,6 +940,7 @@ provides-extras = ["laya"]
 browser = [{ name = "playwright", specifier = ">=1.64.1" }]
 dev = [
     { name = "httpx", specifier = ">=0.28.1" },
+    { name = "numpy", specifier = ">=2.5.3" },
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.13" },
 ]
