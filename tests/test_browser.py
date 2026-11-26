@@ -377,8 +377,7 @@ def test_two_people_play_one_table_each_seeing_only_their_own_cards(
         turn = person.pending
         folds = person.name == "bob" and turn["hand_id"] == "1" and not turn["legal"]["can_check"]
         mine.locator("#act-fold" if folds else "#act-check").click()
-        expect(mine.locator("#action-bar")).to_be_hidden()
-        wait = time.time() + 10
+        wait = time.time() + 10  # (the bar may already be back: the next turn can be theirs too)
         while person.pending is turn:
             assert time.time() < wait, "the answer did not arrive"
             time.sleep(0.01)
@@ -412,7 +411,6 @@ def test_a_phone_at_a_table_with_friends_fits_and_shows_the_clock(
         [ann, bob, *bots], LeagueConfig(hands=1, seed=3, buy_in=100), path, time_limit=600
     )
     url = serve(create_app(path, session))
-    phone.goto(f"{url}/?seat={ann.token}")
     session.start()
     end = time.time() + 30
     while ann.pending is None:  # bob plays from somewhere else
@@ -420,7 +418,10 @@ def test_a_phone_at_a_table_with_friends_fits_and_shows_the_clock(
         if bob.pending is not None:
             bob.submit("check" if bob.pending["legal"]["can_check"] else "call")
         time.sleep(0.01)
+    phone.goto(f"{url}/?seat={ann.token}")  # opened mid-hand, as after a reload: the seat is there
     expect(phone.locator("#action-bar")).to_be_visible()
+    expect(_seat(phone, 0).locator(".card:not(.back)")).to_have_count(2)
+    expect(_seat(phone, 1).locator(".card:not(.back)")).to_have_count(0)
     expect(phone.locator("#action-clock")).to_have_text(re.compile(r"^\d+ s left$"))
     expect(phone.locator("#live")).to_have_text("ann · waiting for you")
     phone.wait_for_function(  # both on screen together, once the bar has scrolled into view

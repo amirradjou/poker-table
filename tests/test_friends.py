@@ -222,8 +222,9 @@ def card_pairs(values: Iterable[Any]) -> set[frozenset[str]]:
 class Oracle:
     """What a reader must not be sent, worked out from the finished hands in the file."""
 
-    def __init__(self, hands: list[HandHistory]) -> None:
+    def __init__(self, hands: list[HandHistory], links: dict[str, str] | None = None) -> None:
         self.hands = hands
+        self.links = links or {}  # each person's seat token, the one secret that is the key
         self.seats = {p.name: p.seat for p in hands[0].players}  # a cash table never reseats
         self.reviews = {
             name: {h.hand_id: review_of(public_view(h, name), name) for h in hands}
@@ -254,6 +255,8 @@ class Oracle:
         found = set()
         if SECRET in text:
             found.add("a bot's reasoning")
+        if any(token in text for name, token in self.links.items() if name != viewer):
+            found.add("someone else's seat link")
         if any(str(h.seed) in text for h in self.hands):
             found.add("a deck's seed")
         values = decode(text)
@@ -349,7 +352,7 @@ def test_no_page_is_sent_what_its_seat_could_not_see(tmp_path: Path, paid_call: 
     assert session.error == "" and session.hands_played == 3
 
     hands = list(read_jsonl(path))
-    oracle = Oracle(hands)
+    oracle = Oracle(hands, {h.name: h.token for h in session.humans})
     bob = oracle.seats["bob"]
     assert any(bob in h.showdown for h in hands), "bob should reach a showdown"
     assert any(bob not in h.showdown for h in hands), "bob should fold a hand"
@@ -724,8 +727,10 @@ def test_serve_prints_a_private_link_per_person_and_one_to_watch(tmp_path, no_se
 
 def test_watch_reaches_other_machines_when_asked(tmp_path, no_server) -> None:
     argv = ["watch", "-n", "1", "--seats", "ann:human,bob:human,tag", "--host", "0.0.0.0"]
-    printed, live = run([*argv, "--time-limit", "20", "--no-open"], no_server)
+    printed, live = run([*argv, "--time-limit", "20", "--allow-host", "t.example"], no_server)
     assert no_server["host"] == "0.0.0.0" and live.time_limit == 20
+    # the browser opens this machine's own address, which the guard answers, not 0.0.0.0
+    assert no_server["opened"] == f"http://127.0.0.1:{no_server['port']}/"
     assert "http://0.0.0.0" not in printed.split("Seat links")[1]  # a link someone can open
     printed, live = run(
         ["watch", "-n", "1", "--seats", "ann:human,bob:human", "--allow-host", "t.example"],
