@@ -1,0 +1,6 @@
+name = "hu-maniac-vs-rock"
+description = "The heads-up track: maniac against rock."
+seats = ["entrant:maniac", "rock"]
+hands = 400
+seed = 2026
+coach = false

@@ -16,6 +16,7 @@ from pathlib import Path
 from poker_table.experiments import load_experiment, seat_results
 from poker_table.history import read_jsonl
 from poker_table.honesty import honesty
+from poker_table.margins import seat_margins
 from poker_table.verify import CANNOT_PROVE, verify_folder
 
 ENTRANT = "entrant"
@@ -152,5 +153,165 @@ def render_leaderboard(folders: Sequence[Path | str]) -> str:
         "",
         f"{CANNOT_PROVE} The decks are public, so treat a row as a claim by whoever sent it. The "
         "reasoning for every decision is in its `hands.jsonl`, for anyone who wants to read it.",
+        "",
+        "Seats that only play heads-up have their own [heads-up track](leaderboard-heads-up.md).",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+# ----- the heads-up track ------------------------------------------------------------------
+
+HEADS_UP_HANDS = 400  # the hands of the wildest match just fit the 2 MB limit
+
+
+def heads_up_name(seat: str, opponent: str) -> str:
+    """``cfr:blueprint`` against tag: ``hu-cfr-blueprint-vs-tag``."""
+    return "hu-" + folder_name(seat).removeprefix("bench-") + f"-vs-{opponent}"
+
+
+def heads_up_file(seat: str, opponent: str, budget_usd: float | None = None) -> str:
+    """One match of the heads-up track: the entrant against one bot, on the track's decks."""
+    seat = seat.strip()
+    lines = [
+        f"name = {json.dumps(heads_up_name(seat, opponent))}",
+        f"description = {json.dumps(f'The heads-up track: {seat} against {opponent}.')}",
+        f"seats = {json.dumps([f'{ENTRANT}:{seat}', opponent])}",
+        f"hands = {HEADS_UP_HANDS}",
+        f"seed = {SEED}",
+        "coach = false",
+    ]
+    if budget_usd is not None:
+        lines.append(f"budget_usd = {budget_usd}")
+    return "\n".join(lines) + "\n"
+
+
+def heads_up_problems(folder: Path | str) -> list[str]:
+    """What keeps a folder off the heads-up leaderboard."""
+    folder = Path(folder)
+    problems = verify_folder(folder)
+    if problems and not (folder / "experiment.toml").exists():
+        return problems
+    experiment = load_experiment(folder / "experiment.toml")
+    seats = experiment.seats
+    if len(seats) != 2 or not seats[0].startswith(f"{ENTRANT}:") or seats[1] not in OPPONENTS:
+        problems.append(f"the seats are not a heads-up match: {', '.join(seats)}")
+    if (experiment.hands, experiment.seed, experiment.tables) != (HEADS_UP_HANDS, SEED, 1):
+        problems.append(f"it is not {HEADS_UP_HANDS} hands from seed {SEED} on one table")
+    if (experiment.small_blind, experiment.big_blind, experiment.ante, experiment.stack) != (
+        1,
+        2,
+        0,
+        200,
+    ):
+        problems.append("the stakes are not the benchmark's")
+    run = json.loads((folder / "run.json").read_text(encoding="utf-8"))
+    if run.get("stopped") != "finished":
+        problems.append(f"it did not finish: {run.get('stopped')}")
+    return problems
+
+
+@dataclass(frozen=True, slots=True)
+class HeadsUpEntry:
+    entrant: str
+    adjusted: float
+    margin: float
+    bb_per_100: float
+    against: dict[str, tuple[float, float]]  # opponent -> (all-in adj. bb/100, its ±95%)
+    own_method: str  # how many decisions the seat's own method made, for research seats
+    illegal: float
+    failed: int
+    played_on: str
+
+
+def _own_method(histories) -> str:
+    methods = [
+        d.meta["method"]
+        for h in histories
+        for d in h.decisions
+        if h.players[d.seat].name == ENTRANT and "method" in d.meta
+    ]
+    if not methods:
+        return "-"
+    own = sum(m != "fallback" for m in methods)
+    if 0 < own < len(methods):  # never round a mixed record up to 100% or down to 0%
+        return f"{own / len(methods):.1%}"
+    return f"{own / len(methods):.0%}"
+
+
+def heads_up_entries(folders: Sequence[Path | str]) -> list[HeadsUpEntry]:
+    by_entrant: dict[str, dict[str, Path]] = {}
+    for folder in map(Path, folders):
+        seats = load_experiment(folder / "experiment.toml").seats
+        by_entrant.setdefault(seats[0].removeprefix(f"{ENTRANT}:"), {})[seats[1]] = folder
+    entries = []
+    for seat, matches in by_entrant.items():
+        missing = [o for o in OPPONENTS if o not in matches]
+        if missing:
+            raise ValueError(f"{seat} has no heads-up match against {', '.join(missing)}")
+        histories, against, runs = [], {}, []
+        for opponent in OPPONENTS:
+            played = list(read_jsonl(matches[opponent] / "hands.jsonl"))
+            margin = seat_margins(played)[ENTRANT]
+            against[opponent] = (margin.adjusted_bb_per_100, margin.adjusted_margin or 0.0)
+            histories += played
+            runs.append(json.loads((matches[opponent] / "run.json").read_text(encoding="utf-8")))
+        row = next(r for r in seat_results(histories) if r.name == ENTRANT)
+        entries.append(
+            HeadsUpEntry(
+                entrant=row.plays_as,
+                adjusted=row.adjusted_bb_per_100,
+                margin=row.adjusted_margin or 0.0,
+                bb_per_100=row.bb_per_100,
+                against=against,
+                own_method=_own_method(histories),
+                illegal=row.illegal / row.decisions if row.decisions else 0.0,
+                failed=row.failed,
+                played_on=max(str(r.get("last_saved", ""))[:10] for r in runs),
+            )
+        )
+    return sorted(entries, key=lambda e: e.adjusted, reverse=True)
+
+
+def render_heads_up_leaderboard(folders: Sequence[Path | str]) -> str:
+    entries = heads_up_entries(folders)
+    total = HEADS_UP_HANDS * len(OPPONENTS)
+    lines = [
+        "# Heads-up leaderboard",
+        "",
+        f"Every entrant plays {HEADS_UP_HANDS} hands heads-up against each of the four bots "
+        f"({', '.join(OPPONENTS)}), {total:,} hands in all, from the same seat and the same decks, "
+        "at 200 chips and blinds 1/2 (100 big blinds). Seats that only play heads-up, such as "
+        "the [solver seats](solver-seats.md), are measured here.",
+        "",
+        "| entrant | all-in adj. bb/100 | ±95% | "
+        + " | ".join(f"vs {o}" for o in OPPONENTS)
+        + " | bb/100 | its own method | illegal | failed | played |",
+        "|---|---:|---:|" + "---:|" * len(OPPONENTS) + "---:|---:|---:|---:|---|",
+    ]
+    for e in entries:
+        cells = " | ".join(f"{adj:+.0f} ±{m:.0f}" for adj, m in e.against.values())
+        lines.append(
+            f"| {e.entrant} | {e.adjusted:+.0f} | {e.margin:.0f} | {cells} | {e.bb_per_100:+.0f} "
+            f"| {e.own_method} | {e.illegal:.0%} | {e.failed} | {e.played_on} |"
+        )
+    lines += [
+        "",
+        "Read the intervals before the order: two rows whose intervals overlap may not be "
+        f"different at all. The overall column pools all {total:,} hands; each match column is "
+        f'its {HEADS_UP_HANDS} hands alone, so its interval is about twice as wide. "Its own '
+        'method" is the share of decisions a research seat made with its own strategy rather '
+        "than the scripted fallback it hands spots to; a dash means the seat has no such "
+        "fallback. A row that reads 0% is the fallback's row.",
+        "",
+        "## Add yours",
+        "",
+        "```sh",
+        "poker-table benchmark <seat> --heads-up -o results   # four matches, one folder each",
+        "poker-table verify results/hu-*                       # check the folders",
+        "```",
+        "",
+        "Copy the four folders into `docs/results/`, run "
+        "`uv run python scripts/build_leaderboard.py` and open a pull request. CI replays every "
+        f"hand from its deck seed. {CANNOT_PROVE}",
     ]
     return "\n".join(lines) + "\n"

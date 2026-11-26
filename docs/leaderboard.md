@@ -25,3 +25,5 @@ poker-table verify results/bench-nerd-groq-<model>        # check the folder
 Copy the folder into `docs/results/`, run `uv run python scripts/build_leaderboard.py` and open a pull request. CI replays every hand from its deck seed.
 
 This shows the hands are legal and the decks and results are true. It cannot show who made the decisions. The decks are public, so treat a row as a claim by whoever sent it. The reasoning for every decision is in its `hands.jsonl`, for anyone who wants to read it.
+
+Seats that only play heads-up have their own [heads-up track](leaderboard-heads-up.md).

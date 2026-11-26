@@ -246,6 +246,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     bench.add_argument("--budget", type=float, metavar="USD", help="stop at this spend")
     bench.add_argument("--resume", action="store_true", help="carry on from a stopped run")
+    bench.add_argument(
+        "--heads-up",
+        action="store_true",
+        help="the heads-up track: one match against each bot, a folder each",
+    )
+    bench.add_argument(
+        "--trial",
+        type=int,
+        metavar="N",
+        help="play N hands, say what the rest would cost and take, and ask before going on",
+    )
     verify = sub.add_parser("verify", help="deal and play a results folder again, to check it")
     verify.add_argument("folders", type=Path, nargs="+", help="results folders")
 
@@ -754,15 +765,32 @@ def cmd_odds(args: argparse.Namespace, out) -> int:
 
 
 def cmd_benchmark(args: argparse.Namespace, out) -> int:
-    from poker_table.benchmark import benchmark_file, folder_name
+    from poker_table.benchmark import (
+        OPPONENTS,
+        benchmark_file,
+        folder_name,
+        heads_up_file,
+        heads_up_name,
+    )
 
     args.out.mkdir(parents=True, exist_ok=True)
-    path = args.out / f"{folder_name(args.seat)}.toml"
-    path.write_text(benchmark_file(args.seat, args.budget), encoding="utf-8")
-    run = argparse.Namespace(
-        action="run", file=path, out=args.out, hands=None, resume=args.resume, trial=args.trial
-    )
-    return cmd_experiment(run, out)
+    if args.heads_up:
+        matches = [
+            (heads_up_name(args.seat, o), heads_up_file(args.seat, o, args.budget))
+            for o in OPPONENTS
+        ]
+    else:
+        matches = [(folder_name(args.seat), benchmark_file(args.seat, args.budget))]
+    for name, text in matches:
+        path = args.out / f"{name}.toml"
+        path.write_text(text, encoding="utf-8")
+        run = argparse.Namespace(
+            action="run", file=path, out=args.out, hands=None, resume=args.resume, trial=args.trial
+        )
+        code = cmd_experiment(run, out)
+        if code:
+            return code
+    return 0
 
 
 def cmd_verify(args: argparse.Namespace, out) -> int:

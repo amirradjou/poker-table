@@ -1,0 +1,6 @@
+name = "hu-tag-vs-maniac"
+description = "The heads-up track: tag against maniac."
+seats = ["entrant:tag", "maniac"]
+hands = 400
+seed = 2026
+coach = false
