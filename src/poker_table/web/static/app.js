@@ -144,12 +144,10 @@ async function api(path) {
   return STATIC ? staticSlice(path, data) : data;
 }
 
-// At a table with friends each person sees their own seat only (``you``; null without a link).
-let sharedTable = false, seatName = null;
+let sharedTable = false;  // a table with friends, where each page sees only its own seat
 async function loadSession() {
   const s = await api("/api/session");
   sharedTable = !!s.shared;
-  seatName = s.you || null;
   $("file").textContent = s.hands ? `${s.hands} hand${s.hands === 1 ? "" : "s"} from ${s.file}` : `${s.file} is empty`;
   setUpFilters(s);
   if (s.odds === false) {  // a site exported without --export-odds has no odds files to show
@@ -287,6 +285,8 @@ function renderOdds() {
   el.classList.toggle("hidden", !ready);
   if (!ready) return;
   const stale = !oddsData || oddsData.hand_id !== hand.hand_id;
+  // Nothing to show: no decision replays, or (at a table with friends) none was this page's.
+  if (!stale && !oddsData.spots.length) { el.classList.add("hidden"); return; }
   const spot = stale ? null : spotAt(step);
   if (!spot) { el.innerHTML = '<span class="note">Working out the chances…</span>'; return; }
   const past = spot.step < step;
