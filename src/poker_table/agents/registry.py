@@ -10,6 +10,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
 from poker_table.agents.base import Agent, TableShape, heads_up_refusal, seating_problems
+from poker_table.agents.blueprint import BlueprintAgent
 from poker_table.agents.compat import is_compat
 from poker_table.agents.human import HumanAgent
 from poker_table.agents.laya import DEFAULT_MODEL as LAYA_MODEL
@@ -39,6 +40,7 @@ SCRIPTED: dict[str, Factory] = {
 
 # Seats built from the poker-AI research: methods we compute ourselves, named for what they are.
 RESEARCH: dict[str, Factory] = {
+    "cfr:blueprint": lambda name, seed: BlueprintAgent(name, seed=seed),
     "nash:pushfold": lambda name, seed: PushFoldAgent(name, seed=seed),
 }
 # "llm:...", "cfr:..." and "nash:..." name a kind, never a seat called llm, cfr or nash.
@@ -53,6 +55,8 @@ BUILT_IN: dict[str, str] = {
     "random": "any legal action, chosen at random",
     "human": "you, at the terminal (or in the browser with serve --live)",
     "laya": "the open Laya decision model (pip install 'poker-table[laya]')",
+    "cfr:blueprint": "a CFR+ blueprint in the style of the Libratus and Pluribus blueprints, on "
+    "our much coarser abstraction, for 100 big blinds (heads-up only)",
     "nash:pushfold": "a heads-up push/fold Nash equilibrium we computed with CFR+, for effective "
     "stacks up to 15 big blinds (heads-up only)",
 }

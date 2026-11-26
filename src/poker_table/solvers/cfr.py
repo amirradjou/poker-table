@@ -253,9 +253,15 @@ def best_response_value(game: Game, strategy: Sequence[np.ndarray], br_player: i
             move = game.transitions[node.round]
             # arrange as [our old, their old, our new, their new]
             move = move.transpose(1, 0, 3, 2) if br_player == 0 else move
-            n_ours, n_theirs = move.shape[2], move.shape[3]
-            moved = np.einsum("qo,oqxy->qyx", mass, move[:, last])
+            n_old, n_ours, n_theirs = move.shape[0], move.shape[2], move.shape[3]
             histories = mass.shape[0]
+            moved = np.empty((histories, n_theirs, n_ours))
+            # Histories that end in the same state move the same way: one product per state.
+            for state in range(move.shape[1]):
+                rows = np.flatnonzero(last == state)
+                if len(rows):
+                    block = mass[rows] @ move[:, state].reshape(n_old, n_ours * n_theirs)
+                    moved[rows] = block.reshape(len(rows), n_ours, n_theirs).transpose(0, 2, 1)
             value = walk(
                 node.children[0],
                 moved.reshape(histories * n_theirs, n_ours),
