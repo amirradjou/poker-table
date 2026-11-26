@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from poker_table import __version__
-from poker_table.agents.base import Agent
+from poker_table.agents.base import Agent, MethodUsage, TableShape, seating_notes
 from poker_table.agents.compat import PROVIDERS, is_priced
 from poker_table.agents.human import HumanAgent
 from poker_table.agents.llm import LLMAgent
@@ -246,12 +246,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     bench.add_argument("--budget", type=float, metavar="USD", help="stop at this spend")
     bench.add_argument("--resume", action="store_true", help="carry on from a stopped run")
-    bench.add_argument(
-        "--trial",
-        type=int,
-        metavar="N",
-        help="play N hands, say what the rest would cost and take, and ask before going on",
-    )
     verify = sub.add_parser("verify", help="deal and play a results folder again, to check it")
     verify.add_argument("folders", type=Path, nargs="+", help="results folders")
 
@@ -468,6 +462,12 @@ def cmd_eval(args: argparse.Namespace, out) -> int:
         for agent in agents:
             if isinstance(agent, LLMAgent):
                 agent.use_aids(aids)
+    for agent in agents:
+        if getattr(agent, "heads_up_only", False):
+            raise ValueError(
+                f"seat {agent.name!r} plays heads-up only, and the coach's questions come from "
+                "five-handed tables: measure it with `poker-table benchmark --heads-up` instead"
+            )
     check_seats_ready(agents)
     mistakes = sum(q.mistake for q in questions)
     print(
@@ -564,11 +564,24 @@ def note_spending(agents: Sequence[Agent], budget: float | None) -> None:
         )
 
 
+def table_shape(args: argparse.Namespace, seats: int) -> TableShape:
+    """The first hand's table, as a seat built for one kind of table needs to know it."""
+    if getattr(args, "tournament", False):
+        first = tournament_config(args)
+        level = first.schedule[0]
+        return TableShape(seats, level.small_blind, level.big_blind, level.ante, args.stack)
+    small, big = parse_blinds(args.blinds or "1/2")
+    return TableShape(seats, small, big, getattr(args, "ante", None) or 0, args.stack)
+
+
 def cmd_play(args: argparse.Namespace, out) -> int:
     specs = [s for s in args.seats.split(",") if s.strip()]
     agents = make_agents(specs, seed=args.seed, custom=custom_kinds(args))
-    check_seats_ready(agents)
+    shape = table_shape(args, len(agents))
+    check_seats_ready(agents, shape)
     note_spending(agents, args.budget)
+    for note in seating_notes(agents, shape):
+        print(f"note: {note}", file=sys.stderr)
     if args.tournament:
         return play_tournament(args, agents, out)
 
@@ -645,6 +658,12 @@ def model_seat_notes(agents) -> list[str]:
     for agent in agents:
         if isinstance(agent, LLMAgent):
             notes.append(llm_seat_note(agent))
+            continue
+        usage = getattr(agent, "usage", None)
+        if isinstance(usage, MethodUsage):
+            line = usage.note(agent.name, getattr(agent, "method_name", "method"), "tag")
+            if line:
+                notes.append(line)
             continue
         if not isinstance(agent, LayaAgent):
             continue
@@ -1071,8 +1090,11 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
             WebHumanAgent(a.name) if isinstance(a, HumanAgent) else a
             for a in make_agents(specs, seed=args.seed, custom=custom_kinds(args))
         ]
-        check_seats_ready(agents)
+        shape = table_shape(args, len(agents))
+        check_seats_ready(agents, shape)
         note_spending(agents, args.budget)
+        for note in seating_notes(agents, shape):
+            print(f"note: {note}", file=sys.stderr)
         config = LeagueConfig(
             hands=args.hands if args.hands is not None else 100,
             small_blind=small,

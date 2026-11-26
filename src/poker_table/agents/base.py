@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -191,11 +192,87 @@ class Decision:
 class Agent(Protocol):
     """A seat. ``act`` is all a seat needs; one that learns across hands also defines
     ``observe(history)``, which the league calls after every hand with the public view of
-    it (see ``history.public_view``)."""
+    it (see ``history.public_view``).
+
+    A seat built for one kind of table also says so: ``heads_up_only = True`` for a seat that
+    only plays one opponent, and ``check_table(shape)`` returning why it refuses a table (or
+    None). Both are checked before the first hand, so such a seat is never stretched to a game
+    it was not built for."""
 
     name: str
 
     def act(self, view: SeatView) -> Decision: ...
+
+
+@dataclass(frozen=True, slots=True)
+class TableShape:
+    """What a table deals at its first hand: how many seats, the stakes and the stacks."""
+
+    seats: int
+    small_blind: int
+    big_blind: int
+    ante: int
+    stack: int
+
+
+def seating_problems(agents: Sequence[Any], shape: TableShape) -> list[str]:
+    """Why some seat cannot sit at this table; nothing means every seat can."""
+    problems = []
+    for agent in agents:
+        if getattr(agent, "heads_up_only", False) and shape.seats != 2:
+            problems.append(heads_up_refusal(agent, shape.seats))
+            continue
+        check = getattr(agent, "check_table", None)
+        reason = check(shape) if callable(check) else None
+        if reason:
+            problems.append(f"seat {agent.name!r}: {reason}")
+    return problems
+
+
+def heads_up_refusal(agent: Any, seats: int) -> str:
+    kind = getattr(agent, "kind", "")
+    return (
+        f"seat {agent.name!r} ({kind}) plays heads-up only, and this table has {seats} seats: "
+        "seat it with exactly one opponent"
+    )
+
+
+def seating_notes(agents: Sequence[Any], shape: TableShape) -> list[str]:
+    """What a seat wants said before the first hand, such as "this stack is out of my range"."""
+    notes = []
+    for agent in agents:
+        note = getattr(agent, "table_note", None)
+        text = note(shape) if callable(note) else None
+        if text:
+            notes.append(f"{agent.name}: {text}")
+    return notes
+
+
+@dataclass(slots=True)
+class MethodUsage:
+    """How a research seat's decisions were made, so its row is never read as the method's
+    when something else played: ``own`` on its own tree, ``translated`` after mapping an action
+    its tree does not have, ``fallback`` by the scripted bot it hands over to."""
+
+    own: int = 0
+    translated: int = 0
+    fallback: int = 0
+
+    @property
+    def decisions(self) -> int:
+        return self.own + self.translated + self.fallback
+
+    def count(self, method: str) -> None:
+        setattr(self, method, getattr(self, method) + 1)
+
+    def note(self, name: str, method: str, fallback: str) -> str | None:
+        if not self.decisions:
+            return None
+        return (
+            f"{name}: {self.own + self.translated}/{self.decisions} decisions were the {method}'s "
+            f"({self.translated} after translating an action it has no node for), "
+            f"{self.fallback} were the {fallback} fallback's"
+        )
 
 
 def make_view(hand: Hand, seat_index: int, *, talk: tuple[tuple[str, str], ...] = ()) -> SeatView:

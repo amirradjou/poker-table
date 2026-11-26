@@ -43,7 +43,7 @@ from pathlib import Path
 from typing import Any
 
 from poker_table import __version__
-from poker_table.agents.base import Agent
+from poker_table.agents.base import Agent, TableShape, seating_notes
 from poker_table.agents.compat import is_priced
 from poker_table.agents.custom import load_agent_files
 from poker_table.agents.human import HumanAgent
@@ -196,7 +196,12 @@ def _check_seats(
                 f"{agent.name} on {agent.model}: this table does not know that provider's prices, "
                 "so its cost reads $0 and budget_usd cannot limit it."
             )
-    check_seats_ready(agents)
+    shape = TableShape(
+        len(agents), experiment.small_blind, experiment.big_blind, experiment.ante, experiment.stack
+    )
+    check_seats_ready(agents, shape)
+    for note in seating_notes(agents, shape):
+        log(note)
 
 
 def _failing(agent: Agent) -> bool:

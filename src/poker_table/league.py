@@ -13,7 +13,7 @@ import random
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 
-from poker_table.agents.base import Agent, SeatView
+from poker_table.agents.base import Agent, SeatView, TableShape, seating_problems
 from poker_table.engine import Hand
 from poker_table.history import HandHistory, public_view
 from poker_table.stats import PlayerStats, compute_stats
@@ -101,6 +101,10 @@ def run_league(
     names = [a.name for a in agents]
     if len(set(names)) != len(names):
         raise ValueError("agent names must be unique")
+    shape = TableShape(
+        len(agents), config.small_blind, config.big_blind, config.ante, config.buy_in
+    )
+    _refuse(seating_problems(agents, shape))
 
     result = LeagueResult(config, bankrolls=dict.fromkeys(names, 0), rebuys=dict.fromkeys(names, 0))
     seeds = random.Random(config.seed)
@@ -143,6 +147,12 @@ def run_league(
         if result.over_budget or (stop is not None and stop()):
             break
     return result
+
+
+def _refuse(problems: list[str]) -> None:
+    """A seat that cannot play this table stops it before the first hand, never during it."""
+    if problems:
+        raise ValueError(problems[0])
 
 
 def parse_blinds(text: str) -> tuple[int, int]:
@@ -284,6 +294,11 @@ def run_tournament(
     names = [a.name for a in agents]
     if len(set(names)) != len(names):
         raise ValueError("agent names must be unique")
+    first = config.schedule[0]
+    shape = TableShape(
+        len(agents), first.small_blind, first.big_blind, first.ante, config.starting_stack
+    )
+    _refuse(seating_problems(agents, shape))
 
     result = TournamentResult(config, hands_dealt=dict.fromkeys(names, 0))
     stacks = dict.fromkeys(names, config.starting_stack)
