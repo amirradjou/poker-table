@@ -183,11 +183,12 @@ More training did not lower that number:
 | 1,000 | 427 |
 | 2,000 (shipped) | 441 |
 
-CFR+ converges towards the best play for a player who forgets its earlier buckets, and an
-opponent who remembers them punishes that play more as it settles. So longer training is not the
-way to a less exploitable blueprint here; a finer card abstraction, or buckets that remember the
-earlier streets, would be. The shipped strategy is the 2,000-iteration one as planned, not the
-least exploitable one: picking by this number would be tuning on the measurement. The rows come
+That much is measured. Why is not: the likely reason is that the blueprint forgets its earlier
+buckets and its opponent here does not, and with imperfect recall CFR+ has no guarantee of
+getting less exploitable as it trains. If that is right, more iterations will not help and a
+finer card abstraction, or buckets that remember the earlier streets, might; neither was tried.
+The shipped strategy is the 2,000-iteration one as planned, not the least exploitable one:
+picking by this number would be tuning on the measurement. The rows come
 from `train_blueprint.py --iterations N --reuse --out FILE`, then
 `measure_blueprint.py --strategy FILE --no-uniform`.
 
