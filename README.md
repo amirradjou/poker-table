@@ -17,6 +17,7 @@ nothing to install.
 uv tool install git+https://github.com/amirradjou/poker-table
 poker-table                                     # a live table of five bots, in your browser
 poker-table watch --seats me:human,tag,maniac   # sit down yourself
+poker-table watch --seats ann:human,bob:human,tag   # with friends, a link each
 ```
 
 No key needed. Docker and other ways to install are in the

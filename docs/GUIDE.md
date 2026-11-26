@@ -22,6 +22,7 @@ docker run --rm $(docker build -q .) play -n 200 --seats tag,maniac,station
 ```sh
 poker-table                                     # a live table of five bots, in your browser
 poker-table watch --seats me:human,tag,maniac   # sit down yourself
+poker-table watch --seats ann:human,bob:human,tag,maniac --host 0.0.0.0   # with friends
 poker-table watch --tournament                  # a freezeout: rising blinds, play to the last seat
 # a live table that keeps its hands (--pace = seconds per decision)
 poker-table serve live.jsonl --live -n 200 --seats tag,maniac,llm:nerd --pace 0.8 --open
@@ -31,6 +32,38 @@ poker-table serve live.jsonl --live -n 20 --seats me:human,tag,maniac --open
 At a table of bots, each seat's chance of winning sits under its nameplate, like a broadcast. With
 you at the table those numbers stay off, because they come from everyone's cards; you get your own
 odds on your turn instead, and a line from the coach after each hand.
+
+### Friends at the table
+
+With two or more `human` seats, `watch` and `serve --live` print a private link for each person and
+one to watch:
+
+```text
+Seat links. Send each one privately: whoever opens it plays that seat.
+  ann    http://192.168.1.20:8770/?seat=Sq0k2opZAvBs0kyWquObjg
+  bob    http://192.168.1.20:8770/?seat=EsffadQKhYleXNv0YcKhMw
+  watch  http://192.168.1.20:8770/  (no seat, no cards)
+Each person has 60 s a decision, then the table checks or folds for them.
+```
+
+The table runs on your machine and nothing is hosted for your friends. For other machines to reach
+it, listen on your network with `--host 0.0.0.0`, or run a tunnel and name it with
+`--allow-host NAME`. **The links are the only access control.** Whoever has a seat's link plays that
+seat, and anyone who can reach the table can watch it, so send each link to its person only, and
+use `0.0.0.0` only on a network you trust.
+
+Each decision has 60 seconds; then the table checks if it can and folds if not. `--time-limit
+SECONDS` changes that, and 0 waits for ever. Opening your link again, after a reload or a dropped
+connection, picks your seat up where it was.
+
+Each page sees what a player at a real table would. During a hand: your own cards, the actions and
+table talk, your own odds on your turn, and nobody's win chances. After it: the board, every action,
+the cards turned over at showdown, your own cards and your own coach line. Folded cards stay hidden,
+a bot's as well as a person's, and so does every other seat's reasoning. The watching link sees the
+same without a seat. The Coach tab reads only your own seat, and Claude's notes are off, because
+they would run on your key. The hand file on your machine keeps everything: `poker-table serve
+FILE` shows every card and every reason once the game is over. Leave out `--seed`: the table then
+picks a secret one, because anyone who knows the seed knows every card.
 
 ## Play sessions and read them back
 
