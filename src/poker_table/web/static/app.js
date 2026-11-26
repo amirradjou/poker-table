@@ -34,6 +34,9 @@ const KINDS = {
   random: { glyph: "⚄", color: "#9166c2", label: "random bot" },
   human: { glyph: "☺", color: "#caa24c", label: "human" },
   laya: { glyph: "◈", color: "#2f7fa3", label: "laya model", model: true },
+  // Research seats link the paper their method follows.
+  "nash:pushfold": { glyph: "◆", color: "#c47a3a", label: "Nash", paper: "https://www.itu.dk/~trbj/papers/poker.pdf", about: "nash:pushfold, a push/fold equilibrium" },
+  "cfr:blueprint": { glyph: "▲", color: "#5d8f8a", label: "CFR+", paper: "https://arxiv.org/abs/1407.5042", about: "cfr:blueprint, a CFR+ blueprint" },
 };
 const DENOMS = [[100, "black"], [25, "green"], [5, "red"], [1, "white"]];
 
@@ -51,6 +54,10 @@ function kindInfo(kind) {
   if (!kind) return { glyph: "", color: "#8f8b80", label: "" };
   if (kind.startsWith("llm:")) return { glyph: "✦", color: "#23875a", label: kind.slice(4), llm: true };
   return KINDS[kind] || { glyph: "", color: "#8f8b80", label: kind };
+}
+function paperLink(info, text) {
+  if (!info.paper) return text;
+  return `<a href="${info.paper}" target="_blank" rel="noopener" style="color:inherit" title="${info.about}: the paper its method follows">${text}</a>`;
 }
 function initials(name) {
   const letters = String(name).replace(/[^\p{L}\p{N}]/gu, "");
@@ -439,7 +446,7 @@ function render() {
     const named = (info.llm || info.model) && modelOf[i];
     const label = named ? `${info.label}, ${modelOf[i].replace(/^claude-|^laya:/, "")}` : info.label;
     plate.insertAdjacentHTML("beforeend",
-      `<div class="id"><div class="name" title="${esc(s.name)}">${esc(s.name)}</div><div class="pos" title="${esc(label)}"><b>${s.position}</b>${label ? esc(label) : ""}</div></div>`);
+      `<div class="id"><div class="name" title="${esc(s.name)}">${esc(s.name)}</div><div class="pos" title="${esc(label)}"><b>${s.position}</b>${label ? paperLink(info, esc(label)) : ""}</div></div>`);
     const stack = document.createElement("div");
     stack.className = "stack" + (s.allIn ? " allin" : "");
     stack.textContent = s.allIn ? "all-in" : `${s.stack}`;
