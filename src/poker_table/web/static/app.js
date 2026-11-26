@@ -91,6 +91,15 @@ function chipStackEl(amount) {
 // under data/, and what needs a server (live tables, drills, Claude's notes) is hidden below.
 const STATIC = !!window.POKER_TABLE_STATIC;
 const fileId = (s) => String(s).replace(/[^A-Za-z0-9._-]/g, "_") || "_";  // matches export.py
+// A seat link (?seat=...) names the person at a table with friends. Every request carries it,
+// because the server sends each person their own cards and nobody else's.
+const SEAT = STATIC ? null : new URLSearchParams(location.search).get("seat");
+function seatUrl(path) {
+  return SEAT ? `${path}${path.includes("?") ? "&" : "?"}seat=${encodeURIComponent(SEAT)}` : path;
+}
+function post(path, body) {
+  return fetch(seatUrl(path), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+}
 
 function staticFile(path) {
   const [route, query] = path.split("?");
@@ -126,14 +135,21 @@ async function api(path) {
   if (STATIC && path === "/api/live") return { live: false };
   const file = STATIC ? staticFile(path) : null;
   if (STATIC && !file) throw new Error(`${path} is not part of a static export`);
-  const r = await fetch(file || path);
-  if (!r.ok) throw new Error(`${path}: ${r.status}`);
+  const r = await fetch(file || seatUrl(path));
+  if (!r.ok) {
+    const detail = await r.json().then(d => d.detail, () => "");
+    throw new Error(r.status === 403 && detail ? detail : `${path}: ${r.status}`);
+  }
   const data = await r.json();
   return STATIC ? staticSlice(path, data) : data;
 }
 
+// At a table with friends each person sees their own seat only (``you``; null without a link).
+let sharedTable = false, seatName = null;
 async function loadSession() {
   const s = await api("/api/session");
+  sharedTable = !!s.shared;
+  seatName = s.you || null;
   $("file").textContent = s.hands ? `${s.hands} hand${s.hands === 1 ? "" : "s"} from ${s.file}` : `${s.file} is empty`;
   setUpFilters(s);
   if (s.odds === false) {  // a site exported without --export-odds has no odds files to show
@@ -313,7 +329,7 @@ async function openHand(id, { autoplay = false, at = "start", inReel = false } =
   $("replay").classList.remove("hidden");
   $("hand-title").textContent = `Hand #${hand.hand_id}`;
   $("hand-sub").textContent = handSub(hand);
-  $("hand-sub").title = `seed ${hand.seed}`;
+  $("hand-sub").title = hand.seed === undefined ? "" : `seed ${hand.seed}`;  // a seat's view has none
   $("scrub").max = hand.steps.length;
   buildLog();
   buildSummary();
@@ -563,12 +579,15 @@ function logItem(e) {
       li.textContent = `${e.name} posts ${e.amount}${e.all_in ? " and is all-in" : ""}`; break;
     case "action": {
       li.innerHTML = `<span class="who">${esc(e.name)}</span> ${verb(e)}${e.all_in ? " and is all-in" : ""}`;
+      if (e.timed_out) li.innerHTML += ` <span class="talk">(out of time)</span>`;
       if (e.table_talk) li.innerHTML += ` <span class="talk">“${esc(e.table_talk)}”</span>`;
       if (e.meta && e.meta.cost_usd !== undefined) li.innerHTML += `<span class="meta">${esc(e.meta.model)}, $${e.meta.cost_usd.toFixed(4)}</span>`;
       const note = e.meta && e.meta.note;
       if (e.reasoning || e.illegal || note) {
         const t = document.createElement("span"); t.className = "think";
-        t.innerHTML = (e.illegal ? `<span class="illegal">wanted “${esc(e.requested)}”, which was illegal.</span> ` : "") + esc(e.reasoning || "")
+        // At a table with friends what a seat asked for is its own, so only the replacement shows.
+        const wanted = e.requested && e.requested !== e.action ? `wanted “${esc(e.requested)}”, which was illegal.` : "made an illegal move, which the table replaced.";
+        t.innerHTML = (e.illegal ? `<span class="illegal">${wanted}</span> ` : "") + esc(e.reasoning || "")
           + (note ? `<span class="note">Noted for later: ${esc(note)}</span>` : "");
         li.appendChild(t);
       }
@@ -819,7 +838,7 @@ function setLive(st) {
   live = st;
   const el = $("live");
   el.classList.remove("hidden");
-  el.textContent = liveText(st);
+  el.textContent = (st.shared ? `${st.human || "watching"} · ` : "") + liveText(st);
   el.classList.toggle("over", !!st.finished);
   el.classList.toggle("turn", !!st.turn);
   $("follow").classList.remove("hidden");
@@ -847,8 +866,12 @@ function showLive() {
   render();
   startTicker();
 }
-function beginLiveHand(h) {
+// ``mine``: at a table with friends, your own seat and cards, sent to you alone with the deal.
+function beginLiveHand(h, mine) {
   liveHand = { ...h, streaming: true };
+  if (mine && mine.hole && liveHand.players[mine.seat]) {
+    liveHand.players = liveHand.players.map(p => p.seat === mine.seat ? { ...p, hole: mine.hole } : p);
+  }
   liveActing = null;
   for (const k of Object.keys(lastDecision)) delete lastDecision[k];
   if (turn && turn.hand_id !== h.hand_id) turn = null;
@@ -863,6 +886,10 @@ function takeLiveStep(ev) {
   if (ev.at < liveHand.steps.length) return;  // the hello already brought this one
   const s = ev.step;
   liveHand.steps.push(s);
+  // Our own move closes our turn, also when the clock ran out and the table made it for us.
+  if (s.kind === "action" && turn && turn.hand_id === ev.hand_id && turn.seat === s.seat) {
+    endTurn(s.timed_out ? "out of time, so the table played it for you" : "waiting for the other seats");
+  }
   if (s.kind === "street") liveHand.board = liveHand.board.concat(s.cards);
   if (s.kind === "action") {
     if (liveActing && liveActing.seat === s.seat) liveActing = null;
@@ -881,7 +908,7 @@ async function connectLive() {
   const st = await api("/api/live");
   if (!st.live) return;
   setLive(st);
-  const es = new EventSource("/api/events");
+  const es = new EventSource(seatUrl("/api/events"));
   es.onmessage = async (msg) => {
     const ev = JSON.parse(msg.data);
     // The hand comes from the stream's own hello (also after a reconnect), never from the request
@@ -889,9 +916,9 @@ async function connectLive() {
     if (ev.type === "hello") {
       setLive(ev);
       review = ev.review || null;
-      if (ev.current) beginLiveHand(ev.current);
+      if (ev.current) beginLiveHand(ev.current, ev.you);
       if (ev.turn) showTurn(ev.turn);
-    } else if (ev.type === "hand_start") beginLiveHand(ev.hand);
+    } else if (ev.type === "hand_start") beginLiveHand(ev.hand, ev.you);
     else if (ev.type === "acting") {
       liveActing = { seat: ev.seat, kind: ev.kind, since: Date.now() };
       if (watchingLive()) render();
@@ -930,6 +957,7 @@ function showTurn(t) {
 // The action bar for a decision payload (a live turn or a drill spot): legal buttons and sizes.
 function fillActionBar(t) {
   renderYourOdds();
+  if (t === turn) startClock(t); else stopClock();
   const L = t.legal;
   $("action-legal").textContent = `— ${L.describe}`;
   $("act-check").textContent = L.can_check ? "Check" : `Call ${L.call_amount}`;
@@ -968,12 +996,37 @@ async function sendAction(text) {
   if (drillSpot) return answerDrill(text);
   if (!turn) return;
   const body = { action: text, table_talk: $("act-talk").value.trim() };
-  const r = await fetch("/api/act", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const r = await post("/api/act", body);
   if (!r.ok) { $("action-legal").textContent = `— ${(await r.json()).detail}`; return; }
+  endTurn("waiting for the other seats");
+}
+function endTurn(text) {
   turn = null;
+  stopClock();
   $("action-bar").classList.add("hidden");
-  $("hand-sub").textContent = "waiting for the other seats";
+  $("hand-sub").textContent = text;
   setLive({ ...live, turn: null });
+}
+
+// The seconds left for a decision at a table with a time limit, counted down on this page.
+let clockTimer = null;
+function startClock(t) {
+  stopClock();
+  if (t.seconds_left === undefined || t.seconds_left === null) return;
+  const end = Date.now() + t.seconds_left * 1000, el = $("action-clock");
+  const tick = () => {
+    const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+    el.textContent = `${left} s left`;
+    el.classList.toggle("low", left <= 10);
+  };
+  tick();
+  el.classList.remove("hidden");
+  clockTimer = setInterval(tick, 250);
+}
+function stopClock() {
+  if (clockTimer) clearInterval(clockTimer);
+  clockTimer = null;
+  $("action-clock").classList.add("hidden");
 }
 const decision = () => drillSpot || turn;  // whichever decision the action bar is showing
 
@@ -984,11 +1037,17 @@ $("action-bar").onsubmit = (e) => { e.preventDefault(); if (decision() && decisi
 
 // ---- drill tab: the coach's flagged spots, asked on the real table ----
 let drillPlayer = null, drillSpot = null;
+// At a table with friends the coach reads only your own seat, and nobody's without a seat link.
+function coachable(s) { return s.shared ? (s.you ? [s.you] : []) : s.players; }
+const NO_SEAT_NOTE = '<span class="empty-note">At a table with friends the coach reads only your own seat: open your seat link.</span>';
+
 async function showDrill({ restart = false } = {}) {
   const s = await api("/api/session");
   const picker = $("drill-picker"); picker.innerHTML = "";
-  if (!drillPlayer && s.players.length) drillPlayer = s.hero || s.players[0];
-  for (const name of s.players) {
+  const players = coachable(s);
+  if (s.shared && !players.length) { $("drill-progress").innerHTML = NO_SEAT_NOTE; return; }
+  if (!drillPlayer && players.length) drillPlayer = s.hero || players[0];
+  for (const name of players) {
     const b = document.createElement("button");
     b.textContent = name; b.setAttribute("aria-pressed", name === drillPlayer);
     b.onclick = () => { drillPlayer = name; showDrill(); };
@@ -1040,7 +1099,7 @@ function showDrillSpot(spot) {
 }
 async function answerDrill(text) {
   const spot = drillSpot;
-  const r = await fetch("/api/drill/answer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ player: drillPlayer, key: spot.key, action: text }) });
+  const r = await post("/api/drill/answer", { player: drillPlayer, key: spot.key, action: text });
   if (!r.ok) { $("action-legal").textContent = `— ${(await r.json()).detail}`; return; }
   const v = await r.json();
   drillSpot = null;
@@ -1061,7 +1120,7 @@ $("drill-restart").onclick = () => showDrill({ restart: true });
 $("follow").onclick = (e) => { follow = !follow; e.target.setAttribute("aria-pressed", follow); if (follow && liveHand && liveHand.streaming) showLive(); };
 $("auto").onclick = () => (autoTimer ? stopAuto() : startAuto());
 $("pace").oninput = (e) => { $("pace-value").textContent = `${(+e.target.value).toFixed(1)} s`; };
-$("pace").onchange = (e) => fetch("/api/live/pace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pace: +e.target.value }) });
+$("pace").onchange = (e) => post("/api/live/pace", { pace: +e.target.value });
 
 function setTab(which) {
   for (const name of ["hands", "board", "coach", "drill"]) $(`tab-${name}`).setAttribute("aria-pressed", name === which);
@@ -1086,13 +1145,15 @@ let coachPlayer = null, coachNotes = null, coachWeek = null;  // coachWeek: {lab
 async function showCoach() {
   const s = await api("/api/session");
   const picker = $("seat-picker"); picker.innerHTML = "";
-  for (const name of s.players) {
+  const players = coachable(s);
+  if (s.shared && !players.length) { $("coach").innerHTML = NO_SEAT_NOTE; return; }
+  for (const name of players) {
     const b = document.createElement("button");
     b.textContent = name; b.setAttribute("aria-pressed", name === coachPlayer);
     b.onclick = () => { coachPlayer = name; coachNotes = null; showCoach(); };
     picker.appendChild(b);
   }
-  if (!coachPlayer && s.players.length) coachPlayer = s.hero || s.players[0];
+  if (!coachPlayer && players.length) coachPlayer = s.hero || players[0];
   if (!coachPlayer) { $("coach").innerHTML = '<span class="empty-note">No hands yet.</span>'; return; }
   for (const b of picker.children) b.setAttribute("aria-pressed", b.textContent === coachPlayer);
   // a week picker, only when the hands span more than one week
@@ -1262,7 +1323,8 @@ function renderCoach(r) {
   const period = r.since || r.until ? ` (${coachWeek ? coachWeek.label : `${r.since} to ${r.until}`})` : "";
   let html = `<div class="lead"><strong>${esc(r.player)}</strong><span>${r.hands} hands${esc(period)}, ${r.decisions} decisions</span>` +
     `<span class="${netCls}">${r.net > 0 ? "+" : ""}${r.net} chips (${r.bb_per_100 > 0 ? "+" : ""}${r.bb_per_100} bb/100)</span>` +
-    (STATIC ? "</div>" : `<button id="ask-claude" type="button">Ask Claude to explain</button></div>`);
+    // Claude's notes run on the host's key, which a table with friends does not lend out.
+    (STATIC || sharedTable ? "</div>" : `<button id="ask-claude" type="button">Ask Claude to explain</button></div>`);
   if (!r.leaks.length) html += '<p class="empty-note">No leaks found by the charts and the math. Play more hands.</p>';
   html += '<ol class="leaks">';
   for (const leak of r.leaks) {
@@ -1299,7 +1361,7 @@ function renderCoach(r) {
   if (!ask) return;  // a static export has no key to ask with
   ask.onclick = async () => {
     ask.disabled = true; ask.textContent = "Asking…";
-    const resp = await fetch("/api/coach/narrate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ player: r.player }) });
+    const resp = await post("/api/coach/narrate", { player: r.player });
     if (!resp.ok) { ask.disabled = false; ask.textContent = "Ask Claude to explain"; alert(`Could not ask Claude: ${(await resp.json()).detail}`); return; }
     coachNotes = await resp.json();
     renderCoach(r);
@@ -1346,7 +1408,12 @@ document.addEventListener("keydown", (e) => {
 if (STATIC) $("tab-drill").classList.add("hidden");  // drills record answers; a file cannot
 
 (async () => {
-  await loadSession();
+  try {
+    await loadSession();
+  } catch (exc) {  // a seat link this table does not know: say so rather than show nothing
+    $("file").textContent = exc.message;
+    return;
+  }
   const first = await loadList(true);
   const wanted = location.hash.slice(1);
   if (wanted) openHand(wanted).catch(() => {});

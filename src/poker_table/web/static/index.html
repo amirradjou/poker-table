@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
 <title>poker-table</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%2716%27 fill=%27%2311603f%27/%3E%3Ctext x=%2716%27 y=%2723%27 font-size=%2720%27 text-anchor=%27middle%27 fill=%27%23c9a14a%27%3E%E2%99%A0%3C/text%3E%3C/svg%3E">
@@ -76,7 +77,7 @@
       </div>
       <p class="call" id="call" aria-live="polite"></p>
       <form class="action-bar hidden" id="action-bar">
-        <div class="lead">Your turn <span id="action-legal"></span></div>
+        <div class="lead">Your turn <span id="action-legal"></span><span class="clock hidden" id="action-clock"></span></div>
         <p class="your-odds hidden" id="your-odds" title="Unknown hands count as random ones. A raise usually means better than random, so read this as an upper limit when facing one."></p>
         <button type="button" id="act-fold">Fold</button>
         <button type="button" class="primary" id="act-check">Check</button>

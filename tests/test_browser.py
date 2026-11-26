@@ -334,3 +334,108 @@ def test_a_freezeout_shows_its_levels_bust_outs_and_standings(page: Page, serve,
     page.evaluate(f"openHand({bust.hand_id!r}, {{at: 'end'}})")
     expect(page.locator("#hand-sub")).to_contain_text(f"Level {bust.tournament['level']}: blinds")
     expect(page.locator("#summary p.out")).to_contain_text(f"{name} is out in")
+
+
+def _seat(page: Page, seat: int) -> Any:
+    return page.locator(f'#table .seat[data-seat="{seat}"]')
+
+
+def test_two_people_play_one_table_each_seeing_only_their_own_cards(
+    page: Page, browser, serve, tmp_path
+) -> None:
+    path = tmp_path / "friends.jsonl"
+    path.touch()
+    people = [WebHumanAgent("ann"), WebHumanAgent("bob")]
+    session = LiveSession(
+        [*people, CallingStation("station")], LeagueConfig(hands=2, seed=2, buy_in=100), path
+    )
+    url = serve(create_app(path, session))
+    second = _watched(browser, viewport={"width": 1280, "height": 900})  # a second browser
+    pages = {"ann": page, "bob": next(second)}
+    for person in people:
+        pages[person.name].goto(f"{url}/?seat={person.token}")
+    session.start()
+    seat = {"ann": 0, "bob": 1}
+    end = time.time() + 60
+    while not session.finished:
+        assert time.time() < end, "the table stopped"
+        person = next((h for h in people if h.pending is not None), None)
+        if person is None:
+            time.sleep(0.02)
+            continue
+        other = "bob" if person.name == "ann" else "ann"
+        mine, theirs = pages[person.name], pages[other]
+        expect(mine.locator("#action-bar")).to_be_visible()
+        expect(mine.locator("#live")).to_have_text(f"{person.name} · waiting for you")
+        expect(_seat(mine, seat[person.name]).locator(".card:not(.back)")).to_have_count(2)
+        expect(_seat(mine, seat[other]).locator(".card:not(.back)")).to_have_count(0)
+        expect(mine.locator("#table .equity")).to_have_count(0)
+        # the other person waits with their own cards in view and no buttons
+        expect(theirs.locator("#action-bar")).to_be_hidden()
+        expect(_seat(theirs, seat[other]).locator(".card:not(.back)")).to_have_count(2)
+        expect(_seat(theirs, seat[person.name]).locator(".card:not(.back)")).to_have_count(0)
+        turn = person.pending
+        folds = person.name == "bob" and turn["hand_id"] == "1" and not turn["legal"]["can_check"]
+        mine.locator("#act-fold" if folds else "#act-check").click()
+        expect(mine.locator("#action-bar")).to_be_hidden()
+        wait = time.time() + 10
+        while person.pending is turn:
+            assert time.time() < wait, "the answer did not arrive"
+            time.sleep(0.01)
+    session.join(10)
+    first = next(read_jsonl(path))
+    assert first.decisions[1].applied == "fold" and 1 not in first.showdown  # bob folded hand 1
+    for name, other in (("ann", "bob"), ("bob", "ann")):
+        seen = pages[name]
+        expect(seen.locator("#live")).to_have_text(f"{name} · session over, 2 hands")
+        # The page opens the last hand's replay by itself (the summary shows only in a replay):
+        # wait for that, or it can land after the hand opened here.
+        expect(seen.locator("#hand-title")).to_have_text("Hand #2")
+        expect(seen.locator("#summary")).to_be_visible()
+        seen.evaluate("openHand('1', {at: 'end'})")
+        expect(seen.locator("#hand-title")).to_have_text("Hand #1")
+        expect(_seat(seen, seat[name]).locator(".card:not(.back)")).to_have_count(2)  # their own
+        if other == "bob":  # bob folded: nobody else sees his cards, nor anyone's reasoning
+            expect(_seat(seen, seat["bob"]).locator(".card:not(.back)")).to_have_count(0)
+        assert "I want to see what you have" not in seen.content()  # the station's reasoning
+    next(second, None)  # close the second browser, failing on any error it saw
+
+
+def test_a_phone_at_a_table_with_friends_fits_and_shows_the_clock(
+    phone: Page, serve, tmp_path
+) -> None:
+    path = tmp_path / "friends.jsonl"
+    path.touch()
+    ann, bob = WebHumanAgent("ann"), WebHumanAgent("bob")
+    bots = [CallingStation("station"), TightAggressive("tag")]
+    session = LiveSession(
+        [ann, bob, *bots], LeagueConfig(hands=1, seed=3, buy_in=100), path, time_limit=600
+    )
+    url = serve(create_app(path, session))
+    phone.goto(f"{url}/?seat={ann.token}")
+    session.start()
+    end = time.time() + 30
+    while ann.pending is None:  # bob plays from somewhere else
+        assert time.time() < end
+        if bob.pending is not None:
+            bob.submit("check" if bob.pending["legal"]["can_check"] else "call")
+        time.sleep(0.01)
+    expect(phone.locator("#action-bar")).to_be_visible()
+    expect(phone.locator("#action-clock")).to_have_text(re.compile(r"^\d+ s left$"))
+    expect(phone.locator("#live")).to_have_text("ann · waiting for you")
+    phone.wait_for_function(  # both on screen together, once the bar has scrolled into view
+        """() => {
+          const board = document.querySelector("#board").getBoundingClientRect();
+          const bar = document.querySelector("#action-bar").getBoundingClientRect();
+          return board.top >= 0 && bar.bottom <= innerHeight;
+        }"""
+    )
+    assert _box(phone, "#table .seat .plate")["width"] <= 120
+    clock, lead = _box(phone, "#action-clock"), _box(phone, "#action-bar .lead")
+    assert clock["x"] + clock["width"] <= lead["x"] + lead["width"] + 0.5  # inside the bar
+    assert _overflowing(phone) == []
+    for person in (ann, bob):
+        person.time_limit = 0.01  # let the hand finish without anyone
+    phone.locator("#act-fold").tap()
+    expect(phone.locator("#live")).to_have_text("ann · session over, 1 hands")
+    session.join(10)
