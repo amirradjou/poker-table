@@ -447,6 +447,14 @@ def cmd_eval(args: argparse.Namespace, out) -> int:
     from poker_table.evals import build_questions, format_scores, score
     from poker_table.league import LeagueConfig, run_league
 
+    specs = [s for s in args.seats.split(",") if s.strip()]
+    agents = make_agents(specs, seed=args.seed, custom=custom_kinds(args))
+    for agent in agents:
+        if getattr(agent, "heads_up_only", False):
+            raise ValueError(
+                f"seat {agent.name!r} plays heads-up only, and the coach's questions come from "
+                "five-handed tables: measure it with `poker-table benchmark --heads-up` instead"
+            )
     if args.source is not None:
         histories = list(read_jsonl(args.source))
         where = f"{len(histories)} hands from {args.source}"
@@ -464,8 +472,6 @@ def cmd_eval(args: argparse.Namespace, out) -> int:
     )
     if not questions:
         raise ValueError(f"the coach found nothing to grade in {where}")
-    specs = [s for s in args.seats.split(",") if s.strip()]
-    agents = make_agents(specs, seed=args.seed, custom=custom_kinds(args))
     if any(isinstance(a, HumanAgent) for a in agents):
         raise ValueError("a human seat cannot be evaluated here; try `poker-table drill`")
     if args.aids is not None:
@@ -473,12 +479,6 @@ def cmd_eval(args: argparse.Namespace, out) -> int:
         for agent in agents:
             if isinstance(agent, LLMAgent):
                 agent.use_aids(aids)
-    for agent in agents:
-        if getattr(agent, "heads_up_only", False):
-            raise ValueError(
-                f"seat {agent.name!r} plays heads-up only, and the coach's questions come from "
-                "five-handed tables: measure it with `poker-table benchmark --heads-up` instead"
-            )
     check_seats_ready(agents)
     mistakes = sum(q.mistake for q in questions)
     print(

@@ -189,6 +189,12 @@ def test_play_seats_it_from_the_command_line(capsys) -> None:
     assert "plays heads-up only, and this table has 3 seats" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("seat", ["cfr:blueprint", "nash:pushfold"])
+def test_the_coach_quiz_refuses_a_heads_up_seat_before_building_questions(seat, capsys) -> None:
+    assert main(["eval", "--seats", seat]) == 2
+    assert "plays heads-up only" in capsys.readouterr().err
+
+
 def test_agents_lists_the_research_seats(capsys) -> None:
     assert main(["agents"]) == 0
     out = capsys.readouterr().out
