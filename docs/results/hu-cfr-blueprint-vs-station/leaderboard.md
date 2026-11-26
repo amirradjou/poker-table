@@ -2,7 +2,7 @@
 
 The heads-up track: cfr:blueprint against station.
 
-400 hands at blinds 1/2, 200 chips topped up every hand, seed 2026. It took 9 seconds and $0.0000.
+400 hands at blinds 1/2, 200 chips topped up every hand, seed 2026. It took 8 seconds and $0.0000.
 
 | seat | plays as | bb/100 | ±95% | all-in adj. | ±95% | net chips | model calls | s/call | $/hand | illegal | failed |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -19,6 +19,6 @@ The interval treats hands as independent and looks at one seat at a time, so wit
 
 ```
 name     hands    net  bb/100  vpip  pfr  3bet  f3b   af  wtsd  w$sd  bluff  illegal   ms  $/hand
-entrant    400   1242   155.2   68%  59%     -    -  inf  100%   53%    43%       0%  5.8       -
+entrant    400   1242   155.2   68%  59%     -    -  inf  100%   53%    43%       0%  5.2       -
 station    400  -1242  -155.2   87%   0%    0%    -  0.0  100%   52%      -       0%  0.0       -
 ```

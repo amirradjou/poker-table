@@ -19,6 +19,6 @@ The interval treats hands as independent and looks at one seat at a time, so wit
 
 ```
 name     hands   net  bb/100  vpip  pfr  3bet  f3b   af  wtsd  w$sd  bluff  illegal   ms  $/hand
-entrant    400   480    60.0   50%  37%    5%  50%  1.1   29%   48%    55%       0%  2.9       -
+entrant    400   480    60.0   50%  37%    5%  50%  1.1   29%   48%    55%       0%  3.0       -
 tag        400  -480   -60.0   17%  12%    1%   0%  3.8   29%   62%    12%       0%  0.0       -
 ```

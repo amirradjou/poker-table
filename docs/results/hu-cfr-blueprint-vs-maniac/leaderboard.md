@@ -2,7 +2,7 @@
 
 The heads-up track: cfr:blueprint against maniac.
 
-400 hands at blinds 1/2, 200 chips topped up every hand, seed 2026. It took 7 seconds and $0.0000.
+400 hands at blinds 1/2, 200 chips topped up every hand, seed 2026. It took 6 seconds and $0.0000.
 
 | seat | plays as | bb/100 | ±95% | all-in adj. | ±95% | net chips | model calls | s/call | $/hand | illegal | failed |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -19,6 +19,6 @@ The interval treats hands as independent and looks at one seat at a time, so wit
 
 ```
 name     hands    net  bb/100  vpip  pfr  3bet  f3b   af  wtsd  w$sd  bluff  illegal   ms  $/hand
-entrant    400   1794   224.2   84%  50%   17%  19%  0.7   24%   82%    32%       0%  4.5       -
+entrant    400   1794   224.2   84%  50%   17%  19%  0.7   24%   82%    32%       0%  4.0       -
 maniac     400  -1794  -224.2   88%  70%   66%   3%  9.9   24%   24%    47%       0%  0.0       -
 ```
