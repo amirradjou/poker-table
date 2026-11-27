@@ -8,8 +8,8 @@ hands and get coached on your leaks.
 chance of winning updating at every fold and new card, a thinking indicator and table
 talk](https://raw.githubusercontent.com/amirradjou/poker-table/main/docs/watch.gif)
 
-**[Try the demo](https://amirradjou.github.io/poker-table/)**: the viewer on 300 seeded bot hands,
-nothing to install.
+**[Try the demo](https://amirradjou.github.io/poker-table/)**: replay 300 seeded bot hands, or play
+the bots in your browser. Nothing to install.
 
 ## Start
 
