@@ -4,10 +4,10 @@
  "hands": 400,
  "stopped": "finished",
  "tables": 1,
- "seconds": 0.3,
+ "seconds": 0.2,
  "spent_usd": 0.0,
- "last_started": "2026-11-27T04:18:58+00:00",
- "last_saved": "2026-11-27T04:18:59+00:00",
+ "last_started": "2026-11-27T13:38:48+00:00",
+ "last_saved": "2026-11-27T13:38:48+00:00",
  "version": "0.2.0",
- "commit": "07fc4ac"
+ "commit": "b83d72f+changes"
 }

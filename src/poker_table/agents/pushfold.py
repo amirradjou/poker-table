@@ -51,7 +51,7 @@ from poker_table.engine import Action, EventKind, Street
 KIND = "nash:pushfold"
 DATA = Path(__file__).parent / "data" / "pushfold.json"
 EQUITY = Path(__file__).parent / "data" / "pushfold_equity.json"
-PAPER = "https://www.itu.dk/~trbj/papers/poker.pdf"  # Miltersen & Sørensen, AAMAS 2007
+PAPER = "https://doi.org/10.1145/1329125.1329357"  # Miltersen & Sørensen, AAMAS 2007
 VALID_UP_TO = 15.0  # big blinds, effective
 NO_ANTE = "0"
 

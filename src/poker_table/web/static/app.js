@@ -35,7 +35,7 @@ const KINDS = {
   human: { glyph: "☺", color: "#caa24c", label: "human" },
   laya: { glyph: "◈", color: "#2f7fa3", label: "laya model", model: true },
   // Research seats link the paper their method follows.
-  "nash:pushfold": { glyph: "◆", color: "#c47a3a", label: "Nash", paper: "https://www.itu.dk/~trbj/papers/poker.pdf", about: "nash:pushfold, a push/fold equilibrium" },
+  "nash:pushfold": { glyph: "◆", color: "#c47a3a", label: "Nash", paper: "https://doi.org/10.1145/1329125.1329357", about: "nash:pushfold, a push/fold equilibrium" },
   "cfr:blueprint": { glyph: "▲", color: "#5d8f8a", label: "CFR+", paper: "https://arxiv.org/abs/1407.5042", about: "cfr:blueprint, a CFR+ blueprint" },
 };
 const DENOMS = [[100, "black"], [25, "green"], [5, "red"], [1, "white"]];
