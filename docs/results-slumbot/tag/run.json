@@ -1,0 +1,31 @@
+{
+  "seat": "tag",
+  "kind": "tag",
+  "against": "Slumbot, through its public API (https://www.slumbot.com/)",
+  "stakes": "blinds 50/100, 20,000 chips (200 big blinds), reset every hand",
+  "hands": 2000,
+  "runs": [
+    {
+      "run": 1,
+      "seed": 2026,
+      "started": "2026-11-27T17:24:27+00:00",
+      "ended": "2026-11-27T17:36:35+00:00",
+      "seconds": 727.5,
+      "hands": 1240,
+      "refused": 0,
+      "requests": 2910,
+      "stopped": "crashed on the hand after 1240, before our seat's first decision: our hole cards were two of the three deuces our client took Slumbot's stand-in cards from (IndexError), fixed before run 2. That hand has no number and no record; its one request, new_hand, is counted here. This entry was corrected by hand: the crash had skipped the stop handling and left \"finished\"."
+    },
+    {
+      "run": 2,
+      "seed": 3266,
+      "started": "2026-11-27T17:41:18+00:00",
+      "ended": "2026-11-27T17:48:39+00:00",
+      "seconds": 440.5,
+      "hands": 760,
+      "refused": 0,
+      "requests": 1762,
+      "stopped": "finished"
+    }
+  ]
+}
