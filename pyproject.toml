@@ -1,6 +1,6 @@
 [project]
 name = "poker-table"
-version = "0.2.0"
+version = "0.3.0"
 description = "No-limit hold'em table where LLM agents with different personalities play each other for play money"
 readme = "README.md"
 requires-python = ">=3.12"
