@@ -38,9 +38,9 @@ Bankroll: +16466 chips (+823.3 bb/100)
 
 - Wrong decision facing a 3-bet — 44 of 178 (25%)
 - Folding hands the chart opens — 65 of 408 (16%)
-- Calling without the right price — 20 of 76 (26%)
+- Calling without the right price — 22 of 76 (29%)
 - c-bet frequency: 38% on dry flops (3/8), 80% on paired flops (4/5), 55% on wet flops (12/22)
-- bluffs: 24% of postflop bets and raises (26/109)
+- bluffs: 25% of postflop bets and raises (27/109)
 - raise-first-in: 19% of unopened pots (93/501)
 
 ### rock
@@ -62,14 +62,14 @@ Bankroll: +12605 chips (+630.2 bb/100)
 - 3-betting hands outside the chart — 201 of 209 (96%)
 - Wrong decision facing a 3-bet — 208 of 235 (89%)
 - c-bet frequency: 70% on dry flops (71/101), 77% on paired flops (60/78), 70% on wet flops (152/217)
-- bluffs: 60% of postflop bets and raises (800/1333)
+- bluffs: 60% of postflop bets and raises (802/1333)
 - raise-first-in: 94% of unopened pots (547/581)
 
 ### station
 
 Bankroll: -1464 chips (-73.2 bb/100)
 
-- Calling without the right price — 875 of 1556 (56%)
+- Calling without the right price — 884 of 1556 (57%)
 - Calling a raise with hands outside the range — 545 of 636 (86%)
 - Wrong decision facing a 3-bet — 438 of 447 (98%)
 
@@ -81,7 +81,7 @@ Bankroll: -33570 chips (-1678.5 bb/100)
 - 3-betting hands outside the chart — 160 of 166 (96%)
 - Calling a raise with hands outside the range — 142 of 165 (86%)
 - c-bet frequency: 56% on dry flops (5/9), 44% on paired flops (4/9), 52% on wet flops (14/27)
-- bluffs: 66% of postflop bets and raises (227/345)
+- bluffs: 66% of postflop bets and raises (228/345)
 - raise-first-in: 54% of unopened pots (197/368)
 
 ## Reading it
