@@ -349,5 +349,131 @@
     "session_baseline_total": 150
    }
   }
+ ],
+ "turn_all_in_called": [
+  {
+   "endpoint": "new_hand",
+   "request": {},
+   "response": {
+    "old_action": "",
+    "action": "",
+    "client_pos": 1,
+    "hole_cards": [
+     "As",
+     "Ac"
+    ],
+    "board": []
+   }
+  },
+  {
+   "endpoint": "act",
+   "request": {
+    "incr": "b300"
+   },
+   "response": {
+    "old_action": "",
+    "action": "b300b900",
+    "client_pos": 1,
+    "hole_cards": [
+     "As",
+     "Ac"
+    ],
+    "board": []
+   }
+  },
+  {
+   "endpoint": "act",
+   "request": {
+    "incr": "b2700"
+   },
+   "response": {
+    "old_action": "b300b900",
+    "action": "b300b900b2700c/k",
+    "client_pos": 1,
+    "hole_cards": [
+     "As",
+     "Ac"
+    ],
+    "board": [
+     "9s",
+     "6d",
+     "3s"
+    ]
+   }
+  },
+  {
+   "endpoint": "act",
+   "request": {
+    "incr": "b2700"
+   },
+   "response": {
+    "old_action": "b300b900b2700c/k",
+    "action": "b300b900b2700c/kb2700c/k",
+    "client_pos": 1,
+    "hole_cards": [
+     "As",
+     "Ac"
+    ],
+    "board": [
+     "9s",
+     "6d",
+     "3s",
+     "7c"
+    ]
+   }
+  },
+  {
+   "endpoint": "act",
+   "request": {
+    "incr": "b5400"
+   },
+   "response": {
+    "old_action": "b300b900b2700c/kb2700c/k",
+    "action": "b300b900b2700c/kb2700c/kb5400b14600",
+    "client_pos": 1,
+    "hole_cards": [
+     "As",
+     "Ac"
+    ],
+    "board": [
+     "9s",
+     "6d",
+     "3s",
+     "7c"
+    ]
+   }
+  },
+  {
+   "endpoint": "act",
+   "request": {
+    "incr": "c"
+   },
+   "response": {
+    "old_action": "b300b900b2700c/kb2700c/kb5400b14600",
+    "action": "b300b900b2700c/kb2700c/kb5400b14600c/",
+    "client_pos": 1,
+    "hole_cards": [
+     "As",
+     "Ac"
+    ],
+    "board": [
+     "9s",
+     "6d",
+     "3s",
+     "7c",
+     "9c"
+    ],
+    "bot_hole_cards": [
+     "7h",
+     "6h"
+    ],
+    "winnings": 20000,
+    "won_pot": 40000,
+    "session_num_hands": 942,
+    "baseline_winnings": 23600,
+    "session_total": -5607,
+    "session_baseline_total": -119657
+   }
+  }
  ]
 }

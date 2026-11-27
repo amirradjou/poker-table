@@ -425,6 +425,35 @@ def test_an_all_in_with_empty_streets_runs_out_the_board(serve) -> None:
     assert adjusted is not None and 12000 < adjusted[0] < 13500  # aces win about 82%
 
 
+class Replayer:
+    """Sends a recorded hand's moves again, written as our engine's actions."""
+
+    name = kind = "replayer"
+
+    def __init__(self, hand: list[dict[str, Any]]) -> None:
+        self.moves = [e["request"]["incr"] for e in hand if e["endpoint"] == "act"]
+
+    def act(self, view: SeatView) -> Decision:
+        move = self.moves.pop(0)
+        plain = {"k": Action.check(), "c": Action.call(), "f": Action.fold()}
+        return Decision(plain.get(move) or Action.raise_to(int(move[1:])))
+
+
+def test_a_real_all_in_on_the_turn_runs_out_its_empty_river(serve) -> None:
+    hand = recorded("turn_all_in_called")  # exploiter's hand 942 against Slumbot
+    assert hand[-1]["response"]["action"].endswith("kb5400b14600c/")
+    stand_in = serve([], [hand], first=SMALL)
+    played = play_hand(Replayer(hand), api_for(stand_in), "942")
+    assert not played.refused, played.refused
+    history = played.history
+    assert history.board == ["9s", "6d", "3s", "7c", "9c"] and history.players[0].net == 20000
+    assert history.actions()[-1].action == "call"
+    # Aces against two pair with a card to come: about 18% to win, so all-in adjusted
+    # scores the hand near -12,700 rather than the +20,000 the river gave.
+    adjusted = all_in_adjusted(history)
+    assert adjusted is not None and -14500 < adjusted[0] < -11000
+
+
 def test_a_shove_is_sent_as_the_street_total(serve) -> None:
     stand_in = serve([recorded("bad_bet_then_shove")])
     played = play_hand(Shover(), api_for(stand_in), "1")
@@ -734,6 +763,8 @@ def test_the_report_says_how_a_seat_that_adapts_decided(bench) -> None:
     table = bench.render([adapts])
     assert "| tag 97%, adjusted 3% |" in table
     assert table.endswith("exploiter: 3 of 100 decisions changed by a read (call_down 2, x 1).")
+    few = replace(adapts, methods={"tag": 2578, "adjusted": 6})
+    assert "| tag 99.8%, adjusted 0.2% |" in bench.render([few])  # never "adjusted 0%"
 
 
 def test_the_report_reads_a_folder_back(bench, serve, folder_seat, tmp_path: Path) -> None:

@@ -349,7 +349,12 @@ def _methods(methods: dict[str, int]) -> str:
     total = sum(methods.values())
     if not total or set(methods) == {"-"}:
         return "-"
-    return ", ".join(f"{name} {count / total:.0%}" for name, count in methods.items())
+    # A share that would round to 0% or 100% gets a decimal: a few changed decisions stay seen.
+    exact = any(
+        0 < count / total < 0.005 or 0.995 < count / total < 1 for count in methods.values()
+    )
+    style = ".1%" if exact else ".0%"
+    return ", ".join(f"{name} {count / total:{style}}" for name, count in methods.items())
 
 
 def main(argv: Sequence[str] | None = None, *, api: Api | None = None) -> int:
