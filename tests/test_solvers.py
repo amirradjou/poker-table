@@ -142,3 +142,24 @@ def test_a_big_blind_all_in_from_its_post_calls_everything_and_the_game_is_even(
     assert expected_value(full, avg) == pytest.approx(0.0, abs=1e-3)
     everything = [np.tile([0.0, 1.0], (169, 1)), np.tile([0.0, 1.0], (169, 1))]
     assert expected_value(full, everything) == pytest.approx(0.0, abs=1e-12)
+
+
+@pytest.mark.parametrize(("small", "big", "ante"), [(10, 20, 2), (100, 200, 25)])
+def test_the_engine_pays_what_the_push_fold_game_with_an_ante_pays(small, big, ante) -> None:
+    from poker_table.engine import Action, Hand, Player
+    from poker_table.solvers.pushfold import posted
+
+    stack = 10 * big
+    lose, win = (round(x * big) for x in posted(10.0, ante / big))
+
+    def deal() -> Hand:
+        players = [Player("sb", stack), Player("bb", stack)]
+        return Hand(players, button=0, small_blind=small, big_blind=big, ante=ante, seed=1)
+
+    folded = deal()
+    folded.apply(Action.fold())  # the small blind folds: its ante and blind, the solver's fold
+    assert folded.net() == {0: -lose, 1: lose} and lose == ante + small
+    shoved = deal()
+    shoved.apply(Action.raise_to(shoved.legal_actions().max_raise_to))
+    shoved.apply(Action.fold())  # a shove nobody calls: the other ante and the big blind
+    assert shoved.net() == {0: win, 1: -win} and win == ante + big

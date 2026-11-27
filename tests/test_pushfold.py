@@ -326,6 +326,13 @@ def test_a_hand_with_an_ante_reads_that_antes_chart_and_one_with_no_chart_falls_
     first = played.decisions[0]
     assert first.applied == Action.raise_to(198) and first.meta["method"] == "own"
     assert first.meta["ante"] == "1/10" and first.meta["effective_bb"] == 10.0
+    # K2o shoves 13 bb with an ante of 1/8 and folds them with none (published 11.6).
+    assert push_probability("K2o", 13.0, "1/8") == 1.0 and push_probability("K2o", 13.0) == 0.0
+    seat = PushFoldAgent("pf")
+    played = play("Kc 2d", "7c 2h", seat, TightAggressive("tag"), 2600, blinds=(100, 200), ante=25)
+    first = played.decisions[0]
+    assert first.applied == Action.raise_to(2575) and first.meta["method"] == "own"
+    assert first.meta["ante"] == "1/8" and first.meta["effective_bb"] == 13.0
     seat = PushFoldAgent("pf")
     played = play("As Ah", "7c 2d", seat, TightAggressive("tag"), 200, blinds=(10, 20), ante=3)
     first = played.decisions[0]

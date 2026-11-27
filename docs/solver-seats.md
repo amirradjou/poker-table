@@ -85,10 +85,11 @@ before the antes and blinds, and the chart is read at the nearest half big blind
   - **An ante of 1/10.** 308 of 338 agree: 153 pushes and 155 calls. Seven more differ only by
     a piece of mixing above a range that ends where theirs does. In the other 23 ours is
     tighter, by 0.2 to 0.7 bb: 9 pushes (76o 12.8 against their 13.5, K3o 13.9 against 14.3)
-    and 14 calls, nearly all offsuit (JTo 14.5 against 15.1, K8o 15.7 against 16.1). Their page
-    does not say how its ante is counted, so the gap may be in the game rather than in the
-    solving: the no-ante tab, solved by the same code, agrees cell for cell, and the best
-    response above says ours is an equilibrium of the game it states.
+    and 14 calls, nearly all offsuit (JTo 14.5 against 15.1, K8o 15.7 against 16.1). The cause
+    was not found. Their page does not say how its ante is counted. What is known: the no-ante
+    tab, solved by the same code, agrees cell for cell; the best response above says ours is an
+    equilibrium of the game it states; and a test checks that the engine pays what that game
+    pays (a fold at 10/20+2 loses 12, an unanswered shove wins 22).
   - **An ante of 1/8.** No published chart was found: their raw data is for no ante only, and a
     search found no other primary source. That chart rests on the best response above.
 
