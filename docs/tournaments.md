@@ -37,8 +37,8 @@ poker-table serve tt.jsonl                               # replay one played wit
 Each hand of a freezeout records its level, how many seats it began with and who went out in it,
 with the place they finished. The viewer shows the level beside the blinds, marks the hands where
 someone went out, and puts the standings first on the Leaderboard tab: who is left with how many
-chips, and who went out in which hand. A live table says the level and how many are left as it
-plays. If you go out, the table plays on to the end, and you watch.
+chips, and who went out in which hand. The chip table under them has no bb/100 or margins, since
+the big blind keeps growing. A live table says the level and how many are left as it plays. If you go out, the table plays on to the end, and you watch.
 
 ## Measured: 500 seeded freezeouts
 

@@ -335,6 +335,11 @@ def test_a_freezeout_shows_its_levels_bust_outs_and_standings(page: Page, serve,
     first = page.locator("#standings tbody tr").first.locator("td")
     expect(first.nth(0)).to_have_text("1st")
     expect(first.nth(1)).to_have_text(winner)
+    # The blinds rise, so the chip table has no bb/100 and no margins, and says why.
+    expect(page.locator("#board-table tbody tr")).to_have_count(5)
+    assert "bb/100" not in page.locator("#board-table thead").inner_text()
+    expect(page.locator("#board-table td.margin")).to_have_count(0)
+    expect(page.locator("#board-note")).to_contain_text("no fixed unit")
 
     bust = next(h for h in read_jsonl(path) if h.tournament["out"])
     name, place = next(iter(bust.tournament["out"].items()))
