@@ -107,11 +107,9 @@ class Experiment:
     @property
     def game(self) -> tuple[Any, ...]:
         """What must match for two runs to be the same league dealt from the same decks."""
-        if self.tournaments:
-            return ("freezeout", self.seats, self.seed, self.stack, self.levels) + (
-                self.level_hands,
-                self.max_hands,
-            )
+        if self.tournaments:  # not their number: raising it and resuming plays more
+            game = (self.seats, self.seed, self.stack, self.levels, self.level_hands)
+            return ("freezeout", *game, self.max_hands)
         return (
             self.seats,
             self.seed,
@@ -1021,7 +1019,10 @@ def render_freezeouts(
         key=lambda finish: finish.average,
     )
     planned = run.get("planned_tournaments", experiment.tournaments)
-    count = f"{len(over)} of {planned}" if len(over) < planned else f"{len(over)}"
+    if len(over) < planned:
+        count = f"{len(over)} of {planned} freezeouts"
+    else:
+        count = f"{len(over)} freezeout{'' if len(over) == 1 else 's'}"
     first, last = experiment.levels[0], experiment.levels[-1]
     levels = f"levels {first} to {last}" if len(experiment.levels) > 1 else f"blinds {first}"
     seats = len(experiment.seats)
@@ -1029,7 +1030,7 @@ def render_freezeouts(
     if experiment.description:
         lines += [experiment.description, ""]
     lines += [
-        f"{count} freezeouts of {seats} seats with {experiment.stack} chips each, {levels} at "
+        f"{count} of {seats} seats with {experiment.stack} chips each, {levels} at "
         f"{experiment.level_hands} hands a level, seed {experiment.seed}, the seats drawn again "
         f"for each one. {len(histories)} hands in all. It took "
         f"{_duration(run.get('seconds', 0.0))} and "
