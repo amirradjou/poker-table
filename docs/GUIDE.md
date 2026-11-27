@@ -72,7 +72,8 @@ picks a secret one, because anyone who knows the seed knows every card.
 pick 1 to 5 bots (3 if you don't), and press **Deal me in**: you get a live table in the page, with
 your cards, the buttons, your odds on your turn and a line from the coach after each hand. Finished
 hands go to the Hands list, and the Leaderboard and Coach tabs read them. The first time, the button
-downloads about 6.8 MB (Python and this package), and nothing is sent anywhere. The demo has
+downloads about 6.8 MB (Python and this package). Nothing about your game leaves the page; Pyodide
+itself comes from jsDelivr. The demo has
 scripted bots only: model seats need a key or a local model, so run those on your machine.
 
 The bar under the header shows your seed and the `poker-table play` command that deals the same
@@ -84,7 +85,7 @@ To build the demo yourself, with a few hands and the table to play:
 ```sh
 scripts/build_demo.sh site 50                  # or, by hand:
 uv build --wheel -o dist
-poker-table serve hands.jsonl --export site --export-play dist/poker_table-0.2.0-py3-none-any.whl
+poker-table serve hands.jsonl --export site --export-play dist/poker_table-*.whl
 python3 -m http.server -d site 8000            # any static server will do
 ```
 
