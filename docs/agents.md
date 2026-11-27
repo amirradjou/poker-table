@@ -117,6 +117,63 @@ run as a tag seat's would, and the rules draw nothing at random. Until a rule fi
 are a tag seat's hands. A resumed freezeout asks it again and rebuilds its reads from the same
 hands, so it carries on exactly.
 
+### Measured: against tag on the same deals
+
+The hypothesis was written down before any of these hands were played
+([PR #51](https://github.com/amirradjou/poker-table/pull/51)): exploiter beats the station and
+the maniac by more than tag does, and is no worse than tag against tag and rock. Each match is
+2,000 hands from seed 2026, played twice: once with exploiter in seat 0, once with tag in that
+seat on the same deals. The difference is paired hand for hand, in all-in adjusted bb/100 with a
+95% interval. It took 1.4 minutes on 12 cores at a load average of about 4.
+
+| table | exploiter | tag in its seat | difference | how it decided |
+|---|---:|---:|---:|---|
+| vs tag | -19 ±31 | -19 ±31 | +0 ±0 | tag 100% |
+| vs rock | +6 ±20 | +6 ±20 | +0 ±0 | tag 100% |
+| vs maniac | +546 ±132 | +238 ±98 | +308 ±121 | tag 89%, adjusted 11% |
+| vs station | +423 ±85 | +191 ±43 | +232 ±48 | tag 64%, adjusted 36% |
+| five-handed | +728 ±188 | +609 ±183 | +120 ±99 | tag 97%, adjusted 3% |
+
+Which rules changed decisions in those matches, and the first hand one did:
+
+| table | decisions | changed | `defend_wide` | `call_down` | `no_bluff` | `thin_value` | `bluff_folder` | first change |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| vs tag | 1,380 | 0 | 0 | 0 | 0 | 0 | 0 | - |
+| vs rock | 1,341 | 0 | 0 | 0 | 0 | 0 | 0 | - |
+| vs maniac | 4,476 | 509 (11.4%) | 216 (4.8%) | 257 (5.7%) | 36 (0.8%) | 0 | 0 | hand 35 |
+| vs station | 5,783 | 2,078 (35.9%) | 0 | 0 | 259 (4.5%) | 1,819 (31.5%) | 0 | hand 29 |
+| five-handed | 3,272 | 102 (3.1%) | 0 | 0 | 23 (0.7%) | 79 (2.4%) | 0 | hand 24 |
+
+What this supports:
+
+- **Against the station and the maniac, the hypothesis held.** It won 232 ±48 and 308 ±121
+  bb/100 more than tag in its seat, and both intervals sit well above zero. Against the station
+  that is `thin_value` and `no_bluff`; against the maniac, `call_down` and `defend_wide`.
+- **Against tag and rock it is no worse, but only because it did nothing.** No rule fired, so
+  those matches are tag's own hands and the difference is exactly zero. The reads called tag a
+  folder in 20 hands and rock in 25. But `bluff_folder` needs the turn or the river checked to it
+  with no pair, and in 2,000 hands that came up twice against tag and three times against rock,
+  never while the read said folder. Rock plays 3 to 10% of hands, too few to be a caller.
+- **Reads start changing decisions after 24 to 35 hands.** The earliest possible is hand 21.
+- **Five-handed, it adjusts 3% of decisions.** The maniac and the station each play about 90%
+  of hands, so most pots have both in, and a rule waits until every opponent still in fits it.
+  The gain is smaller, +120 ±99, with its interval just clear of zero.
+- **`bluff_folder` never fired in any of these runs.** So it is untried in play; only its
+  hand-built test checks it.
+
+What it does not show: the opponents are scripted bots with fixed styles, and the rules are the
+textbook answers to those styles. It says nothing about opponents that adapt back. It is one
+seed. The published runs, on the leaderboard's 200 and 400 hands, are in
+[the leaderboard](leaderboard.md) and [the heads-up track](leaderboard-heads-up.md).
+
+```sh
+uv run python scripts/measure_vs_tag.py exploiter --five-handed   # the paired table
+uv run python scripts/exploiter_rules.py --matches                # which rules fired in it
+uv run poker-table benchmark exploiter -o docs/results            # the benchmark folder
+uv run python scripts/run_heads_up_track.py exploiter --replace   # the heads-up track
+uv run python scripts/exploiter_rules.py                          # rules in those folders
+```
+
 ## Your own seats
 
 An agents file is TOML. Each `[agents.<name>]` table defines a kind that `--seats` can name like

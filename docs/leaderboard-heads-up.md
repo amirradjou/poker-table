@@ -4,6 +4,7 @@ Every entrant plays 400 hands heads-up against each of the four bots (tag, rock,
 
 | entrant | all-in adj. bb/100 | ±95% | vs tag | vs rock | vs maniac | vs station | bb/100 | its own method | illegal | failed | played |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| exploiter | +167 | 78 | -42 ±43 | -11 ±36 | +432 ±261 | +290 ±160 | +158 | 18.5% | 0% | 0 | 2026-11-27 |
 | cfr:blueprint | +122 | 89 | +60 ±108 | +61 ±37 | +211 ±289 | +155 ±177 | +125 | 99.6% | 0% | 0 | 2026-11-26 |
 | nash:pushfold | +47 | 56 | -42 ±43 | -11 ±36 | +81 ±199 | +160 ±87 | +40 | 0% | 0% | 0 | 2026-11-27 |
 | tag | +47 | 56 | -42 ±43 | -11 ±36 | +81 ±199 | +160 ±87 | +40 | - | 0% | 0 | 2026-11-26 |
