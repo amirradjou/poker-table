@@ -15,11 +15,15 @@ import pytest
 from poker_table.agents.abstraction import (
     CHANCE,
     DECISION,
+    FLOP,
     FOLD,
+    PREFLOP,
+    RIVER,
     Betting,
     Cards,
     bucket,
     build_tree,
+    grouped_state,
     number,
     pseudo_harmonic,
     quantize,
@@ -28,7 +32,7 @@ from poker_table.agents.abstraction import (
 )
 from poker_table.agents.base import Decision, TableShape
 from poker_table.agents.blueprint import DATA, BlueprintAgent, shipped
-from poker_table.agents.handclass import card_of
+from poker_table.agents.handclass import card_of, class_index
 from poker_table.agents.registry import check_seats_ready, make_agent, make_agents
 from poker_table.agents.scripted import CallingStation, Maniac, RandomAgent, TightAggressive
 from poker_table.cli import main
@@ -57,6 +61,26 @@ def uniform(tmp_path_factory):
     path = tmp_path_factory.mktemp("blueprint") / "uniform.bin"
     write_strategy(path, betting, CUTS, rows, {"about": "uniform, for tests"})
     return read_strategy(path.read_bytes())
+
+
+GROUPS = [i % 3 for i in range(169)]
+
+
+@pytest.fixture(scope="module")
+def grouped_file(tmp_path_factory) -> Path:
+    """A format-2 blueprint, whose states after the flop keep one of three preflop groups. Each
+    row is a different random mix, so a wrong row would show."""
+    betting = Betting()
+    rng = random.Random(11)
+    rows = []
+    for n in number(build_tree(betting)):
+        states = CUTS.buckets(n.street) * (3 if n.street else 1)
+        for _ in range(states):
+            weights = [rng.random() + 0.01 for _ in n.labels]
+            rows.append(quantize([w / sum(weights) for w in weights]))
+    path = tmp_path_factory.mktemp("blueprint") / "grouped.bin"
+    write_strategy(path, betting, CUTS, rows, {"about": "format 2, for tests"}, groups=GROUPS)
+    return path
 
 
 def decisions_of(result, name: str):
@@ -229,7 +253,8 @@ def test_buckets_match_the_training_code() -> None:
                 assert bucket(CUTS, hole, cards) == int(levels[k])
 
 
-def test_training_gives_the_same_file_from_any_process(tmp_path) -> None:
+@pytest.mark.parametrize("groups", ["0", "3"])
+def test_training_gives_the_same_file_from_any_process(tmp_path, groups) -> None:
     pytest.importorskip("numpy")
     digests = []
     for n, hash_seed in enumerate(("1", "987")):
@@ -237,7 +262,7 @@ def test_training_gives_the_same_file_from_any_process(tmp_path) -> None:
         env = dict(os.environ, PYTHONHASHSEED=hash_seed)
         script = ROOT / "scripts" / "train_blueprint.py"
         run = subprocess.run(
-            [sys.executable, str(script), "--check", str(out)],
+            [sys.executable, str(script), "--check", str(out), "--groups", groups],
             env=env,
             capture_output=True,
             text=True,
@@ -246,3 +271,87 @@ def test_training_gives_the_same_file_from_any_process(tmp_path) -> None:
         digests.append(run.stdout.strip())
         assert digests[-1] == hashlib.sha256((out / "blueprint.bin").read_bytes()).hexdigest()
     assert digests[0] == digests[1]
+    assert read_strategy((tmp_path / "0" / "blueprint.bin").read_bytes()).version == (
+        2 if groups == "3" else 1
+    )
+
+
+def test_format_two_keeps_a_preflop_group_after_the_flop(grouped_file) -> None:
+    data = grouped_file.read_bytes()
+    assert data.startswith(b"PTBLUEPRINT2\n")
+    strategy = read_strategy(data)
+    assert (strategy.version, strategy.groups) == (2, tuple(GROUPS))
+    assert (strategy.rows(PREFLOP), strategy.rows(FLOP), strategy.rows(RIVER)) == (169, 30, 30)
+    rng = random.Random(3)
+    deck = [card_of(c) for c in range(52)]
+    for _ in range(20):
+        cards = rng.sample(deck, 7)
+        hole = cards[:2]
+        assert strategy.state(hole, []) == class_index(*hole)
+        for board in (cards[2:5], cards[2:6], cards[2:7]):
+            held = bucket(CUTS, hole, board)
+            group = GROUPS[class_index(*hole)]
+            assert (
+                strategy.state(hole, board) == grouped_state(group, held, 10) == group * 10 + held
+            )
+
+
+def test_a_format_two_seat_plays_its_own_tree(grouped_file) -> None:
+    strategy = read_strategy(grouped_file.read_bytes())
+    a = BlueprintAgent("a", strategy=strategy, seed=1)
+    b = BlueprintAgent("b", strategy=strategy, seed=2)
+    result = run_league([a, b], LeagueConfig(hands=40, seed=4))
+    for seat in (a, b):
+        assert seat.usage.translated == seat.usage.fallback == 0
+        made = decisions_of(result, seat.name)
+        assert seat.usage.own == len(made) > 0
+        assert all(d.requested == d.applied and not d.illegal for d in made)
+    later = [d for d in decisions_of(result, "a") if d.street != "preflop"]
+    assert later and all(" group " in d.reasoning for d in later)
+
+
+def test_a_file_in_a_format_it_cannot_read_is_refused() -> None:
+    data = DATA.read_bytes()
+    assert data.startswith(b"PTBLUEPRINT1\n")
+    unknown = b"PTBLUEPRINT9\n" + data[len(b"PTBLUEPRINT1\n") :]
+    with pytest.raises(ValueError, match="format 9; this version of poker-table reads formats 1"):
+        read_strategy(unknown)
+    with pytest.raises(ValueError, match="not a blueprint strategy file"):
+        read_strategy(b"PK\x03\x04 a zip file")
+
+
+NO_NUMPY = """
+import sys
+from pathlib import Path
+
+
+class NoNumpy:
+    def find_spec(self, name, path=None, target=None):
+        if name == "numpy" or name.startswith("numpy."):
+            raise ImportError("numpy is not installed here")
+
+
+sys.meta_path.insert(0, NoNumpy())
+from poker_table.agents.abstraction import read_strategy
+from poker_table.agents.blueprint import BlueprintAgent
+from poker_table.agents.scripted import TightAggressive
+from poker_table.league import LeagueConfig, run_league
+
+for path in sys.argv[1:]:
+    strategy = read_strategy(Path(path).read_bytes())
+    seat = BlueprintAgent("bp", strategy=strategy)
+    run_league([seat, TightAggressive("tag")], LeagueConfig(hands=20, seed=3))
+    assert seat.usage.own > 0, seat.usage
+assert not any(name.split(".")[0] == "numpy" for name in sys.modules)
+print("played without numpy")
+"""
+
+
+def test_the_seat_plays_without_numpy(grouped_file) -> None:
+    run = subprocess.run(
+        [sys.executable, "-c", NO_NUMPY, str(DATA), str(grouped_file)],
+        capture_output=True,
+        text=True,
+    )
+    assert run.returncode == 0, run.stderr
+    assert "played without numpy" in run.stdout
