@@ -10,7 +10,7 @@ import pytest
 from poker_table.agents.llm import LLMAgent
 from poker_table.agents.registry import make_agents
 from poker_table.cli import main
-from poker_table.experiments import _restore_notes, load_experiment, run_experiment
+from poker_table.experiments import _restore_notes, load_experiment, run_experiment, write_report
 from poker_table.history import DecisionTrace, read_jsonl
 from poker_table.league import TournamentConfig, run_tournament, standings_of
 from poker_table.margins import Finish, finish_calls, t_margin, wilson
@@ -456,3 +456,18 @@ def test_a_run_of_freezeouts_cut_short_cannot_claim_it_finished(played, tmp_path
 def test_the_command_checks_a_folder_of_freezeouts(played, capsys) -> None:
     assert main(["verify", str(played)]) == 0
     assert f"{played}: checks out" in capsys.readouterr().out
+
+
+ROOT = Path(__file__).parent.parent
+PUBLISHED = ROOT / "docs" / "results" / "freezeout-bots"
+
+
+def test_the_published_freezeouts_check_out_and_rebuild_the_same(tmp_path: Path) -> None:
+    assert verify_folder(PUBLISHED) == []
+    shipped = load_experiment(ROOT / "experiments" / "freezeout-bots.toml")
+    assert load_experiment(PUBLISHED / "experiment.toml") == shipped
+    copy = tmp_path / "freezeout-bots"
+    shutil.copytree(PUBLISHED, copy)
+    (copy / "leaderboard.md").unlink()
+    write_report(copy)
+    assert (copy / "leaderboard.md").read_text() == (PUBLISHED / "leaderboard.md").read_text()
