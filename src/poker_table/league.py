@@ -520,7 +520,8 @@ def standings_of(histories: Iterable[HandHistory]) -> list[Standing]:
     by_number: dict[int | None, list[HandHistory]] = defaultdict(list)
     for history in histories:
         if history.tournament:
-            by_number[history.tournament.get("id")].append(history)
+            number = history.tournament.get("id")  # a file from elsewhere may hold anything
+            by_number[number if isinstance(number, int) else None].append(history)
     standings = []
     for number in sorted(by_number, key=lambda n: -1 if n is None else n):
         hands = by_number[number]

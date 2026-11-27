@@ -515,6 +515,8 @@ section.board-view h2, section.coach-view h2 { margin: 0 0 16px; font: 700 26px/
 .leaderboard.standings table { min-width: 0; }
 .leaderboard.standings td:first-child, .leaderboard.standings th:first-child { width: 4.5em; }
 .leaderboard.standings td:nth-child(2), .leaderboard.standings th:nth-child(2) { text-align: left; }
+.standings-pick { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.standings-pick select { flex: 1 1 220px; min-width: 0; padding: 4px 6px; font: 500 14px/1.3 "Barlow", system-ui, sans-serif; color: var(--ivory); background: var(--room-3); border: 1px solid var(--room-4); border-radius: 6px; }
 
 /* bankroll chart: the reference categorical palette, dark steps, in its fixed order.
    Validated on this surface (#231d18): every slot inside the lightness band and >= 3:1,

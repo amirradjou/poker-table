@@ -26,8 +26,9 @@ from starlette.staticfiles import StaticFiles
 from poker_table.agents.registry import make_agents
 from poker_table.agents.scripted import CallingStation, TightAggressive
 from poker_table.cli import main
+from poker_table.experiments import run_experiment
 from poker_table.history import read_jsonl
-from poker_table.league import LeagueConfig, TournamentConfig
+from poker_table.league import LeagueConfig, TournamentConfig, standings_of
 from poker_table.web.app import create_app
 from poker_table.web.export import export_site
 from poker_table.web.live import LiveSession, WebHumanAgent
@@ -334,6 +335,47 @@ def test_a_freezeout_shows_its_levels_bust_outs_and_standings(page: Page, serve,
     page.evaluate(f"openHand({bust.hand_id!r}, {{at: 'end'}})")
     expect(page.locator("#hand-sub")).to_contain_text(f"Level {bust.tournament['level']}: blinds")
     expect(page.locator("#summary p.out")).to_contain_text(f"{name} is out in")
+
+
+def test_a_file_of_freezeouts_shows_one_tournament_at_a_time(page: Page, serve, tmp_path) -> None:
+    experiment = tmp_path / "fz.toml"
+    experiment.write_text(
+        'name = "fz"\nseats = ["tag", "rock", "maniac", "station", "random"]\n'
+        "tournaments = 3\nlevel_hands = 5\nseed = 4\ncoach = false\n"
+    )
+    path = run_experiment(experiment, tmp_path, log=lambda _: None).folder / "hands.jsonl"
+    second = standings_of(read_jsonl(path))[1]
+    url = serve(create_app(path))
+    page.goto(url)
+
+    page.locator("#tab-board").click()
+    pick = page.locator("#standings-pick")
+    expect(pick.locator("option")).to_have_count(3)
+    expect(page.locator("#board-title")).to_contain_text("Tournament 1 of 3 over after")
+    pick.select_option("2")
+    expect(page.locator("#board-title")).to_have_text(
+        f"Tournament 2 of 3 over after {len(second.hands)} hands: {second.left[0][0]} wins"
+    )
+    places = second.places()
+    rows = page.locator("#standings tbody tr")
+    expect(rows).to_have_count(5)
+    for row in range(5):
+        name = rows.nth(row).locator("td").nth(1).inner_text()
+        expect(rows.nth(row).locator("td").first).to_have_text(f"{places[name]}{THS[places[name]]}")
+
+    page.locator("#standings-hands").click()
+    expect(page.locator("#hand-list .count")).to_have_text(
+        f"Tournament 2: {len(second.hands)} hands"
+    )
+    listed = page.locator("#hand-list button[data-id]")
+    expect(listed).to_have_count(len(second.hands))
+    ids = listed.evaluate_all("buttons => buttons.map(b => b.dataset.id)")
+    assert sorted(ids) == sorted(h.hand_id for h in second.hands)
+    page.locator("#hand-list li.subset button", has_text="All hands").click()
+    expect(page.locator("#hand-list button[data-id]")).to_have_count(100)  # the first page
+
+
+THS = {1: "st", 2: "nd", 3: "rd", 4: "th", 5: "th"}
 
 
 def _seat(page: Page, seat: int) -> Any:

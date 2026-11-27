@@ -754,7 +754,7 @@ async function showBoard() {
   drawBankroll().catch(() => $("bankroll").classList.add("hidden"));
   const [data, session] = await Promise.all([api("/api/stats"), api("/api/session")]);
   $("board-title").textContent = `${data.hands} hands, sorted by chips won`;
-  showStandings(session.tournament);
+  showStandings(session.tournament, session.tournaments);
   const cols = data.rows.length ? Object.keys(data.rows[0]) : [];
   cols.splice(cols.indexOf("bb/100") + 1, 0, "adj", "margin");
   const head = cols.map(c => `<th${STAT_HELP[c] ? ` title="${STAT_HELP[c]}"` : ""}>${STAT_NAME[c] || c}</th>`).join("");
@@ -773,17 +773,43 @@ async function showBoard() {
 }
 
 // A freezeout is decided by who is left, not by chips per hand: its standings come first.
-function showStandings(t) {
+// A file of several (an experiment's) picks one at a time, and can list one's hands.
+let tournamentShown = null;
+function showStandings(t, all) {
   const el = $("standings");
   el.classList.toggle("hidden", !t);
   if (!t) return;
+  const several = all && all.length > 1;
+  if (several) t = all.find(x => x.id === tournamentShown) || all[0];
+  tournamentShown = t.id;
+  const which = several ? `Tournament ${t.id} of ${all.length}` : "Tournament";
   const winner = t.over ? t.standings[0].name : null;
   $("board-title").textContent = winner
-    ? `Tournament over after ${t.hands} hands: ${winner} wins`
-    : `Tournament after ${t.hands} hands: level ${t.level} (${t.blinds}), ${t.left} left`;
+    ? `${which} over after ${t.hands} hands: ${winner} wins`
+    : `${which} after ${t.hands} hands: level ${t.level} (${t.blinds}), ${t.left} left`;
   const body = t.standings.map(r => `<tr><td>${r.place ? nth(r.place) : "–"}</td><td>${esc(r.name)}</td>` +
     `<td>${r.out_in ? "–" : r.chips}</td><td>${r.out_in ? `hand #${esc(r.out_in)}` : r.place === 1 ? "won" : "still in"}</td></tr>`).join("");
-  el.innerHTML = `<table><thead><tr><th>Place</th><th>Seat</th><th>Chips</th><th>Out</th></tr></thead><tbody>${body}</tbody></table>`;
+  const options = several ? all.map(x => `<option value="${esc(x.id)}"${x.id === t.id ? " selected" : ""}>Tournament ${esc(x.id)}: ` +
+    `${x.over ? `${esc(x.standings[0].name)} won` : "no winner"}, ${x.hands} hands</option>`).join("") : "";
+  el.innerHTML = (several ? `<div class="standings-pick"><select id="standings-pick" aria-label="Which tournament">${options}</select>` +
+    `<button id="standings-hands">Its hands</button></div>` : "") +
+    `<table><thead><tr><th>Place</th><th>Seat</th><th>Chips</th><th>Out</th></tr></thead><tbody>${body}</tbody></table>`;
+  if (!several) return;
+  $("standings-pick").onchange = (e) => { tournamentShown = +e.target.value; showStandings(t, all); };
+  $("standings-hands").onclick = () => showTournamentHands(t.id);
+}
+
+// The Hands list narrowed to one tournament, drawn as a filter's list ("Watch these", "All hands").
+async function showTournamentHands(id) {
+  const run = ++filterRun;
+  stopAuto();
+  $("filter").value = ""; $("winner").value = "";
+  const data = await api("/api/hands?offset=0&limit=100000");
+  if (run !== filterRun) return;
+  renderFiltered(data.hands.filter(h => h.tournament === id));
+  const count = $("hand-list").querySelector(".count");
+  count.textContent = `Tournament ${id}: ${count.textContent}`;
+  setTab("hands");
 }
 
 // A big file takes a while to work these out, so they arrive after the table has been drawn.
