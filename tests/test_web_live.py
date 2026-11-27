@@ -112,7 +112,7 @@ def drain(events) -> list[dict]:
 
 
 def test_spectator_session_streams_every_step_with_cards(tmp_path: Path) -> None:
-    from poker_table.web.app import steps_for
+    from poker_table.web.payloads import steps_for
 
     path = tmp_path / "live.jsonl"
     session = LiveSession(
@@ -168,7 +168,7 @@ def test_session_with_a_human_hides_cards_and_reasoning(tmp_path: Path) -> None:
 
 
 def test_a_spectator_table_streams_the_numbers_its_replay_will_show(tmp_path: Path) -> None:
-    from poker_table.web.app import odds_payload
+    from poker_table.web.payloads import odds_payload
 
     path = tmp_path / "live.jsonl"
     session = LiveSession(
@@ -191,7 +191,7 @@ def test_a_spectator_table_streams_the_numbers_its_replay_will_show(tmp_path: Pa
 
 
 def test_a_spectator_table_streams_the_lines_its_replay_will_show(tmp_path: Path) -> None:
-    from poker_table.web.app import odds_payload
+    from poker_table.web.payloads import odds_payload
 
     path = tmp_path / "live.jsonl"
     session = LiveSession(
@@ -285,7 +285,7 @@ def test_a_double_click_does_not_answer_the_next_turn_too() -> None:
 
 
 def test_a_page_that_joins_midway_ends_up_with_every_step_and_number(tmp_path: Path) -> None:
-    from poker_table.web.app import odds_payload, steps_for
+    from poker_table.web.payloads import odds_payload, steps_for
 
     path = tmp_path / "live.jsonl"
     session = LiveSession(

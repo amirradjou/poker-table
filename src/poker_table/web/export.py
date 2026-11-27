@@ -19,8 +19,8 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from poker_table.web.app import (
-    STATIC,
+from poker_table.web.app import STATIC
+from poker_table.web.payloads import (
     HandStore,
     bankroll_payload,
     coach_payload,

@@ -12,9 +12,10 @@ from poker_table.cards import Card, Deck, parse_cards
 from poker_table.engine import Action, Hand, Player
 from poker_table.history import HandHistory, read_jsonl, write_jsonl
 from poker_table.table import play_hand
-from poker_table.web.app import _broadcast, create_app, odds_payload
+from poker_table.web.app import create_app
 from poker_table.web.commentary import Commentator
 from poker_table.web.export import export_site
+from poker_table.web.payloads import _broadcast, odds_payload
 
 
 class Script:

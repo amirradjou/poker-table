@@ -12,8 +12,9 @@ from poker_table.agents.registry import make_agents
 from poker_table.cli import main
 from poker_table.history import HandHistory, read_jsonl
 from poker_table.league import LeagueConfig, TournamentConfig, run_league, run_tournament
-from poker_table.web.app import create_app, summarize, tournament_standing
+from poker_table.web.app import create_app
 from poker_table.web.live import LiveSession
+from poker_table.web.payloads import summarize, tournament_standing
 
 SEATS = ["tag", "station", "maniac", "rock", "random"]
 
