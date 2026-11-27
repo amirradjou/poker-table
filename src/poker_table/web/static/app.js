@@ -104,7 +104,11 @@ const SEAT = STATIC ? null : new URLSearchParams(location.search).get("seat");
 function seatUrl(path) {
   return SEAT ? `${path}${path.includes("?") ? "&" : "?"}seat=${encodeURIComponent(SEAT)}` : path;
 }
+// The demo's own table (static/play.js): once a visitor sits down, the engine runs in their
+// browser and answers every request a server would, the live routes and the hands played.
+const playing = () => (window.POKER_TABLE_PLAY && window.POKER_TABLE_PLAY.on ? window.POKER_TABLE_PLAY : null);
 function post(path, body) {
+  if (playing()) return playing().post(path, body);
   return fetch(seatUrl(path), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 }
 
@@ -139,6 +143,7 @@ function staticSlice(path, data) {
 }
 
 async function api(path) {
+  if (playing()) return playing().get(path);
   if (STATIC && path === "/api/live") return { live: false };
   const file = STATIC ? staticFile(path) : null;
   if (STATIC && !file) throw new Error(`${path} is not part of a static export`);
@@ -941,7 +946,7 @@ async function connectLive() {
   const st = await api("/api/live");
   if (!st.live) return;
   setLive(st);
-  const es = new EventSource(seatUrl("/api/events"));
+  const es = playing() ? playing().events() : new EventSource(seatUrl("/api/events"));
   es.onmessage = async (msg) => {
     const ev = JSON.parse(msg.data);
     // The hand comes from the stream's own hello (also after a reconnect), never from the request

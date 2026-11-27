@@ -14,16 +14,16 @@ from poker_table.coach.importers import import_text
 from poker_table.engine import Hand, Player
 from poker_table.history import HandHistory, write_jsonl
 from poker_table.table import play_hand
-from poker_table.web.app import (
+from poker_table.web.app import create_app
+from poker_table.web.export import export_site
+from poker_table.web.payloads import (
     NEWEST_TO_SCAN,
     STORY,
     HandStore,
-    create_app,
     highlight_of,
     highlights_payload,
     summarize,
 )
-from poker_table.web.export import export_site
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -134,11 +134,11 @@ def test_a_summary_knows_an_all_in_without_any_slow_work(tmp_path: Path) -> None
 
 
 def test_each_hand_is_only_tagged_once(hands_file: Path, monkeypatch) -> None:
-    import poker_table.web.app as app
+    import poker_table.web.payloads as payloads
 
     calls = []
-    real = app._broadcast
-    monkeypatch.setattr(app, "_broadcast", lambda h: calls.append(h.hand_id) or real(h))
+    real = payloads._broadcast
+    monkeypatch.setattr(payloads, "_broadcast", lambda h: calls.append(h.hand_id) or real(h))
     store = HandStore(hands_file)
     highlights_payload(store, 0, 5)
     highlights_payload(store, 0, 5)
@@ -146,7 +146,7 @@ def test_each_hand_is_only_tagged_once(hands_file: Path, monkeypatch) -> None:
 
 
 def test_one_request_cannot_ask_for_a_whole_big_file(hands_file: Path, monkeypatch) -> None:
-    monkeypatch.setattr("poker_table.web.app.HIGHLIGHT_BATCH", 3)
+    monkeypatch.setattr("poker_table.web.payloads.HIGHLIGHT_BATCH", 3)
     client = TestClient(create_app(hands_file))
     page = client.get("/api/highlights?limit=100000").json()
     assert len(page["hands"]) == 3 and page["next"] == 3
@@ -154,7 +154,7 @@ def test_one_request_cannot_ask_for_a_whole_big_file(hands_file: Path, monkeypat
 
 
 def test_a_very_long_file_only_looks_at_its_newest_hands(hands_file: Path, monkeypatch) -> None:
-    monkeypatch.setattr("poker_table.web.app.NEWEST_TO_SCAN", 10)
+    monkeypatch.setattr("poker_table.web.payloads.NEWEST_TO_SCAN", 10)
     page = highlights_payload(HandStore(hands_file), 0, 50)
     assert page["total"] == 10 and page["next"] is None
     assert page["hands"][0]["hand_id"] == "16" and page["hands"][-1]["hand_id"] == "7"

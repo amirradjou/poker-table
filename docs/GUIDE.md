@@ -66,6 +66,43 @@ they would run on your key. The hand file on your machine keeps everything: `pok
 FILE` shows every card and every reason once the game is over. Leave out `--seed`: the table then
 picks a secret one, because anyone who knows the seed knows every card.
 
+### Play in the demo
+
+[The demo](https://amirradjou.github.io/poker-table/) opens on replays. Press **Play the bots**,
+pick 1 to 5 bots (3 if you don't), and press **Deal me in**: you get a live table in the page, with
+your cards, the buttons, your odds on your turn and a line from the coach after each hand. Finished
+hands go to the Hands list, and the Leaderboard and Coach tabs read them. The first time, the button
+downloads about 6.8 MB (Python and this package). Nothing about your game leaves the page; Pyodide
+itself comes from jsDelivr. The demo has
+scripted bots only: model seats need a key or a local model, so run those on your machine.
+
+The bar under the header shows your seed and the `poker-table play` command that deals the same
+hands. Make the same moves there and the hands come out the same. To deal a seed of your choice,
+add it to the address: `https://amirradjou.github.io/poker-table/?seed=42`.
+
+To build the demo yourself, with a few hands and the table to play:
+
+```sh
+scripts/build_demo.sh site 50                  # or, by hand:
+uv build --wheel -o dist
+poker-table serve hands.jsonl --export site --export-play dist/poker_table-*.whl
+python3 -m http.server -d site 8000            # any static server will do
+```
+
+How it works:
+
+- **Python in the browser.** [Pyodide](https://pyodide.org) 314.0.7 (Python 3.14.2) loads from
+  jsDelivr into a Web Worker, so the page stays responsive. It installs this package's own wheel
+  without its dependencies: FastAPI, uvicorn and the Anthropic SDK are for the server and the model
+  seats, and the table needs neither. Nothing loads until you press Play.
+- **One step at a time.** Code in a page cannot stop and wait for a click. A worker could wait, but
+  only with shared memory, which needs headers GitHub Pages cannot send. So the page drives the
+  table: each step deals a hand or lets one bot decide, and the table stops at your turn and at the
+  end of each hand. The page waits between steps, as a live table's pace does.
+- **The same table.** The seats are built and dealt by the code `poker-table play` runs, and the
+  viewer is the one a live table uses. `web/demo_play.py` answers the viewer's requests the way the
+  server does, from the same functions, so the page cannot tell the difference.
+
 ## Play sessions and read them back
 
 ```sh
@@ -94,6 +131,8 @@ Kinds: `random`, `station`, `tag`, `rock`, `maniac`, `laya`, `human`, `llm:mania
 defines (`poker-table agents` lists them). Name a seat with `name:kind`, as in `me:human`.
 The two solver seats play heads-up only (`--seats me:human,cfr:blueprint`); what they are and how
 they measure: [docs/solver-seats.md](https://github.com/amirradjou/poker-table/blob/main/docs/solver-seats.md).
+The papers behind them, and why the others are not seats:
+[docs/research-seats.md](https://github.com/amirradjou/poker-table/blob/main/docs/research-seats.md).
 
 ```sh
 # LLM seats run on your own key (export ANTHROPIC_API_KEY=...): kind is llm:<personality>[@model]
