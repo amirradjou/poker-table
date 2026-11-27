@@ -524,7 +524,8 @@ def _play_the_first_hand(page: Page, name: str) -> int:
         turns += 1
         page.locator("#act-check").click()
         expect(page.locator("#action-bar")).to_be_hidden()
-    # The hand opens as a replay, at its end, for a few seconds before the next deal.
+    # The hand is listed, and opens as a replay at its end for a few seconds before the next deal.
+    expect(page.locator("#hand-list li").first).to_contain_text("#1")
     expect(page.locator("#hand-title")).to_have_text("Hand #1")
     expect(page.locator("#street")).to_have_text("Hand over")
     expect(page.locator("#summary")).to_contain_text("you")
@@ -546,6 +547,10 @@ def test_a_visitor_plays_the_bots_in_the_published_demo(page: Page, demo_url: st
     )
     said = float(re.search(r"([\d.]+) MB", page.locator("#play-open").inner_text()).group(1))
     assert abs(sent / 1e6 - said) <= 0.1 * said, f"measured {sent} bytes"
+    # Nothing but the site itself, its fonts and the pinned Pyodide: micropip stays off PyPI.
+    pinned = "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/"
+    fonts = ("https://fonts.googleapis.com/", "https://fonts.gstatic.com/")
+    assert [r.url for r in requests if not r.url.startswith((demo_url, pinned, *fonts))] == []
     # The table goes on: the next hand is dealt after a beat on the result.
     expect(page.locator("#hand-title")).to_have_text("Hand #2", timeout=30_000)
 
