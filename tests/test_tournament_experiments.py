@@ -302,6 +302,8 @@ def test_hands_means_cash_hands_and_is_refused_for_a_file_of_tournaments(tmp_pat
     out = tmp_path / "out"
     assert main(["experiment", "run", str(path), "-o", str(out), "--hands", "5"]) != 0
     assert "change tournaments = N" in capsys.readouterr().err
+    assert main(["experiment", "run", str(path), "-o", str(out), "--trial", "0"]) != 0
+    assert "at least one tournament" in capsys.readouterr().err
     assert not out.exists()
 
 

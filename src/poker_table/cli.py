@@ -871,6 +871,8 @@ def trial_tournaments(args: argparse.Namespace, planned: int, log, finish, out) 
 
     if args.hands:
         raise ValueError("--hands counts cash hands, and this file plays tournaments")
+    if args.trial < 1:
+        raise ValueError("--trial needs at least one tournament to play")
     if args.trial >= planned:
         return finish(run_experiment(args.file, args.out, log=log))
     trial = run_experiment(args.file, args.out, tournaments=args.trial, log=log)

@@ -152,6 +152,11 @@ cut a run after a bust-out, just before one, on a tournament's last hand and bet
 compare. A model seat is not asked again, because a call costs money. It gets its notes back from
 the file and decides afresh from there. To play more tournaments, raise `tournaments` and resume.
 
+Which seats are asked again goes by `usage`: a seat with one is a model seat, the way the budget
+counts it, and a seat without one is asked again. So a `python` seat of your own that calls a
+paid API should keep a `usage` attribute with `cost_usd`, `calls` and `errors`, as the model
+seats do. Without one, a resume calls it again for every decision it made in the earlier hands.
+
 `--trial 2` plays the first two tournaments whole, then says what the rest should take and cost,
 and asks before going on. `--hands` counts cash hands, so it is refused for these files.
 
