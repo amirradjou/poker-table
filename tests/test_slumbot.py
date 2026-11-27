@@ -708,6 +708,34 @@ def test_hand_files_roll_over_before_they_reach_the_limit(
     assert len(histories) == 6 and len(records) == 6
 
 
+def test_the_report_says_how_a_seat_that_adapts_decided(bench) -> None:
+    from dataclasses import replace
+
+    plain = bench.Summary(
+        seat="exploiter",
+        hands=2,
+        played=2,
+        refused=0,
+        bb_per_100=0.0,
+        margin=None,
+        adjusted=0.0,
+        adjusted_margin=None,
+        all_in=0,
+        baseline=None,
+        baseline_margin=None,
+        requests=4,
+        minutes=0.1,
+        played_on="2026-11-27",
+        methods={"-": 5},
+        rules={},
+    )
+    assert "| 0 | - | 0 |" in bench.render([plain])  # a seat that records no method
+    adapts = replace(plain, methods={"tag": 97, "adjusted": 3}, rules={"call_down": 2, "x": 1})
+    table = bench.render([adapts])
+    assert "| tag 97%, adjusted 3% |" in table
+    assert table.endswith("exploiter: 3 of 100 decisions changed by a read (call_down 2, x 1).")
+
+
 def test_the_report_reads_a_folder_back(bench, serve, folder_seat, tmp_path: Path) -> None:
     out = tmp_path / "folder"
     bench.run("folder", 2, out, api=api_for(folding_stand_in(serve)), say=lambda _: None)

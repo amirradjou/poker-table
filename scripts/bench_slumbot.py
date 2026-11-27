@@ -33,6 +33,7 @@ import json
 import statistics
 import sys
 import time
+from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -260,6 +261,8 @@ class Summary:
     requests: int
     minutes: float
     played_on: str
+    methods: dict[str, int]  # how our seat decided, by the "method" its decisions record
+    rules: dict[str, int]  # and for a seat that adapts, which "rule" changed a decision
 
 
 def summarise(folder: Path | str) -> Summary:
@@ -278,6 +281,14 @@ def summarise(folder: Path | str) -> Summary:
     baselines = [by_id[i]["baseline_winnings"] for i in ids]
     known = [b / BIG_BLIND for b in baselines if b is not None]
     runs = meta.get("runs", [])
+    methods: Counter[str] = Counter()
+    rules: Counter[str] = Counter()
+    for history in chosen:
+        for d in history.decisions:
+            if d.seat == OURS:
+                methods[str(d.meta.get("method", "-"))] += 1
+                if d.meta.get("rule"):
+                    rules[str(d.meta["rule"])] += 1
     return Summary(
         seat=meta["seat"],
         hands=len(ids),
@@ -293,6 +304,8 @@ def summarise(folder: Path | str) -> Summary:
         requests=sum(r.get("requests", 0) for r in runs),
         minutes=sum(r.get("seconds", 0.0) for r in runs) / 60,
         played_on=max((str(r.get("ended") or r.get("started", ""))[:10] for r in runs), default=""),
+        methods=dict(methods.most_common()),
+        rules=dict(rules.most_common()),
     )
 
 
@@ -305,21 +318,38 @@ def _cell(value: float | None, margin: float | None) -> str:
 def render(summaries: Sequence[Summary]) -> str:
     lines = [
         "| our seat | hands | bb/100 | all-in adj. bb/100 | Slumbot's baseline bb/100 "
-        "| all in early | refused | requests | time | played |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+        "| all in early | how it decided | refused | requests | time | played |",
+        "|---|---:|---:|---:|---:|---:|---|---:|---:|---:|---|",
     ]
     for s in summaries:
         lines.append(
             f"| {s.seat} | {s.hands:,} | {_cell(s.bb_per_100, s.margin)} "
             f"| {_cell(s.adjusted, s.adjusted_margin)} | {_cell(s.baseline, s.baseline_margin)} "
-            f"| {s.all_in} | {s.refused} | {s.requests:,} | {s.minutes:.0f} min | {s.played_on} |"
+            f"| {s.all_in} | {_methods(s.methods)} | {s.refused} | {s.requests:,} "
+            f"| {s.minutes:.0f} min | {s.played_on} |"
         )
     lines += [
         "",
         "At 200 big blinds, Slumbot's format, with a 95% interval. Slumbot's side is not ours to "
         "seed, so a rerun repeats the procedure, not these numbers.",
     ]
+    for s in summaries:
+        if s.rules:
+            total = sum(s.methods.values())
+            rules = ", ".join(f"{name} {count:,}" for name, count in s.rules.items())
+            changed = sum(s.rules.values())
+            lines.append(
+                f"{s.seat}: {changed:,} of {total:,} decisions changed by a read ({rules})."
+            )
     return "\n".join(lines)
+
+
+def _methods(methods: dict[str, int]) -> str:
+    """``tag 97%, adjusted 3%`` from the method each decision records; ``-`` if none does."""
+    total = sum(methods.values())
+    if not total or set(methods) == {"-"}:
+        return "-"
+    return ", ".join(f"{name} {count / total:.0%}" for name, count in methods.items())
 
 
 def main(argv: Sequence[str] | None = None, *, api: Api | None = None) -> int:
