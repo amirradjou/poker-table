@@ -34,6 +34,7 @@ coach = true                            # write a coach's report on each model s
 Only `name`, `seats` and `hands` are required. Seats are written as they are for `--seats`. A key
 the runner does not know is an error, because a misspelt `budget_usd` must not mean no limit.
 Stacks are topped up every hand, so hands stay comparable and can be counted as independent.
+`tournaments` in place of `hands` plays freezeouts instead: [Freezeouts](#freezeouts).
 
 A run is refused before the first hand if a seat could not play it: a local model that is not
 pulled, a paid model with no budget, a key that does not work or a model name that does not
@@ -100,6 +101,7 @@ extends a finished run: `--resume --hands 400` plays the next 200 hands of a 200
 seats get back their reads and notes from the hands already played. The decks repeat exactly, but
 the decisions need not: a model does not answer twice alike, and a scripted bot's random choices
 restart. A run that was never interrupted is the one that repeats exactly, for scripted seats.
+A resumed run of freezeouts does repeat exactly for scripted seats ([Freezeouts](#freezeouts)).
 
 ## Try before you pay
 
@@ -133,9 +135,33 @@ opponents has fewer hands to learn from at each table, so compare runs with the 
 The budget is shared across the tables. A single table deals exactly what `poker-table play` deals
 with the same seed and seats.
 
-The three files in `experiments/`:
+## Freezeouts
+
+`tournaments = 12` in place of `hands` plays twelve freezeouts with the file's seats, and the
+report ranks the seats by where they finish instead of by bb/100:
+
+```toml
+name = "freezeout-bots"
+seats = ["tag", "rock", "maniac", "station", "random"]
+tournaments = 12
+level_hands = 5                         # optional, with levels and max_hands, as for play
+seed = 1
+```
+
+Each tournament has its own decks and fresh seats, seeded from `seed` and its number, and the
+seats are drawn again for each one. The sample is the tournament, so the report gives each seat's
+average finish with a t interval and its share of wins with a Wilson interval. `--resume` finishes
+a tournament that was cut off as it would have gone, exactly so for scripted seats. `--trial N`
+plays N whole tournaments, `--hands` is refused, and `verify` checks every hand against the one
+before it. They play on one table, because each hand starts from the stacks the last one left,
+so `tables` is refused. [Freezeouts](tournaments.md#many-freezeouts-in-one-file) has the details
+and the first measured run.
+
+## The files in `experiments/`
 
 - `local-league`: free, on a small local model. Its first run is written up below.
+- `freezeout-bots`: free, the five scripted bots over twelve freezeouts
+  ([written up here](tournaments.md#measured-twelve-freezeouts-of-the-five-bots)).
 - `four-personalities`: the four LLM personalities on one model against two bots, on your own key.
 - `per-model`: one personality on Opus, Sonnet and Haiku, bb/100 against $/hand, on your own key.
 

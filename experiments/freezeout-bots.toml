@@ -1,0 +1,10 @@
+# Freezeouts instead of a cash league: the five scripted bots, ranked by where they finish.
+# Free, and a second or two. The blinds rise every five hands, so twelve fit in a published
+# folder; docs/tournaments.md has the numbers and how they compare.
+#   uv run poker-table experiment run experiments/freezeout-bots.toml -o docs/results
+name = "freezeout-bots"
+description = "The five scripted bots over twelve freezeouts, the blinds rising every five hands."
+seats = ["tag", "rock", "maniac", "station", "random"]
+tournaments = 12
+level_hands = 5
+seed = 1

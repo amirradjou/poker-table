@@ -10,9 +10,11 @@ from fastapi.testclient import TestClient
 
 from poker_table.agents.registry import make_agents
 from poker_table.cli import main
+from poker_table.experiments import run_experiment
 from poker_table.history import HandHistory, read_jsonl
 from poker_table.league import LeagueConfig, TournamentConfig, run_league, run_tournament
 from poker_table.web.app import create_app
+from poker_table.web.export import export_site
 from poker_table.web.live import LiveSession
 from poker_table.web.payloads import summarize, tournament_standing
 
@@ -124,3 +126,32 @@ def test_watch_and_serve_take_the_tournament_options(monkeypatch, tmp_path: Path
     assert seen["hands"] is None  # the tournament's own limit, not 100000 cash hands
     assert main(["watch"]) == 0
     assert seen["tournament"] is False and seen["hands"] == 100_000
+
+
+def test_a_file_of_several_tournaments_has_standings_for_each(tmp_path: Path) -> None:
+    experiment = tmp_path / "fz.toml"
+    experiment.write_text(
+        f'name = "fz"\nseats = {json.dumps(SEATS)}\ntournaments = 3\nlevel_hands = 5\n'
+        "seed = 4\ncoach = false\n"
+    )
+    path = run_experiment(experiment, tmp_path, log=lambda _: None).folder / "hands.jsonl"
+    client = TestClient(create_app(path))
+    session = client.get("/api/session").json()
+    standings = session["tournaments"]
+    assert [t["id"] for t in standings] == [1, 2, 3] and session["tournament"] == standings[-1]
+    for t in standings:  # each its own, not every bust-out of the file run together
+        assert t["over"] and t["left"] == 1
+        assert sorted(row["place"] for row in t["standings"]) == [1, 2, 3, 4, 5]
+    rows = client.get("/api/hands?offset=0&limit=1000").json()["hands"]
+    assert {row["tournament"] for row in rows} == {1, 2, 3}
+    assert sum(1 for row in rows if row["tournament"] == 2) == standings[1]["hands"]
+
+    export_site(path, tmp_path / "site", players=["tag"])
+    exported = json.loads((tmp_path / "site" / "data" / "session.json").read_text())
+    assert exported["tournaments"] == standings
+
+    # a file from elsewhere with an id that is not a number still opens
+    odd = [json.loads(line) for line in path.read_text().splitlines()]
+    odd[0]["tournament"]["id"] = "<b>x</b>"
+    path.write_text("".join(json.dumps(h) + "\n" for h in odd))
+    assert TestClient(create_app(path)).get("/api/session").status_code == 200

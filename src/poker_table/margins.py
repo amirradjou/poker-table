@@ -132,6 +132,104 @@ def calls(margins: Sequence[SeatMargin]) -> list[str]:
     return lines
 
 
+# ----- freezeouts: the sample is the tournament, not the hand ------------------------------
+
+# Bounded places settle much faster than chips per hand, and a t interval allows for few
+# tournaments, so the bar to call anyone is lower than MIN_HANDS_TO_CALL.
+MIN_TOURNAMENTS_TO_CALL = 10
+
+# The 97.5th percentile of Student's t by degrees of freedom. Between rows the row below is
+# used, which can only make an interval a little wider.
+_T975 = {
+    **{1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365, 8: 2.306},
+    **{9: 2.262, 10: 2.228, 11: 2.201, 12: 2.179, 13: 2.160, 14: 2.145, 15: 2.131},
+    **{16: 2.120, 17: 2.110, 18: 2.101, 19: 2.093, 20: 2.086, 21: 2.080, 22: 2.074},
+    **{23: 2.069, 24: 2.064, 25: 2.060, 26: 2.056, 27: 2.052, 28: 2.048, 29: 2.045},
+    **{30: 2.042, 40: 2.021, 60: 2.000, 120: 1.980},
+}
+
+
+def t_margin(values: Sequence[float]) -> float | None:
+    """Half the width of a 95% t interval on the mean of ``values``."""
+    if len(values) < 2:
+        return None
+    freedom = max(df for df in _T975 if df <= len(values) - 1)
+    return _T975[freedom] * statistics.stdev(values) / math.sqrt(len(values))
+
+
+def wilson(successes: int, trials: int, z: float = 1.96) -> tuple[float, float]:
+    """A 95% Wilson score interval on a share. It stays between 0 and 1, and 0 wins out of a
+    few tournaments still leaves room above zero, which a plain normal interval does not."""
+    if trials == 0:
+        return 0.0, 1.0
+    share = successes / trials
+    scale = 1 + z * z / trials
+    centre = (share + z * z / (2 * trials)) / scale
+    half = z * math.sqrt(share * (1 - share) / trials + z * z / (4 * trials * trials)) / scale
+    return max(0.0, centre - half), min(1.0, centre + half)
+
+
+@dataclass(frozen=True, slots=True)
+class Finish:
+    """One seat's places over a run of freezeouts (1 is a win), with their intervals."""
+
+    name: str
+    places: tuple[int, ...]
+
+    @property
+    def tournaments(self) -> int:
+        return len(self.places)
+
+    @property
+    def average(self) -> float:
+        return statistics.fmean(self.places)
+
+    @property
+    def margin(self) -> float | None:
+        return t_margin(self.places)
+
+    @property
+    def wins(self) -> int:
+        return self.places.count(1)
+
+    @property
+    def win_interval(self) -> tuple[float, float]:
+        return wilson(self.wins, self.tournaments)
+
+
+def finish_calls(finishes: Sequence[Finish], seats: int) -> list[str]:
+    """The verdict on a run of freezeouts, best average first: who finishes clear of chance,
+    and which seats next to each other in the table are too close to call."""
+    if finishes and all(f.tournaments < MIN_TOURNAMENTS_TO_CALL for f in finishes):
+        return [
+            f"Too few tournaments to call anyone: that takes at least {MIN_TOURNAMENTS_TO_CALL}."
+        ]
+    chance = (seats + 1) / 2
+
+    def bounds(finish: Finish) -> tuple[float, float]:
+        margin = finish.margin if finish.margin is not None else math.inf
+        return finish.average - margin, finish.average + margin
+
+    better = [f.name for f in finishes if bounds(f)[1] < chance]
+    worse = [f.name for f in finishes if bounds(f)[0] > chance]
+    close = [f.name for f in finishes if f.name not in better + worse]
+    lines = []
+    if better:
+        lines.append(f"Better than chance: {', '.join(better)}.")
+    if worse:
+        lines.append(f"Worse than chance: {', '.join(worse)}.")
+    if close:
+        lines.append(f"Too close to chance to call: {', '.join(close)}.")
+    pairs = [
+        f"{a.name} and {b.name}"
+        for a, b in zip(finishes, finishes[1:], strict=False)
+        if bounds(a)[1] >= bounds(b)[0]
+    ]
+    if pairs:
+        lines.append(f"Too close to call against the seat below: {', '.join(pairs)}.")
+    return lines
+
+
 def all_in_note(histories: Sequence[HandHistory]) -> str:
     early = sum(all_in_early(history) for history in histories)
     return (

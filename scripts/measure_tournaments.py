@@ -1,14 +1,19 @@
 """Reproduce the numbers in docs/tournaments.md: who survives a freezeout, not who wins chips.
 
-    uv run python scripts/measure_tournaments.py [tournaments]
+    uv run python scripts/measure_tournaments.py [tournaments] [--level-hands N] [--seating S]
 
 Every tournament is seeded (decks and bots), so the table is the same on every machine. The
 question is whether the cash-game order still holds when the blinds rise and there is no rebuy.
+
+--seating says who sits where: ``fixed`` keeps the order below for every tournament (the
+original measurement), ``turned`` turns it one place a tournament, and ``drawn`` shuffles it
+for each one, as an experiment file does. All three deal the same decks to the same bots.
 """
 
 from __future__ import annotations
 
-import sys
+import argparse
+import random
 import time
 from collections import Counter
 
@@ -19,16 +24,25 @@ SEATS = ["tag", "rock", "maniac", "station", "random"]
 TOURNAMENTS = 500
 
 
-def main(count: int = TOURNAMENTS) -> None:
+def seated(seed: int, seating: str) -> list:
+    # The bots are seeded per tournament too, so seed N is one repeatable tournament.
+    agents = make_agents(SEATS, seed=seed)
+    if seating == "turned":
+        turn = seed % len(agents)
+        return agents[turn:] + agents[:turn]
+    if seating == "drawn":
+        random.Random(f"seats/{seed}").shuffle(agents)
+    return agents
+
+
+def main(count: int = TOURNAMENTS, level_hands: int = 20, seating: str = "fixed") -> None:
     places: dict[str, list[int]] = {name: [] for name in SEATS}
     hands: list[int] = []
     levels: list[int] = []
     started = time.perf_counter()
     for seed in range(count):
-        # The bots are seeded per tournament too, so seed N is one repeatable tournament.
-        result = run_tournament(
-            make_agents(SEATS, seed=seed), TournamentConfig(seed=seed), keep_histories=False
-        )
+        config = TournamentConfig(seed=seed, hands_per_level=level_hands)
+        result = run_tournament(seated(seed, seating), config, keep_histories=False)
         if not result.complete:
             raise SystemExit(f"tournament {seed} hit the hand limit; raise max_hands")
         for name, place in result.finishes.items():
@@ -38,7 +52,8 @@ def main(count: int = TOURNAMENTS) -> None:
     elapsed = time.perf_counter() - started
 
     schedule = f"{DEFAULT_SCHEDULE[0]} to {DEFAULT_SCHEDULE[-1]}"
-    print(f"{count} freezeouts, 200 chips each, levels {schedule}, 20 hands each")
+    seats = "" if seating == "fixed" else f", seats {seating}"
+    print(f"{count} freezeouts, 200 chips each, levels {schedule}, {level_hands} hands each{seats}")
     print(f"{elapsed:.1f}s total, {elapsed / count * 1000:.0f} ms each")
     ordered = sorted(hands)
     print(
@@ -65,4 +80,9 @@ def main(count: int = TOURNAMENTS) -> None:
 
 
 if __name__ == "__main__":
-    main(int(sys.argv[1]) if len(sys.argv) > 1 else TOURNAMENTS)
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("tournaments", type=int, nargs="?", default=TOURNAMENTS)
+    parser.add_argument("--level-hands", type=int, default=20, help="hands a level (20)")
+    parser.add_argument("--seating", choices=["fixed", "turned", "drawn"], default="fixed")
+    args = parser.parse_args()
+    main(args.tournaments, args.level_hands, args.seating)

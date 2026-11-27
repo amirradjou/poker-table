@@ -17,6 +17,7 @@ from poker_table.coach.facts import Fact, replay, tag_hands
 from poker_table.coach.report import Report, build_report
 from poker_table.engine import EventKind
 from poker_table.history import HandHistory, filter_by_date, read_jsonl, weeks_of
+from poker_table.league import Standing, standings_of
 from poker_table.margins import CAVEAT, all_in_adjusted, all_in_note, calls, seat_margins
 from poker_table.stats import compute_stats, leaderboard
 from poker_table.web.commentary import LONG_SHOT
@@ -152,38 +153,48 @@ def session_payload(store: HandStore) -> dict[str, Any]:
         "weeks": weeks_of(store.hands),
         "highlights": True,
         "odds": True,
-    } | ({"tournament": standing} if (standing := tournament_standing(store.hands)) else {})
+    } | _tournament_payload(store.hands)
+
+
+def _tournament_payload(hands: Sequence[HandHistory]) -> dict[str, Any]:
+    """The last tournament's standing, and every tournament's when a file holds several."""
+    standings = tournament_standings(hands)
+    if not standings:
+        return {}
+    return {"tournament": standings[-1]} | (
+        {"tournaments": standings} if len(standings) > 1 else {}
+    )
+
+
+def tournament_standings(hands: Sequence[HandHistory]) -> list[dict[str, Any]]:
+    """Where each freezeout in a file stands after its last hand: the level, who is left with
+    how many chips, and who went out in what place and in which hand. One for each tournament
+    id an experiment wrote, and none for a file of cash hands."""
+    return [_standing(standing) for standing in standings_of(hands)]
 
 
 def tournament_standing(hands: Sequence[HandHistory]) -> dict[str, Any] | None:
-    """Where a freezeout stands after its last hand: the level, who is left with how many chips,
-    and who went out in what place and in which hand. None for a file of cash hands."""
-    played = [h for h in hands if h.tournament]
-    if not played:
-        return None
-    gone: dict[str, tuple[int, str]] = {}  # name -> (place, hand it went out in)
-    for history in played:
-        for name, place in history.tournament.get("out", {}).items():
-            gone[name] = (place, history.hand_id)
-    last = played[-1]
-    left = sorted(
-        ((p.name, p.stack + p.net) for p in last.players if p.name not in gone),
-        key=lambda row: -row[1],
-    )
-    over = len(left) == 1
+    """The standing of the last tournament in a file. None for a file of cash hands."""
+    standings = tournament_standings(hands)
+    return standings[-1] if standings else None
+
+
+def _standing(standing: Standing) -> dict[str, Any]:
+    last = standing.hands[-1]
+    over = standing.complete
     rows = [
         {"name": name, "place": 1 if over else None, "chips": chips, "out_in": None}
-        for name, chips in left
+        for name, chips in standing.left
     ] + [
         {"name": name, "place": place, "chips": 0, "out_in": hand_id}
-        for name, (place, hand_id) in sorted(gone.items(), key=lambda item: item[1][0])
+        for name, (place, hand_id) in sorted(standing.gone.items(), key=lambda item: item[1][0])
     ]
-    return {
+    return ({"id": standing.number} if standing.number is not None else {}) | {
         "level": last.tournament.get("level"),
         "blinds": f"{last.small_blind}/{last.big_blind}" + (f"+{last.ante}" if last.ante else ""),
-        "left": len(left),
+        "left": len(standing.left),
         "over": over,
-        "hands": len(played),
+        "hands": len(standing.hands),
         "standings": rows,
     }
 
@@ -380,7 +391,17 @@ def summarize(history: HandHistory) -> dict[str, Any]:
         "showdown": bool(history.showdown),
         "all_in": any(action.all_in for action in history.actions()),
         "players": [{"name": p.name, "net": p.net} for p in history.players],
-    } | ({"out": history.tournament.get("out", {})} if history.tournament else {})
+    } | _tournament_of(history)
+
+
+def _tournament_of(history: HandHistory) -> dict[str, Any]:
+    """Who went out in a freezeout's hand, and which tournament it is when a file has several."""
+    if not history.tournament:
+        return {}
+    number = history.tournament.get("id")
+    return {"out": history.tournament.get("out", {})} | (
+        {} if number is None else {"tournament": number}
+    )
 
 
 def steps_for(history: HandHistory) -> list[dict[str, Any]]:

@@ -14,7 +14,7 @@ Definitions follow the usual tracker conventions:
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 from poker_table.agents.strength import MadeHand, classify, has_flush_draw, has_open_ender
@@ -223,12 +223,12 @@ def leaderboard(stats: dict[str, PlayerStats]) -> list[PlayerStats]:
     return sorted(stats.values(), key=lambda s: s.net, reverse=True)
 
 
-def format_table(stats: dict[str, PlayerStats]) -> str:
-    """A fixed-width leaderboard for the terminal."""
+def format_table(stats: dict[str, PlayerStats], drop: Sequence[str] = ()) -> str:
+    """A fixed-width leaderboard for the terminal, less the ``drop`` columns."""
     rows = [s.as_row() for s in leaderboard(stats)]
     if not rows:
         return "(no hands)"
-    columns = list(rows[0])
+    columns = [column for column in rows[0] if column not in drop]
     percent = {"vpip", "pfr", "3bet", "f3b", "wtsd", "w$sd", "bluff", "illegal"}
 
     def cell(key: str, value: object) -> str:

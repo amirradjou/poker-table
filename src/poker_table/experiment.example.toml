@@ -20,6 +20,13 @@ seats = ["tag", "rock", "maniac", "station", "random"]
 hands = 500                        # four times the hands halves the error bars
 seed = 1                           # the same seed deals the same decks
 
+# Or freezeouts instead of a cash league: these go in place of hands, blinds and ante, and the
+# report ranks the seats by where they finish (docs/tournaments.md).
+# tournaments = 100                # each plays to one winner, with its own decks and seats
+# levels = "1/2,2/4,5/10+1"        # the blind schedule (the default doubles to 800/1600+200)
+# level_hands = 20                 # hands at each level
+# max_hands = 5000                 # a tournament still going then places its seats by chips
+
 # Everything below is optional, and shown with its default where it has one.
 # budget_usd = 1.0                 # stop once model calls have cost this (a paid seat needs it)
 #                                  # It only sees Claude and OpenRouter costs: see docs/agents.md.
