@@ -25,7 +25,16 @@ from poker_table.history import read_jsonl
 
 ROOT = Path(__file__).resolve().parent.parent
 RESULTS = ROOT / "docs" / "results"
-ENTRANTS = ("tag", "rock", "maniac", "station", "random", "nash:pushfold", "cfr:blueprint")
+ENTRANTS = (
+    "tag",
+    "rock",
+    "exploiter",
+    "maniac",
+    "station",
+    "random",
+    "nash:pushfold",
+    "cfr:blueprint",
+)
 
 
 def broken(folder: Path) -> list[str]:

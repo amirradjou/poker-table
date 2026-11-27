@@ -82,6 +82,16 @@ def test_the_demo_deals_and_plays_what_the_cli_does(tmp_path: Path, monkeypatch)
     assert actions >= {"fold", "check", "call"} and actions & {"bet", "raise"}  # all were played
 
 
+def test_an_exploiter_adapts_at_the_demo_table_as_it_does_in_the_cli(tmp_path, monkeypatch) -> None:
+    # The demo deals one hand at a time; the seat must still be shown each one to read the table.
+    seats = ["you:human", "exploiter", "station"]
+    cli = cli_hands(tmp_path, monkeypatch, seats, seed=3, hands=40)
+    _, demo = demo_hands(tmp_path, seats, seed=3, hands=40)
+    assert [dealt(h) for h in demo] == [dealt(h) for h in cli]
+    methods = {d.meta["method"] for h in demo for d in h.decisions if d.seat == 1}
+    assert methods == {"tag", "adjusted"}
+
+
 def test_a_table_of_bots_plays_out_as_the_cli_deals_it(tmp_path: Path, monkeypatch) -> None:
     seats = list(BOTS)
     cli = cli_hands(tmp_path, monkeypatch, seats, seed=5, hands=10)
@@ -201,7 +211,8 @@ sys.path.insert(0, sys.argv[1])
 from pathlib import Path
 from poker_table.web import demo_play
 
-table = demo_play.DemoTable(demo_play.seats_for(1), seed=4, hands=2, path=Path(sys.argv[2]))
+seats = demo_play.seats_for(1) + sys.argv[3:]
+table = demo_play.DemoTable(seats, seed=4, hands=2, path=Path(sys.argv[2]))
 out = table.step()
 while out["next"] != "done":
     out = table.act("call") if out["next"] == "you" else table.step()
@@ -213,10 +224,11 @@ print(table.status()["hands_played"])
 """
 
 
-def test_the_demo_needs_nothing_but_the_standard_library(tmp_path: Path) -> None:
+@pytest.mark.parametrize("more", [[], ["exploiter"]], ids=["default seats", "with exploiter"])
+def test_the_demo_needs_nothing_but_the_standard_library(tmp_path: Path, more) -> None:
     # -S: no site-packages at all, so any import from outside the standard library fails.
     done = subprocess.run(
-        [sys.executable, "-I", "-S", "-c", ISOLATED, str(SRC), str(tmp_path / "t.jsonl")],
+        [sys.executable, "-I", "-S", "-c", ISOLATED, str(SRC), str(tmp_path / "t.jsonl"), *more],
         capture_output=True,
         text=True,
         timeout=120,
