@@ -205,26 +205,33 @@ class LiveSession:
         if self._thread is not None:
             self._thread.join(timeout)
 
-    def _run(self) -> None:
-        hooks = {
+    def hooks(self) -> dict[str, Any]:
+        """What a league or a freezeout calls as it deals and plays, to stream it from here."""
+        return {
             "on_hand": self._on_hand,
             "on_hand_start": self._on_hand_start,
             "on_view": self._on_view,
             "on_decision": self._on_decision,
             "keep_histories": False,
         }
+
+    def _run(self) -> None:
         try:
             if self.tournament is not None:
-                run_tournament(self.agents, self.tournament, **hooks)
+                run_tournament(self.agents, self.tournament, **self.hooks())
             else:
-                run_league(self.agents, self.config, **hooks)
+                run_league(self.agents, self.config, **self.hooks())
         except Exception as exc:  # noqa: BLE001 - surfaced to the browser, not swallowed
             self.error = f"{type(exc).__name__}: {exc}"
         finally:
-            self.running = False
-            self.finished = True
-            self.current = None
-            self.publish({"type": "done", "hands": self.hands_played, "error": self.error})
+            self.close()
+
+    def close(self) -> None:
+        """The session is over, played out or failed: every page is told."""
+        self.running = False
+        self.finished = True
+        self.current = None
+        self.publish({"type": "done", "hands": self.hands_played, "error": self.error})
 
     # -- the hand as it is played --
 
@@ -468,10 +475,7 @@ class WebHumanAgent:
     def act(self, view: SeatView) -> Decision:
         limit = self.time_limit if self.time_limit > 0 else None
         self._deadline = time.monotonic() + limit if limit else None
-        self.pending = live_view_payload(view) | {"odds": own_odds(view), "time_limit": limit}
-        if self.session is not None:
-            event = {"type": "turn", "seat": view.seat, "hand_id": view.hand_id}
-            self.session.publish(event, to=self.name)
+        self.open_turn(view, limit)
         try:
             return self._answer.get(timeout=limit)
         except queue.Empty:
@@ -499,12 +503,25 @@ class WebHumanAgent:
         leave a second answer waiting to play the seat's next turn unseen.
         """
         with self._submitting:
-            if self.pending is None:
-                raise LookupError("it is not your turn")
-            action = parse_action(action_text)
-            self.pending = None
-            self._answer.put(Decision(action, reasoning="human (browser)", table_talk=table_talk))
-        return action
+            decision = self.answer(action_text, table_talk)
+            self._answer.put(decision)
+        return decision.action
+
+    def open_turn(self, view: SeatView, time_limit: float | None = None) -> None:
+        """Make ``view`` this seat's turn: ``turn()`` holds it and the seat's page is told."""
+        self.pending = live_view_payload(view) | {"odds": own_odds(view), "time_limit": time_limit}
+        if self.session is not None:
+            event = {"type": "turn", "seat": view.seat, "hand_id": view.hand_id}
+            self.session.publish(event, to=self.name)
+
+    def answer(self, action_text: str, table_talk: str = "") -> Decision:
+        """Close the turn with the page's answer. ``submit`` hands it to the table's thread; the
+        browser demo, which has no thread waiting in ``act``, plays it itself."""
+        if self.pending is None:
+            raise LookupError("it is not your turn")
+        action = parse_action(action_text)
+        self.pending = None
+        return Decision(action, reasoning="human (browser)", table_talk=table_talk)
 
 
 def event_to_step(event: Event, names: dict[int, str]) -> dict[str, Any]:

@@ -9,6 +9,10 @@ committed to a repo, published to GitHub Pages, or served by any static file ser
 What a static site cannot do, and therefore hides: live tables (they need a running session),
 drills (they record your answers), Claude's notes (they need an API key), and the Coach tab's
 week picker (one report per seat is exported, over all the hands).
+
+With ``play_wheel`` (`--export-play WHEEL`, a wheel of this package) the site also lets a visitor
+sit down with the bots: a Play button loads Python in their browser (Pyodide, from a CDN) and
+the table from the wheel, and nothing of it loads until they press it. See ``web/demo_play.py``.
 """
 
 from __future__ import annotations
@@ -19,8 +23,8 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from poker_table.web.app import (
-    STATIC,
+from poker_table.web.app import STATIC
+from poker_table.web.payloads import (
     HandStore,
     bankroll_payload,
     coach_payload,
@@ -35,6 +39,7 @@ from poker_table.web.app import (
 
 # The flag the page reads, injected just before it loads its script.
 FLAG = "<script>window.POKER_TABLE_STATIC = true;</script>\n"
+PLAY_FILES = ("play.js", "play-worker.js", "play.css")  # static/ files only a site to play needs
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]")
 
 
@@ -57,25 +62,43 @@ def export_site(
     samples: int = 200,
     players: list[str] | None = None,
     odds: bool = False,
+    play_wheel: Path | str | None = None,
 ) -> dict[str, Any]:
     """Write the viewer and one JSON file per API response into ``out``.
 
     ``players`` limits which seats get a coach report (each one replays every hand, so the
     default — every seat — is the slow part of a big export). ``odds`` adds the probability
     panel, which costs about half a second per hand and is therefore asked for, not assumed.
+    ``play_wheel`` adds the Play button: the wheel is copied to ``play/`` under its own name,
+    which the browser's installer reads the package's name and version from.
     """
     store = HandStore(Path(hands))
     if not store.hands:
         raise ValueError(f"{hands} has no hands to export")
+    wheel = Path(play_wheel) if play_wheel is not None else None
+    if wheel is not None and not (wheel.is_file() and wheel.name.startswith("poker_table-")):
+        raise ValueError(f"{wheel} is not a wheel of this package (uv build --wheel makes one)")
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
 
     page = (STATIC / "index.html").read_text(encoding="utf-8")
     if FLAG not in page:
         page = page.replace('<script src="static/app.js">', FLAG + '<script src="static/app.js">')
+    if wheel is not None:
+        page = page.replace("</head>", '<link rel="stylesheet" href="static/play.css">\n</head>')
+        where = json.dumps({"url": f"play/{wheel.name}", "bytes": wheel.stat().st_size})
+        page = page.replace(
+            '<script src="static/app.js"></script>',
+            '<script src="static/app.js"></script>\n'
+            f"<script>window.POKER_TABLE_PLAY_WHEEL = {where};</script>\n"
+            '<script src="static/play.js"></script>',
+        )
+        (out / "play").mkdir(exist_ok=True)
+        shutil.copyfile(wheel, out / "play" / wheel.name)
     (out / "index.html").write_text(page, encoding="utf-8")
+    skip = ["index.html"] if wheel is not None else ["index.html", *PLAY_FILES]
     shutil.copytree(
-        STATIC, out / "static", dirs_exist_ok=True, ignore=shutil.ignore_patterns("index.html")
+        STATIC, out / "static", dirs_exist_ok=True, ignore=shutil.ignore_patterns(*skip)
     )
 
     # Tagging hands costs what the odds cost, so it comes with them.
@@ -120,5 +143,6 @@ def export_site(
         "hands": len(store.hands),
         "coached": list(coached),
         "odds": odds,
+        "play": wheel is not None,
         "bytes": bytes_written,
     }

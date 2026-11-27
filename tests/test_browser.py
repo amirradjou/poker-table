@@ -10,12 +10,15 @@ where a missing browser is a failure instead of a quiet skip.
 
 from __future__ import annotations
 
+import functools
 import os
 import re
 import socket
+import subprocess
 import threading
 import time
 from collections.abc import Callable, Iterator
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -31,8 +34,12 @@ from poker_table.league import LeagueConfig, TournamentConfig
 from poker_table.web.app import create_app
 from poker_table.web.export import export_site
 from poker_table.web.live import LiveSession, WebHumanAgent
+from poker_table.web.payloads import hand_payload
 
 REQUIRED = os.environ.get("POKER_TABLE_BROWSER_TESTS") == "required"
+ROOT = Path(__file__).parents[1]
+# A folder for screenshots of the demo's table, to look at by eye; none are taken without it.
+SHOTS = os.environ.get("POKER_TABLE_SHOTS")
 
 try:
     from playwright.sync_api import Error as PlaywrightError
@@ -440,3 +447,151 @@ def test_a_phone_at_a_table_with_friends_fits_and_shows_the_clock(
     phone.locator("#act-fold").tap()
     expect(phone.locator("#live")).to_have_text("ann · session over, 1 hands")
     session.join(10)
+
+
+# ----- playing the bots in the published demo, the table running in the browser (Pyodide) -----
+
+LOAD = 180_000  # ms for Python to download from the CDN and start
+
+
+class _Files(SimpleHTTPRequestHandler):
+    def log_message(self, format: str, *args: Any) -> None:  # the test output stays readable
+        pass
+
+
+@pytest.fixture(scope="module")
+def demo_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
+    """The demo as Pages gets it, built by its own script (from 12 hands, to be quick), served
+    the way `python3 -m http.server -d site` serves it: plain files, no headers of its own."""
+    site = tmp_path_factory.mktemp("demo") / "site"
+    build = [str(ROOT / "scripts" / "build_demo.sh"), str(site), "12"]
+    done = subprocess.run(build, cwd=ROOT, capture_output=True, text=True, timeout=600)
+    assert done.returncode == 0, done.stderr
+    server = ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(_Files, directory=site))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{server.server_address[1]}/"
+    server.shutdown()
+    server.server_close()
+
+
+def _shot(page: Page, name: str) -> None:
+    if SHOTS:
+        Path(SHOTS).mkdir(parents=True, exist_ok=True)
+        page.screenshot(path=str(Path(SHOTS) / f"{name}.png"))
+
+
+def _sit_down(page: Page, url: str, *, bots: int, seed: int) -> list[Any]:
+    """Open the demo, press Play and deal; every request the page made, in order."""
+    requests: list[Any] = []
+    page.on("requestfinished", lambda request: requests.append(request))
+    page.goto(f"{url}?seed={seed}")
+    expect(page.locator("#replay")).to_be_visible()  # the replay opens as it always did
+    page.wait_for_load_state("networkidle")
+    first_paint = [r.url for r in requests if "jsdelivr" in r.url or r.url.endswith(".whl")]
+    assert first_paint == []  # nothing of Python before Play is pressed
+    play = page.locator("#play-open")
+    expect(play).to_have_text(re.compile(r"^Play the bots · \d+\.\d MB$"))
+    play.click()
+    page.locator(f'#play-bar [data-bots="{bots}"]').click()
+    page.locator("#play-deal").click()
+    expect(page.locator("#play-seated")).to_be_visible(timeout=LOAD)
+    command = f"poker-table play --seed {seed} --seats you:human,"
+    expect(page.locator("#play-command")).to_contain_text(command)
+    expect(page.locator("#live")).to_be_visible()
+    return requests
+
+
+def _play_the_first_hand(page: Page, name: str) -> int:
+    """Check or call at each turn until the first hand is over; the number of turns played."""
+    turns = 0
+    while True:
+        page.wait_for_function(
+            """() => !document.querySelector("#action-bar").classList.contains("hidden")
+                     || document.querySelectorAll("#hand-list li").length > 0""",
+            timeout=60_000,
+        )
+        if page.locator("#hand-list li").count():
+            break
+        expect(page.locator("#live")).to_have_text("waiting for you")
+        expect(_seat(page, 0).locator(".card:not(.back)")).to_have_count(2)  # your cards
+        expect(_seat(page, 1).locator(".card.back")).to_have_count(2)  # nobody else's
+        expect(page.locator("#table .equity")).to_have_count(0)
+        expect(page.locator("#your-odds")).to_contain_text("You have")
+        assert _overflowing(page) == []
+        if turns == 1:
+            _shot(page, f"{name}-mid-hand")
+        turns += 1
+        page.locator("#act-check").click()
+        expect(page.locator("#action-bar")).to_be_hidden()
+    # The hand is listed, and opens as a replay at its end for a few seconds before the next deal.
+    expect(page.locator("#hand-list li").first).to_contain_text("#1")
+    expect(page.locator("#hand-title")).to_have_text("Hand #1")
+    expect(page.locator("#street")).to_have_text("Hand over")
+    expect(page.locator("#summary")).to_contain_text("you")
+    _shot(page, f"{name}-end")
+    expect(page.locator("#file")).to_have_text("1 hand from your session")
+    assert _overflowing(page) == []
+    return turns
+
+
+def test_a_visitor_plays_the_bots_in_the_published_demo(page: Page, demo_url: str) -> None:
+    requests = _sit_down(page, demo_url, bots=3, seed=4)
+    assert page.locator("#table .seat").count() == 4
+    assert _play_the_first_hand(page, "desktop") == 4  # seed 4 gives you four turns
+    # The button says how big the download is: what this load really took, to 10%.
+    sent = sum(
+        r.sizes()["responseBodySize"]
+        for r in requests
+        if "cdn.jsdelivr.net/pyodide/" in r.url or r.url.endswith(".whl")
+    )
+    said = float(re.search(r"([\d.]+) MB", page.locator("#play-open").inner_text()).group(1))
+    assert abs(sent / 1e6 - said) <= 0.1 * said, f"measured {sent} bytes"
+    # Nothing but the site itself, its fonts and the pinned Pyodide: micropip stays off PyPI.
+    pinned = "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/"
+    fonts = ("https://fonts.googleapis.com/", "https://fonts.gstatic.com/")
+    assert [r.url for r in requests if not r.url.startswith((demo_url, pinned, *fonts))] == []
+    # The table goes on: the next hand is dealt after a beat on the result.
+    expect(page.locator("#hand-title")).to_have_text("Hand #2", timeout=30_000)
+
+
+def test_a_phone_plays_the_bots_in_the_published_demo(phone: Page, demo_url: str) -> None:
+    _sit_down(phone, demo_url, bots=5, seed=2)
+    assert phone.locator("#table .seat").count() == 6
+    assert _play_the_first_hand(phone, "phone") == 4
+    assert _box(phone, "#table .seat .plate")["width"] <= 120
+
+
+def test_bots_in_the_browser_deal_and_play_what_the_cli_does(
+    page: Page, demo_url: str, tmp_path: Path
+) -> None:
+    seats, seed, hands = ["tag", "maniac", "station", "rock", "random"], 31, 8
+    path = tmp_path / "cli.jsonl"
+    args = ["play", "-n", str(hands), "--seed", str(seed), "--seats", ",".join(seats)]
+    assert main([*args, "-o", str(path), "-q"]) == 0
+    page.goto(demo_url)
+    played = page.evaluate(
+        """async ({ seats, seed, hands }) => {
+          const table = window.POKER_TABLE_PLAY;
+          await table.load();
+          await table.call({ op: "open", table: { seats, seed, hands } });
+          while ((await table.call({ op: "step" })).next !== "done");
+          await table.call({ op: "get", path: "/api/session" });
+          const out = [];
+          for (let n = 1; n <= hands; n++) {
+            out.push((await table.call({ op: "get", path: `/api/hands/${n}` })).body);
+          }
+          return out;
+        }""",
+        {"seats": seats, "seed": seed, "hands": hands},
+    )
+
+    def dealt(hand: dict[str, Any]) -> dict[str, Any]:
+        """All but the clock. The deck's 63-bit seed reaches the page as a JavaScript number,
+        so it is compared at that precision."""
+        for decision in hand["decisions"]:
+            decision.pop("latency_ms")
+        return hand | {"played_at": None, "seed": float(hand["seed"])}
+
+    cli = [dealt(hand_payload(h)) for h in read_jsonl(path)]
+    assert [dealt(h) for h in played] == cli

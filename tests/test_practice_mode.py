@@ -15,8 +15,9 @@ from poker_table.cards import Deck, parse_cards
 from poker_table.engine import Hand, Player
 from poker_table.history import read_jsonl
 from poker_table.league import LeagueConfig
-from poker_table.web.app import create_app, odds_payload
+from poker_table.web.app import create_app
 from poker_table.web.live import LiveSession, WebHumanAgent, own_odds, review_of
+from poker_table.web.payloads import odds_payload
 
 
 def wait_until(check, seconds: float = 8.0) -> None:

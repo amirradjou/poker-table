@@ -62,7 +62,7 @@ def test_a_hand_is_only_worked_out_once(hands_file: Path, monkeypatch) -> None:
         worked_out.append(history.hand_id)
         return None
 
-    monkeypatch.setattr("poker_table.web.app.all_in_adjusted", counting)
+    monkeypatch.setattr("poker_table.web.payloads.all_in_adjusted", counting)
     store = HandStore(hands_file)
     margins_payload(store)
     assert len(worked_out) == 60
