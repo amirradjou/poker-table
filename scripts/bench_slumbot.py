@@ -138,7 +138,7 @@ def run(
     agent = make_agent(seat, seed=seed + len(records), taken=[NAME])
     problems = seating_problems([agent], SHAPE)
     if problems:
-        raise SystemExit(f"{problems[0]}. Slumbot plays 200 big blinds deep, at 50/100.")
+        raise SystemExit(f"{problems[0]}. Slumbot's stakes are fixed: 50/100, 200 big blinds.")
     for note in seating_notes([agent], SHAPE):
         say(f"note: {note}")
     for history in (histories[i] for i in (r["hand"] for r in records) if i in histories):
@@ -217,6 +217,9 @@ def run(
             )
             entry["hands"] += 1
             entry["refused"] += 1
+    except BaseException as exc:  # anything else is a bug: say so in run.json, never "finished"
+        stopped = f"crashed: {type(exc).__name__}: {exc}"
+        raise
     finally:
         entry.update(
             ended=_now(),

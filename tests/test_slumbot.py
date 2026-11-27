@@ -218,7 +218,7 @@ def serve():
 
     def start(*args, **kwargs) -> StandIn:
         stand_in = StandIn(*args, **kwargs)
-        threading.Thread(target=stand_in.server.serve_forever, daemon=True).start()
+        threading.Thread(target=stand_in.server.serve_forever, args=(0.05,), daemon=True).start()
         started.append(stand_in)
         return stand_in
 
@@ -442,6 +442,45 @@ def test_a_fold_with_a_free_check_is_sent_as_a_check(serve) -> None:
     assert played.history.players[0].net == -100
 
 
+def test_an_illegal_move_of_ours_gets_the_tables_fallback_and_counts(serve) -> None:
+    class Checker:
+        name = kind = "checker"
+
+        def act(self, view: SeatView) -> Decision:
+            return Decision(Action.check())  # facing the big blind, so it may not check
+
+    stand_in = serve([], [recorded("fold_the_button")], first=SMALL)
+    played = play_hand(Checker(), api_for(stand_in), "1")
+    assert not played.refused and stand_in.sent == ["new_hand", "f"]
+    trace = played.history.decisions[0]
+    assert trace.illegal and trace.requested == "check" and trace.applied == "fold"
+
+
+@pytest.mark.parametrize("hole", [["2c", "2d"], ["2h", "2s"], ["2d", "2h"]])
+def test_any_hole_cards_of_ours_leave_slumbot_two_stand_ins(serve, hole: list[str]) -> None:
+    # A pair of deuces once took two of the three stand-in cards and crashed a run.
+    hand = recorded("fold_the_button")
+    for exchange in hand:
+        exchange["response"]["hole_cards"] = hole
+    played = play_hand(Folder(), api_for(serve([], [hand], first=SMALL)), "1")
+    assert not played.refused, played.refused
+    assert played.history.players[0].hole == hole
+
+
+def test_a_bug_of_ours_keeps_the_hand_on_file_and_stops(
+    serve, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import poker_table.slumbot as slumbot
+
+    def broken(*args, **kwargs):
+        raise IndexError("a bug")
+
+    monkeypatch.setattr(slumbot, "_FedDeck", broken)
+    played = play_hand(Folder(), api_for(serve([recorded("check_call_to_showdown")])), "1")
+    assert played.stop and played.refused == "our client failed: IndexError: a bug"
+    assert len(played.exchanges) == 1
+
+
 def test_chips_that_do_not_add_up_refuse_the_hand_and_stop_the_run(serve) -> None:
     hand = recorded("check_call_to_showdown")
     hand[-1]["response"]["winnings"] = -300
@@ -595,7 +634,7 @@ def test_an_odd_number_of_hands_is_refused(bench, tmp_path: Path) -> None:
 
 
 def test_a_seat_built_for_another_depth_is_refused(bench, tmp_path: Path) -> None:
-    with pytest.raises(SystemExit, match="200 big blinds deep"):
+    with pytest.raises(SystemExit, match="stakes are fixed"):
         bench.run("cfr:blueprint", 2, tmp_path / "out", api=Api("http://127.0.0.1:9/"))
 
 

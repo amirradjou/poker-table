@@ -375,9 +375,8 @@ class _FedDeck:
     """
 
     def __init__(self, ours: tuple[Card, Card], button: int) -> None:
-        stand_in = [
-            c for c in (Card.parse("2c"), Card.parse("2d"), Card.parse("2h")) if c not in ours
-        ]
+        # Any two cards that are not ours. Four deuces always leave two, whatever we hold.
+        stand_in = [c for c in map(Card.parse, ("2c", "2d", "2h", "2s")) if c not in ours]
         holes = {OURS: ours, THEIRS: (stand_in[0], stand_in[1])}
         first = 1 - button  # the engine deals from the seat left of the button
         self._holes = [holes[first][0], holes[button][0], holes[first][1], holes[button][1]]
@@ -414,6 +413,7 @@ def _cards(raw: Any, count: int, what: str) -> list[Card]:
 @dataclass(slots=True)
 class _Pending:
     move: Move
+    action: Action  # what our engine must play: the decision once the table has checked it
     decision: Decision
     think_ms: float
 
@@ -429,6 +429,9 @@ def play_hand(agent: Agent, api: Api, hand_id: str) -> Played:
         played.history, played.refused, played.stop = None, str(exc), exc.stop
     except Unavailable as exc:
         played.history, played.refused, played.stop = None, f"the run stopped: {exc}", True
+    except Exception as exc:  # a bug of ours: keep the hand's requests on file and stop
+        played.history, played.stop = None, True
+        played.refused = f"our client failed: {type(exc).__name__}: {exc}"
     return played
 
 
@@ -487,20 +490,23 @@ def _play(agent: Agent, api: Api, played: Played) -> None:
                 )
             if seat == THEIRS:
                 decision = Decision(action_for(move, view.legal), meta={"api": str(move)})
+                expected = decision.action
             else:
                 if pending is None or pending.move != move:
                     raise Refused(
                         f"the API has {move} for our seat, which sent {pending and pending.move}"
                     )
-                decision = pending.decision
+                decision, expected = pending.decision, pending.action
                 thinking.append(pending.think_ms)
                 pending = None
             before = len(records)
             view = _send(turns, decision, result)
-            if len(records) != before + 1 or records[-1].illegal:
-                raise Refused(f"our engine did not play {move} as it is")
-            if seat == THEIRS and records[-1].applied != decision.action:
-                raise Refused(f"our engine played Slumbot's {move} as {records[-1].applied}")
+            # Slumbot's move must be legal as it stands. Ours may be the table's fallback for
+            # an illegal one, which counts against our seat as it does at our table.
+            if len(records) != before + 1 or records[-1].applied != expected:
+                raise Refused(f"our engine did not play {move} as it was sent")
+            if seat == THEIRS and records[-1].illegal:
+                raise Refused(f"our engine does not allow Slumbot's {move}")
             if cards_known and view is not None and view.seat == OURS:
                 raise Refused("our seat would be asked after Slumbot's cards were shown")
         text = str(reply.get("action", ""))
@@ -630,4 +636,4 @@ def _decide(agent: Agent, view: SeatView, line: Line, text: str, position: int) 
     after = parse_line(text + slash + str(move))
     if not after.moves or after.moves[-1] != move:
         raise Refused(f"{move} after {text!r} is not ours to make")
-    return _Pending(move, decision, think)
+    return _Pending(move, action, decision, think)
