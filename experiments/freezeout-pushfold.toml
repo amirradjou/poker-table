@@ -1,0 +1,11 @@
+# nash:pushfold against tag in heads-up freezeouts, on the default blind schedule (antes from
+# level 4) at twenty hands a level, 200 chips each. Free, and a few seconds. These are the first
+# tournaments of scripts/measure_pushfold_freezeouts.py against tag, which plays 5,000 of
+# them and puts tag in the same seat to compare; docs/solver-seats.md has both.
+#   uv run poker-table experiment run experiments/freezeout-pushfold.toml -o docs/results
+name = "freezeout-pushfold"
+description = "nash:pushfold against tag over heads-up freezeouts, the default blind schedule."
+seats = ["entrant:nash:pushfold", "tag"]
+tournaments = 12
+seed = 2026
+coach = false
