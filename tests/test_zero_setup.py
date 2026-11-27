@@ -139,13 +139,29 @@ def test_the_seats_it_suggests_are_real(seats: str, tmp_path: Path) -> None:
     make_agents(list(load_experiment(path).seats), seed=0)
 
 
+FREEZEOUT = "tournaments|levels|level_hands|max_hands"  # these go in place of hands
+
+
 def test_every_commented_setting_is_one_the_file_format_accepts(tmp_path: Path) -> None:
     lines = []
     for line in STARTER.splitlines():
-        match = re.match(r"# ((?!seats)\w+ = .+)$", line)
+        match = re.match(rf"# ((?!seats|{FREEZEOUT})\w+ = .+)$", line)
         lines.append(match.group(1) if match else line)
     path = tmp_path / "all.toml"
     path.write_text("\n".join(lines))
     experiment = load_experiment(path)
     assert experiment.budget_usd == 1.0 and experiment.tables == 1 and experiment.coach is True
     assert experiment.small_blind == 1 and experiment.big_blind == 2 and experiment.stack == 200
+
+
+def test_the_freezeout_lines_make_a_file_of_tournaments(tmp_path: Path) -> None:
+    lines = []
+    for line in STARTER.splitlines():
+        match = re.match(rf"# ((?:{FREEZEOUT}) = .+)$", line)
+        if not line.startswith("hands = "):
+            lines.append(match.group(1) if match else line)
+    path = tmp_path / "freezeouts.toml"
+    path.write_text("\n".join(lines))
+    experiment = load_experiment(path)
+    assert experiment.tournaments == 100 and experiment.hands == 0
+    assert str(experiment.levels[-1]) == "5/10+1" and experiment.level_hands == 20

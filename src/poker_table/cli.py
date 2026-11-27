@@ -157,13 +157,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--resume", action="store_true", help="carry on from the hands already in the folder"
     )
     exp_run.add_argument(
-        "--hands", type=int, help="play this many in all instead (a short trial, or more of a run)"
+        "--hands",
+        type=int,
+        help="play this many hands in all instead (a cash league: a short trial, or more of a run)",
     )
     exp_run.add_argument(
         "--trial",
         type=int,
         metavar="N",
-        help="play N hands, say what the rest would cost and take, and ask before going on",
+        help=(
+            "play N hands (N tournaments, in a file of freezeouts), say what the rest would "
+            "cost and take, and ask before going on"
+        ),
     )
     exp_init = exp_sub.add_parser("init", help="write a commented starter file, free to run")
     exp_init.add_argument(
@@ -835,10 +840,11 @@ def trial_says_go_on(args: argparse.Namespace, outcome: Any, planned: int, out) 
     )
 
     budget = load_experiment(args.file).budget_usd
-    done = outcome.hands
+    unit = "hands" if outcome.tournaments is None else "tournaments"
+    done = outcome.hands if outcome.tournaments is None else outcome.tournaments
     priced = not unpriced_models(outcome.folder)
     projection = Projection(
-        done, planned - done, outcome.spent_usd, outcome.seconds, budget, priced
+        done, planned - done, outcome.spent_usd, outcome.seconds, budget, priced, unit
     )
     print(projection.describe(), file=out)
     failed = failed_calls(outcome.folder)
@@ -857,6 +863,22 @@ def trial_says_go_on(args: argparse.Namespace, outcome: Any, planned: int, out) 
         command += f" --hands {args.hands}"
     print(f"Stopped here, with the hands kept. To carry on: {command}", file=out)
     return False
+
+
+def trial_tournaments(args: argparse.Namespace, planned: int, log, finish, out) -> int:
+    """``--trial N`` on a file of freezeouts plays its first N tournaments, whole, then asks."""
+    from poker_table.experiments import run_experiment
+
+    if args.hands:
+        raise ValueError("--hands counts cash hands, and this file plays tournaments")
+    if args.trial >= planned:
+        return finish(run_experiment(args.file, args.out, log=log))
+    trial = run_experiment(args.file, args.out, tournaments=args.trial, log=log)
+    if trial.stopped != "finished":
+        return finish(trial)
+    if trial_says_go_on(args, trial, planned, out):
+        return finish(run_experiment(args.file, args.out, resume=True, log=log))
+    return 0
 
 
 def cmd_experiment(args: argparse.Namespace, out) -> int:
@@ -892,6 +914,8 @@ def cmd_experiment(args: argparse.Namespace, out) -> int:
         if resume:
             raise ValueError("--trial starts a run and --resume carries one on: choose one")
         experiment = load_experiment(args.file)
+        if experiment.tournaments:
+            return trial_tournaments(args, experiment.tournaments, log, finish, out)
         if args.trial < experiment.tables:
             raise ValueError(f"--trial needs a hand for each of the {experiment.tables} tables")
         planned = args.hands or experiment.hands

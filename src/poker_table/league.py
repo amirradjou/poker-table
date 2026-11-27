@@ -10,6 +10,7 @@ every chip — the right thing when the question is "who survives".
 from __future__ import annotations
 
 import random
+from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 
@@ -483,3 +484,54 @@ def _play_again(
         seat: _Recorded(agent, record, turns, differed) for seat, agent in agents.items()
     }
     return play_hand(hand, seats)
+
+
+@dataclass(frozen=True, slots=True)
+class Standing:
+    """Where a freezeout stands after the last of its hands in a file. It is read from the
+    hands alone, so a report and the viewer need neither the seats nor the settings."""
+
+    number: int | None  # the tournament's id, when a file holds several
+    hands: list[HandHistory]
+    left: list[tuple[str, int]]  # seats still in with their chips, most chips first
+    gone: dict[str, tuple[int, str]]  # name -> (place it finished, hand it went out in)
+
+    @property
+    def complete(self) -> bool:
+        return len(self.left) == 1
+
+    def places(self) -> dict[str, int]:
+        """Every seat's place: the ones still in rank by chips, as run_tournament ranks them."""
+        places = {name: place for name, (place, _) in self.gone.items()}
+        places |= {name: place for place, (name, _) in enumerate(self.left, start=1)}
+        return places
+
+    def hands_dealt(self) -> dict[str, int]:
+        dealt: dict[str, int] = defaultdict(int)
+        for history in self.hands:
+            for player in history.players:
+                dealt[player.name] += 1
+        return dict(dealt)
+
+
+def standings_of(histories: Iterable[HandHistory]) -> list[Standing]:
+    """One standing for each tournament in a file, in the order of their ids. Cash hands are
+    left out, and a file of one tournament written by ``play --tournament`` has no ids."""
+    by_number: dict[int | None, list[HandHistory]] = defaultdict(list)
+    for history in histories:
+        if history.tournament:
+            by_number[history.tournament.get("id")].append(history)
+    standings = []
+    for number in sorted(by_number, key=lambda n: -1 if n is None else n):
+        hands = by_number[number]
+        gone: dict[str, tuple[int, str]] = {}
+        for history in hands:
+            for name, place in history.tournament.get("out", {}).items():
+                gone[name] = (place, history.hand_id)
+        last = hands[-1]
+        left = sorted(
+            ((p.name, p.stack + p.net) for p in last.players if p.name not in gone),
+            key=lambda row: -row[1],
+        )
+        standings.append(Standing(number, hands, left, gone))
+    return standings
