@@ -3,7 +3,9 @@ seat says when something else played."""
 
 from __future__ import annotations
 
+import shutil
 from fractions import Fraction
+from pathlib import Path
 
 import pytest
 
@@ -26,7 +28,8 @@ from poker_table.agents.scripted import CallingStation, Maniac, TightAggressive
 from poker_table.cards import Deck, parse_cards
 from poker_table.cli import main
 from poker_table.engine import Action, Hand, Player, Street
-from poker_table.experiments import run_experiment
+from poker_table.experiments import load_experiment, run_experiment, write_report
+from poker_table.history import read_jsonl
 from poker_table.league import (
     DEFAULT_SCHEDULE,
     LeagueConfig,
@@ -37,6 +40,7 @@ from poker_table.league import (
     tournament_shape,
 )
 from poker_table.table import play_hand
+from poker_table.verify import verify_folder
 
 
 def test_the_engine_deals_heads_up_the_way_the_game_was_solved() -> None:
@@ -328,3 +332,27 @@ def test_a_hand_with_an_ante_reads_that_antes_chart_and_one_with_no_chart_falls_
     assert first.meta["method"] == "fallback" and first.meta["off_chart"] == "ante"
     assert first.reasoning.startswith("an ante of 3 on a big blind of 20")
     assert seat.usage.fallback == seat.usage.decisions == 1
+
+
+ROOT = Path(__file__).parent.parent
+PUBLISHED = ROOT / "docs" / "results" / "freezeout-pushfold"
+
+
+def test_the_published_freezeouts_check_out_and_the_ante_chart_plays_in_them(tmp_path) -> None:
+    assert verify_folder(PUBLISHED) == []
+    shipped = load_experiment(ROOT / "experiments" / "freezeout-pushfold.toml")
+    assert load_experiment(PUBLISHED / "experiment.toml") == shipped
+    copy = tmp_path / "freezeout-pushfold"
+    shutil.copytree(PUBLISHED, copy)
+    (copy / "leaderboard.md").unlink()
+    write_report(copy)
+    assert (copy / "leaderboard.md").read_text() == (PUBLISHED / "leaderboard.md").read_text()
+    seat = [
+        d
+        for h in read_jsonl(PUBLISHED / "hands.jsonl")
+        for d in h.decisions
+        if h.players[d.seat].name == "entrant"
+    ]
+    played = [d for d in seat if d.meta["method"] in ("own", "translated")]
+    assert any(d.meta.get("ante") == "1/10" for d in played)
+    assert not any(d.meta.get("off_chart") == "ante" for d in seat)

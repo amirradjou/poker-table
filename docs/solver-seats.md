@@ -13,7 +13,7 @@ poker-table benchmark cfr:blueprint --heads-up                    # the heads-up
 
 | seat | what it is | plays its own strategy | refuses |
 |---|---|---|---|
-| `nash:pushfold` | the push/fold equilibrium | heads-up, no ante, up to 15 bb effective | more than two seats, an ante |
+| `nash:pushfold` | the push/fold equilibrium | heads-up, up to 15 bb effective, small blind half the big blind, no ante or an ante of 1/10 or 1/8 of the big blind | more than two seats, a table where no level has a chart |
 | `cfr:blueprint` | a CFR+ blueprint on a coarse abstraction | heads-up, no ante, 90-110 bb effective, small blind half the big blind | more than two seats, an ante, other blinds, a table that starts outside 90-110 bb |
 
 Both hand a spot they were not built for to the scripted `tag` bot and count it. Each decision
@@ -26,8 +26,10 @@ seat's kind under its name and links that paper.
 ## nash:pushfold
 
 **What it is.** The equilibrium of the push/fold game: the small blind (the button, heads-up)
-shoves all in or folds, and the big blind calls or folds. Miltersen and Sørensen solved this game
-for a heads-up tournament and found jam/fold near-optimal for short stacks
+shoves all in or folds, and the big blind calls or folds. It is solved with no ante, and with
+each player posting an ante of 1/10 or 1/8 of the big blind: the two sizes in the default blind
+schedule (`DEFAULT_SCHEDULE` in `league.py`, levels 4-8 and 9-12). Miltersen and Sørensen solved
+this game for a heads-up tournament and found jam/fold near-optimal for short stacks
 ([AAMAS 2007](https://www.itu.dk/~trbj/papers/poker.pdf)); that is the paper the seat links.
 
 **How it is computed** (`scripts/solve_pushfold.py`):
@@ -36,28 +38,61 @@ for a heads-up tournament and found jam/fold near-optimal for short stacks
    every board is counted once through its class of suit-renamed boards (134,459 classes for
    2,598,960 boards), with whole-number counts. That took 12.9 minutes on one core, starting at a
    load average of 0.5. The
-   equities ship to six decimals in `agents/data/pushfold_equity.json`.
+   equities ship to six decimals in `agents/data/pushfold_equity.json`. They do not depend on
+   the ante, so all three charts use them.
 2. CFR+ (4,000 iterations) on the push/fold game at every half big blind from 1 to 20, with the
    right number of hands for each pair of classes (two aces leave fewer aces for the other
-   player). About 1.5 s a stack. The chart ships in `agents/data/pushfold.json`.
+   player), three times: no ante, 1/10 and 1/8. An ante is dead money: a fold loses it with the
+   blind, and a shove nobody calls wins the other ante and the big blind. The three charts took
+   314 s together, 1.7 to 3.4 s a stack, from a load average of 2.1 that rose to 4.4 with other
+   work on the laptop. They ship in `agents/data/pushfold.json`: the no-ante chart where it always
+   was, which came out the same to the last digit, and the other two under `antes`.
+
+A stack solves in seconds, so the seat could have solved at whatever ante a table has. It
+does not: numpy is only a development dependency, and a whole chart takes about two minutes. So
+it ships one chart per ante and plays no other.
 
 The engine deals the game that was solved: heads-up, the button posts the small blind and acts
 first before the flop (a test checks this). The effective stack is the smaller of the two stacks
-before the blinds, and the chart is read at the nearest half big blind.
+before the antes and blinds, and the chart is read at the nearest half big blind.
 
 **Checks.**
 
 - An exact best response inside the push/fold game, against the chart as shipped (probabilities
-  rounded to a thousandth), gains at most 0.0002 mbb/hand at any of the 39 stacks. A test
-  recomputes it in plain Python from the shipped files.
-- Against the [HoldemResources chart](https://www.holdemresources.net/hune) (no ante, fetched
-  2026-11-26), the largest stack at which each hand shoves or calls agrees to 0.1 bb in all 40
-  cells checked, including the three hands with gaps (63s shoves at 5.1-7.1 bb and below 2.3 bb;
-  53s at 3.8-12.9 and below 2.4; 43s at 4.9-10.0 and below 2.2). Their rule is "a value larger
-  than the stack is a push"; ours is "a probability of at least one half". Where a hand mixes
-  near a half, ours splits into pieces inside those ranges (T3s, T2s, 86o, 84s and the gap
-  hands), which their page says it simplifies away. `scripts/solve_pushfold.py --compare`
-  prints the table on a 0.1 bb grid:
+  rounded to a thousandth), gains at most 0.0002 mbb/hand at any of the 39 stacks with no ante,
+  0.0003 with an ante of 1/10 and 0.0004 with 1/8. A test recomputes them in plain Python from
+  the shipped files, with the antes' payoffs. The same best response wins 7.4 mbb/hand at 10 bb
+  against the no-ante chart played with an ante of 1/10, and 11.3 with 1/8; a test checks
+  that too.
+- A test solves a two-hand toy game, with and without an ante, whose equilibrium has a closed
+  form. Another solves the full game at 1 bb with an ante of 1/8, where the big blind is all in
+  from its post: everything shoves and calls, and the game is worth zero to both seats.
+- With more dead money the big blind calls wider, at every stack. The small blind shoves wider
+  with either ante than with none. From 1/10 to 1/8 its range can narrow by up to 0.4 points (at
+  5.5, 9.5, 11 and 16 bb), because it now meets that wider calling range. The no-ante range
+  wobbles as much from one stack to the next.
+- Against the [HoldemResources chart](https://www.holdemresources.net/hune) (fetched
+  2026-11-26), every cell of its two tabs: no ante, and an ante of 10% of the big blind. Their
+  cell is the largest stack at which a hand shoves or calls. Their rule is "a value larger than
+  the stack is a push"; ours is "a probability of at least one half". Where a hand mixes near a
+  half, ours splits into pieces inside those ranges (T3s, T2s, 86o, 84s and the gap hands), which
+  their page says it simplifies away. `scripts/solve_pushfold.py --compare` prints both, on a
+  0.1 bb grid.
+  - **No ante.** The largest stack agrees to 0.1 bb for 337 of the 338 cells (169 hands, push
+    and call), including the three hands with gaps (63s shoves at 5.1-7.1 bb and below 2.3 bb;
+    53s at 3.8-12.9 and below 2.4; 43s at 4.9-10.0 and below 2.2). The other is Q4o, which ours
+    also shoves at 8.3 bb alone, above a range that ends at their 7.9.
+  - **An ante of 1/10.** 308 of 338 agree: 153 pushes and 155 calls. Seven more differ only by
+    a piece of mixing above a range that ends where theirs does. In the other 23 ours is
+    tighter, by 0.2 to 0.7 bb: 9 pushes (76o 12.8 against their 13.5, K3o 13.9 against 14.3)
+    and 14 calls, nearly all offsuit (JTo 14.5 against 15.1, K8o 15.7 against 16.1). Their page
+    does not say how its ante is counted, so the gap may be in the game rather than in the
+    solving: the no-ante tab, solved by the same code, agrees cell for cell, and the best
+    response above says ours is an equilibrium of the game it states.
+  - **An ante of 1/8.** No published chart was found: their raw data is for no ante only, and a
+    search found no other primary source. That chart rests on the best response above.
+
+  The no-ante table, for some of the cells:
 
 | hand | action | published (bb) | ours (bb) |
 |---|---|---|---|
@@ -73,8 +108,17 @@ before the blinds, and the chart is read at the nearest half big blind.
 
 **Where it plays, and what it does off the chart.**
 
-- Exactly two seats and no ante, or it refuses before the first hand. It was solved without
-  antes; with them, the dead money changes every range.
+- Exactly two seats, or it refuses before the first hand.
+- Blinds and an ante it has a chart for: the small blind half the big blind, and no ante or an
+  ante of exactly 1/10 or 1/8 of the big blind. The ante is matched by its exact share and never
+  rounded: 3 on a big blind of 20 is 3/20, and tag plays that hand. Each decision tag makes says
+  why in its `meta`, as `off_chart`: `ante`, `blinds`, `deep`, `flop`, `spot` or `seats`. Each
+  decision at a level with an ante it has a chart for records that chart as `ante` (`"1/10"`),
+  whoever plays it; a hand with no ante leaves that out, as before.
+- It refuses a table only when no hand at it could use a chart: a cash table whose blinds or ante
+  have none (`--ante 1` at 1/2), or a freezeout where no level has one. A freezeout where only
+  some levels have none is seated, with a note naming them. To decide this, a freezeout's seats
+  are now shown the whole schedule, not only the first level.
 - Up to 15 bb effective. The chart goes to 20, but deeper than that a shove-or-fold strategy
   gives away the small raises and the play after the flop; HoldemResources recommend push/fold up
   to around 10 bb and call it almost certainly a bad idea past 20. Deeper hands go to tag, and a
@@ -87,8 +131,9 @@ before the blinds, and the chart is read at the nearest half big blind.
 **Measured at short stacks** (`scripts/measure_pushfold.py`, 2.3 minutes from a load average of
 2.2): 2,000 hands
 heads-up against each bot from seat 0 on the same decks (seed 2026), stacks topped up every hand,
-blinds 1/2, all-in adjusted bb/100 with a 95% interval. Tag playing the same decks is the row to
-beat. "Chart's share" is how many of its decisions were its own or translated rather than tag's.
+blinds 1/2, no ante, all-in adjusted bb/100 with a 95% interval. Tag playing the same decks is the
+row to beat. "Chart's share" is how many of its decisions were its own or translated rather than
+tag's.
 
 | entrant | depth | vs tag | vs rock | vs maniac | vs station | chart's share |
 |---|---:|---:|---:|---:|---:|---:|
@@ -107,10 +152,46 @@ big blinds, and tag plays the flop.
 On the [heads-up track](leaderboard-heads-up.md), at 100 bb, every decision is the fallback's,
 so its row is tag's row. That is the right answer, not a result about push/fold.
 
-In a freezeout with the default blind schedule (`play --tournament`), the antes arrive at level 4,
-before the stacks are short, so the chart never plays: in one heads-up freezeout against tag, 0
-of its 88 decisions were the chart's. Give it a schedule without antes (`--levels`) to see it
-play the short-stack end of a tournament.
+**Measured in freezeouts** (`scripts/measure_pushfold_freezeouts.py`, 5.5 minutes from a load
+average of 5.3, other work on the laptop included). Before the ante charts, the chart could only
+play at levels 1-3 of the default schedule, where the stacks are rarely short: the antes arrive
+at level 4. Now every level has a chart. 5,000 heads-up freezeouts against each bot, on the
+default schedule (1/2 to 800/1600+200, antes from level 4, twenty hands a level), 200 chips
+each, so 100 bb to start. Then the same 5,000 with `tag` in its seat. Tournament k of both has the same seed: the
+same decks, the same first button, the same seed for the opponent and for tag. The seat is tag
+plus a chart, so the difference between the two is what the chart is worth. It is paired, one
+tournament against the other, with a 95% t interval; each share won has a Wilson interval.
+
+| vs | nash:pushfold won | tag in its seat won | difference (points) | own | translated |
+|---|---:|---:|---:|---:|---:|
+| tag | 80.5% (79%-82%) | 50.1% (49%-51%) | +30.4 ±1.4 | 16.9% | 0.6% |
+| rock | 93.9% (93%-95%) | 78.4% (77%-79%) | +15.6 ±1.1 | 19.0% | 0.2% |
+| maniac | 68.0% (67%-69%) | 63.4% (62%-65%) | +4.6 ±0.7 | 2.2% | 1.7% |
+| station | 93.8% (93%-94%) | 94.2% (94%-95%) | -0.4 ±0.4 | 1.2% | 1.0% |
+
+- The chart wins tournaments against tag, rock and the maniac, clear of zero. Against tag it
+  turns an even match into four wins in five. Against the station it is no better than tag, and
+  the interval only just reaches zero. The station calls every shove, and an equilibrium range
+  is made for a big blind who folds some of the time.
+- `own` is the share of the seat's decisions played from a chart on its own tree; `translated`
+  is from a chart after reading a raise as a shove or answering a limp. `own` is small because
+  most decisions come before the stacks are short: 80-96% of them went to tag for being deeper than
+  15 bb, and at most 1.6% for the flop of a limped pot. None went to tag for the ante. Against
+  the maniac and the station most tournaments end early, while the stacks are still deep.
+- Which chart played: against tag and rock, 89% and 92% of the chart's decisions were at a
+  level with an ante of 1/10. Against the maniac and the station, 81% and 91% had no ante,
+  because those tournaments end early (a median of 21 and 30 hands, against 88). The 1/8 chart
+  played under 0.5% of them in every matchup: its levels start at hand 161.
+- A tournament where the chart never played must come out as tag's, with the same winner and
+  the same number of hands. It did, in all 831, 416, 2,419 and 1,581 of them; the script stops
+  if one does not.
+
+[`docs/results/freezeout-pushfold`](results/freezeout-pushfold/leaderboard.md) holds twelve of
+them against tag, from `experiments/freezeout-pushfold.toml`: 902 hands, 1.8 MB, under the 2 MB
+a published hand file may take. They are the script's first twelve, with the same winners and
+lengths (`scripts/measure_pushfold_freezeouts.py 12 --folder docs/results/freezeout-pushfold`
+checks). `poker-table verify` passes on the folder; a test checks that, rebuilds its report,
+and finds decisions from the 1/10 chart in it.
 
 **What it is not.** Not a full short-stack strategy: no min-raises, no limps, no play after the
 flop. Not ICM-aware, so not a tournament strategy where finishing places pay. Exact only inside
