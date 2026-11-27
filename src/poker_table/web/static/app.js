@@ -160,7 +160,7 @@ let sharedTable = false;  // a table with friends, where each page sees only its
 async function loadSession() {
   const s = await api("/api/session");
   sharedTable = !!s.shared;
-  $("file").textContent = s.hands ? `${s.hands} hand${s.hands === 1 ? "" : "s"} from ${s.file}` : `${s.file} is empty`;
+  $("file").textContent = s.hands ? `${s.hands} hand${s.hands === 1 ? "" : "s"} from ${s.file}` : `${s.file}: no hands yet`;
   setUpFilters(s);
   if (s.odds === false) {  // a site exported without --export-odds has no odds files to show
     showOdds = false;
@@ -758,10 +758,13 @@ $("bankroll-table-toggle").onclick = (e) => {
 async function showBoard() {
   drawBankroll().catch(() => $("bankroll").classList.add("hidden"));
   const [data, session] = await Promise.all([api("/api/stats"), api("/api/session")]);
+  // A freezeout's blinds keep rising, so a big blind is no fixed unit there: no bb/100, no margins.
+  const freezeout = !!session.tournament;
   $("board-title").textContent = `${data.hands} hands, sorted by chips won`;
   showStandings(session.tournament, session.tournaments);
-  const cols = data.rows.length ? Object.keys(data.rows[0]) : [];
-  cols.splice(cols.indexOf("bb/100") + 1, 0, "adj", "margin");
+  let cols = data.rows.length ? Object.keys(data.rows[0]) : [];
+  if (freezeout) cols = cols.filter(c => c !== "bb/100");
+  else cols.splice(cols.indexOf("bb/100") + 1, 0, "adj", "margin");
   const head = cols.map(c => `<th${STAT_HELP[c] ? ` title="${STAT_HELP[c]}"` : ""}>${STAT_NAME[c] || c}</th>`).join("");
   const body = data.rows.map(r => "<tr>" + cols.map(c => {
     const v = r[c];
@@ -772,6 +775,11 @@ async function showBoard() {
     return `<td class="${cls}">${text}</td>`;
   }).join("") + "</tr>").join("");
   $("board-table").innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
+  if (freezeout) {
+    $("board-call").textContent = "";
+    $("board-note").textContent = "No bb/100 or margins here: the blinds rise through a freezeout, so a big blind is no fixed unit. The standings above are the result.";
+    return;
+  }
   fillMargins().catch(() => {
     for (const td of $("board-table").querySelectorAll("td.adj, td.margin")) td.textContent = "–";
   });
