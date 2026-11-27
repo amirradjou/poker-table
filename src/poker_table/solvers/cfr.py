@@ -140,10 +140,18 @@ class CFRPlus:
         self.weights = [np.zeros_like(r) for r in self.regrets]
         self.iterations = 0
 
-    def run(self, iterations: int, on_iteration: Callable[[int], None] | None = None) -> None:
+    def run(
+        self,
+        iterations: int,
+        on_iteration: Callable[[int], None] | None = None,
+        players: Sequence[int] = (0, 1),
+    ) -> None:
+        """``players`` are the ones whose regrets and average are updated; the others keep
+        playing whatever their regrets say (``scripts/diagnose_blueprint.py`` holds one seat
+        fixed that way and trains an exploiter for the other)."""
         for _ in range(iterations):
             self.iterations += 1
-            for player in (0, 1):
+            for player in players:
                 self._walk(self.game.root, self.game.p0, self.game.p0, player)
             if on_iteration is not None:
                 on_iteration(self.iterations)
@@ -229,11 +237,20 @@ def expected_value(game: Game, strategy: Sequence[np.ndarray]) -> float:
     return walk(game.root, game.p0)
 
 
-def best_response_value(game: Game, strategy: Sequence[np.ndarray], br_player: int) -> float:
+def best_response_value(
+    game: Game,
+    strategy: Sequence[np.ndarray],
+    br_player: int,
+    responder: Sequence[np.ndarray] | None = None,
+) -> float:
     """What a best response playing seat ``br_player`` wins per game against ``strategy``.
 
     The best response knows the strategy and remembers every private state it has held, so in
     a game with imperfect recall it is stronger than any player who forgets. Exact: no sampling.
+
+    With ``responder``, seat ``br_player`` plays that strategy by its current state instead of
+    best responding. The walk is the same, so its value must match ``expected_value``: that is
+    how a test checks this walk sees the trainer's tree, chances and payoffs.
     """
 
     def walk(node: Node, mass: np.ndarray, last: np.ndarray) -> np.ndarray:
@@ -269,7 +286,11 @@ def best_response_value(game: Game, strategy: Sequence[np.ndarray], br_player: i
             )
             return value.reshape(histories, n_theirs).sum(axis=1)
         if node.player == br_player:
-            return np.maximum.reduce([walk(child, mass, last) for child in node.children])
+            values = [walk(child, mass, last) for child in node.children]
+            if responder is None:
+                return np.maximum.reduce(values)
+            mixed = responder[node.index][last]  # [history, action]
+            return sum(mixed[:, a] * v for a, v in enumerate(values))
         sigma = strategy[node.index]
         total = np.zeros(mass.shape[0])
         for a, child in enumerate(node.children):
