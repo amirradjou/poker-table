@@ -32,6 +32,7 @@ const KINDS = {
   maniac: { glyph: "⚡", color: "#c0392b", label: "maniac bot" },
   station: { glyph: "●", color: "#879b3f", label: "calling station" },
   random: { glyph: "⚄", color: "#9166c2", label: "random bot" },
+  exploiter: { glyph: "♣", color: "#a8487a", label: "exploiter", about: "a tag that adapts to what it has seen of each opponent" },
   human: { glyph: "☺", color: "#caa24c", label: "human" },
   laya: { glyph: "◈", color: "#2f7fa3", label: "laya model", model: true },
   // Research seats link the paper their method follows.
@@ -56,7 +57,7 @@ function kindInfo(kind) {
   return KINDS[kind] || { glyph: "", color: "#8f8b80", label: kind };
 }
 function paperLink(info, text) {
-  if (!info.paper) return text;
+  if (!info.paper) return info.about ? `<span title="${info.about}">${text}</span>` : text;
   return `<a href="${info.paper}" target="_blank" rel="noopener" style="color:inherit" title="${info.about}: the paper its method follows">${text}</a>`;
 }
 function initials(name) {

@@ -4,6 +4,7 @@ Every entrant plays the same 200 hands from the same seat, against the same four
 
 | entrant | all-in adj. bb/100 | ±95% | bb/100 | illegal | failed | named its cards wrongly | s/call | $/hand | played |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| exploiter | +557 | 549 | +740 | 0% | 0 | - | - | - | 2026-11-27 |
 | tag | +493 | 542 | +677 | 0% | 0 | - | - | - | 2026-11-06 |
 | rock | +233 | 327 | +233 | 0% | 0 | - | - | - | 2026-11-06 |
 | llm:nerd on ollama/qwen2.5:3b | +224 | 409 | +1387 | 0% | 0 | 5 of 18 | 26.5 | - | 2026-11-07 |

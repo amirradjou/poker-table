@@ -16,6 +16,7 @@ from typing import Any
 from poker_table import __version__
 from poker_table.agents.base import Agent, MethodUsage, TableShape, seating_notes
 from poker_table.agents.compat import PROVIDERS, is_priced
+from poker_table.agents.exploiter import ExploiterAgent
 from poker_table.agents.human import HumanAgent
 from poker_table.agents.llm import LLMAgent
 from poker_table.agents.ollama import is_local
@@ -690,13 +691,19 @@ def play_tournament(args: argparse.Namespace, agents, out) -> int:
 
 
 def model_seat_notes(agents) -> list[str]:
-    """What each model-backed seat actually did — a gated seat's row is its fallback's row."""
+    """What each model-backed seat actually did — a gated seat's row is its fallback's row,
+    and an exploiter's row is mostly tag's."""
     from poker_table.agents.laya import LayaAgent
 
     notes = []
     for agent in agents:
         if isinstance(agent, LLMAgent):
             notes.append(llm_seat_note(agent))
+            continue
+        if isinstance(agent, ExploiterAgent):
+            line = agent.note()
+            if line:
+                notes.append(line)
             continue
         usage = getattr(agent, "usage", None)
         if isinstance(usage, MethodUsage):
