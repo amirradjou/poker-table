@@ -174,23 +174,84 @@ unlike the blueprint, remembers every bucket it has held. A uniform random strat
 13,508 mbb/hand to the same opponent. Each measurement takes about 2.5 minutes (the load
 average was between 1 and 4 while they ran).
 
-More training did not lower that number:
+More training did not lower that number. CFR+ was run again from the saved chance model, with
+the strategy saved along the way (`diagnose_blueprint.py checkpoints`: 14.8 minutes, load 1.7
+when it started and 2.9 when it ended). Each saved strategy was then measured the same way
+(`diagnose_blueprint.py measure`: 1.8 to 2.8 minutes each, load 2.8 to 6.4):
 
-| iterations | a best response wins (mbb/hand) |
-|---:|---:|
-| 250 | 380 |
-| 500 | 393 |
-| 1,000 | 427 |
-| 2,000 (shipped) | 441 |
+| iterations | average, rounded as shipped | average, not rounded | last iterate |
+|---:|---:|---:|---:|
+| 60 | | 637 | |
+| 250 | 380 | 380 | 851 |
+| 500 | | 391 | |
+| 1,000 | | 426 | 545 |
+| 2,000 (shipped) | 441 | 440 | 458 |
 
-That much is measured. Why is not: the likely reason is that the blueprint forgets its earlier
-buckets and its opponent here does not, and with imperfect recall CFR+ has no guarantee of
-getting less exploitable as it trains. If that is right, more iterations will not help and a
-finer card abstraction, or buckets that remember the earlier streets, might; neither was tried.
-The shipped strategy is the 2,000-iteration one as planned, not the least exploitable one:
-picking by this number would be tuning on the measurement. The rows come
-from `train_blueprint.py --iterations N --reuse --out FILE`, then
-`measure_blueprint.py --strategy FILE --no-uniform`.
+The average of iterations 1,001 to 2,000 alone (a delayed average) is 450.
+
+**Why it rises** (`scripts/diagnose_blueprint.py`). Five causes were possible. The script's
+docstring says which run tests each one, and what result would rule it out.
+
+- **Rounding: ruled out.** Rounding to 1/255 moves the number by less than 1 mbb/hand: 380.1
+  unrounded and 379.7 rounded at 250 iterations, 440.1 and 440.8 at 2,000.
+- **A different game: ruled out.** Trained again from the saved chance model, the
+  2,000-iteration average rounds to the shipped file byte for byte, so the best response plays
+  the game that was trained. Made to play a fixed random strategy, the best response's walk
+  values it at -0.060099167687 bb for the small blind, the same to 12 decimal places as
+  `expected_value` and the trainer's own walk (`match`: 3.1 minutes, load 3.2 to 3.5). So all
+  three use one tree, one chance model and one set of payoffs. Beyond the abstraction, the best
+  response knows its own memory and nothing else: it wins the same against a strategy as
+  against that strategy in a copy of the game whose buckets remember (`tests/test_recall.py`,
+  and `recall` below).
+- **A plain bug: none found.** Kuhn and Leduc still reach their known answers. On small copies
+  of the game whose buckets remember, the same CFR+ and best response go from about 900 to 16
+  or less in 1,000 iterations (below).
+- **Averaging: it shapes the curve, not its level.** The script's test expected the other ways
+  of averaging to rise too, and they do not: the last iterate falls (851, 545, 458) while the
+  average rises (380, 426, 441), and the delayed average is 450. All three are near 450 at
+  2,000, so by then CFR+ plays strategies that a best response beats by about 450 mbb/hand,
+  whichever of them is measured. The early average, a blend of early iterates, happens to be
+  harder to exploit than that, and the average climbs as the early iterates lose weight. No
+  averaging tried beats the shipped one at 2,000.
+- **Imperfect recall: likely why that level is not zero; not shown on the shipped game.** The
+  same CFR+ and best response were run on two small games built from the shipped one, each
+  played twice on the same tree and chance model: once with buckets that forget, once with
+  buckets that remember (`recall`). The groups merge the 169 classes by equity and the later
+  streets' buckets by strength. A best response wins, in mbb/hand:
+
+  | iterations | 3, 2, 2, 3 groups: forget | remember | 6, 2, 1, 2 groups: forget | remember |
+  |---:|---:|---:|---:|---:|
+  | 30 | 1,051 | 955 | 935 | 909 |
+  | 100 | 279 | 241 | 245 | 270 |
+  | 300 | 104 | 75 | 43 | 42 |
+  | 1,000 | 84 | 16 | 5 | 4 |
+
+  With 3, 2, 2 and 3 groups per street, forgetting stops CFR+ well short of zero while
+  remembering keeps falling (18.9 minutes, load 3.0 to 4.2). With 6, 2, 1 and 2 groups, whose
+  turn bucket carries no card information at all, both go to zero together (15.7 minutes, load
+  2.6 to 2.8). So forgetting can stop CFR+ short of zero, but it does not always, and neither
+  small game shows the rise.
+
+An opponent held to the blueprint's own buckets (it forgets too), trained by CFR+ against the
+fixed strategy (`exploiter`), wins at least 104 mbb/hand against the 250-iteration strategy and
+at least 41 against the shipped one: 40 after 400 of its own iterations and 41 after 1,200. The
+best response that remembers wins 380 and 441. The exploiter's numbers are lower bounds, since
+a better forgetting opponent may exist (3.2 minutes for each 400-iteration run, load 2.7 to
+3.9; 8.6 minutes for the 1,200, load 4.5 to 4.2).
+
+A different trainer, which weighs a player's forgotten earlier buckets by how often its own
+strategy really came from them, did worse on the first small game: 114 mbb/hand after 1,000
+iterations against 84 (`recall --arms own-reach`: 6.7 minutes, load 3.8 to 3.4). The blueprint
+is not trained with it.
+
+What this leaves: the number rises because by 2,000 iterations CFR+ on this abstraction plays
+strategies that an opponent who remembers beats by about 450 mbb/hand, and the average starts
+below that level. It is not rounding, a mismatched game or a bug these checks would catch,
+and no other averaging does better. Why the level is not zero is likely imperfect recall, but on the shipped game that
+is not measured. Whether the average levels off near 450 or keeps climbing would need a run of
+about 4,000 iterations, past the 30-minute cap. The shipped strategy is the 2,000-iteration one
+as planned, not the least exploitable one: picking by this number would be tuning on the
+measurement.
 
 **Where it plays, and what it does off its tree.**
 
@@ -244,8 +305,18 @@ uv run python scripts/train_blueprint.py             # the blueprint
 uv run python scripts/measure_blueprint.py           # its exploitability in the abstract game
 uv run python scripts/train_blueprint.py --iterations 250 --reuse --out bp250.bin   # the trend (after
 uv run python scripts/measure_blueprint.py --strategy bp250.bin --no-uniform        # a full run): one row
+uv run python scripts/diagnose_blueprint.py checkpoints --out bp   # why it rises (after a full run)
+uv run python scripts/diagnose_blueprint.py measure bp avg:250:rounded avg:250 avg:2000:rounded avg:2000 avg:60
+uv run python scripts/diagnose_blueprint.py measure bp current:250 current:2000 window:1000-2000 avg:1000 avg:500 current:1000
+uv run python scripts/diagnose_blueprint.py exploiter bp avg:250:rounded avg:2000:rounded
+uv run python scripts/diagnose_blueprint.py exploiter bp avg:2000:rounded --at 400,1200
+uv run python scripts/diagnose_blueprint.py match
+uv run python scripts/diagnose_blueprint.py recall --groups 3,2,2,3
+uv run python scripts/diagnose_blueprint.py recall --groups 6,2,1,2
+uv run python scripts/diagnose_blueprint.py recall --groups 3,2,2,3 --arms own-reach --no-check
 uv run python scripts/run_heads_up_track.py          # the heads-up track, then the leaderboards
 uv run pytest -q tests/test_solvers.py               # Kuhn and Leduc
+uv run pytest -q tests/test_recall.py                # forgetting and remembering
 ```
 
 numpy is only needed for these scripts and is in the dev dependency group; the seats run without
