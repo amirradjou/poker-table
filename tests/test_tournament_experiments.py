@@ -12,8 +12,9 @@ from poker_table.agents.registry import make_agents
 from poker_table.cli import main
 from poker_table.experiments import _restore_notes, load_experiment, run_experiment
 from poker_table.history import DecisionTrace, read_jsonl
-from poker_table.league import run_tournament, standings_of
+from poker_table.league import TournamentConfig, run_tournament, standings_of
 from poker_table.margins import Finish, finish_calls, t_margin, wilson
+from poker_table.verify import verify_folder
 
 BOTS = '["tag", "rock", "maniac", "station", "random"]'
 QUICK = f"seats = {BOTS}\ntournaments = 3\nlevel_hands = 5\nseed = 4"
@@ -338,8 +339,8 @@ def test_a_model_seat_gets_its_notes_back_by_name_as_seats_go_out() -> None:
     nerd = make_agents(["llm:nerd@ollama/none"])[0]
     assert isinstance(nerd, LLMAgent)
     bots = make_agents(["tag", "station", "rock"], seed=2)
-    hand = run_tournament(bots, replace_config()).histories[-1]
-    # rename the last seat of a late hand to the model seat, and give it a note to restore
+    hand = run_tournament(bots, TournamentConfig(seed=2, hands_per_level=5)).histories[-1]
+    # heads-up at the end: the model seat is seat 1 of this hand and the fourth seat built
     seat = len(hand.players) - 1
     players = [replace(p, name="nerd") if p.seat == seat else p for p in hand.players]
     note = DecisionTrace(seat, "preflop", "fold", "fold", False, "", "", 1.0, {"note": "shoves"})
@@ -348,7 +349,110 @@ def test_a_model_seat_gets_its_notes_back_by_name_as_seats_go_out() -> None:
     assert list(nerd.notes) == [f"hand {history.hand_id}: shoves"]
 
 
-def replace_config():
-    from poker_table.league import TournamentConfig
+# ----- checking a folder of freezeouts ------------------------------------------------------
 
-    return replace(TournamentConfig(seed=2), hands_per_level=5)
+
+@pytest.fixture(scope="module")
+def played(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    base = tmp_path_factory.mktemp("verify")
+    return run_experiment(write_experiment(base, QUICK), base / "out", log=quiet).folder
+
+
+def nth_hand(hands: list[dict], hand_id: str) -> dict:
+    return next(h for h in hands if h["hand_id"] == hand_id)
+
+
+def _change_a_stack(hands):
+    nth_hand(hands, "f2-4")["players"][0]["stack"] += 50
+
+
+def _start_with_more_chips(hands):
+    nth_hand(hands, "f2-1")["players"][1]["stack"] += 50
+
+
+def _give_a_wrong_place(hands):
+    bust = next(h for h in hands if h["tournament"]["out"])
+    name = next(iter(bust["tournament"]["out"]))
+    bust["tournament"]["out"][name] -= 1
+
+
+def _delete_a_hand(hands):
+    hands.remove(nth_hand(hands, "f2-5"))
+
+
+def _change_the_level(hands):
+    nth_hand(hands, "f2-8")["tournament"]["level"] += 1
+
+
+def _change_the_blinds(hands):
+    hand = nth_hand(hands, "f2-3")
+    hand["small_blind"], hand["big_blind"] = 2, 4
+
+
+def _move_the_button(hands):
+    hand = nth_hand(hands, "f1-2")
+    hand["button"] = (hand["button"] + 1) % len(hand["players"])
+
+
+def _miscount_who_is_left(hands):
+    nth_hand(hands, "f1-3")["tournament"]["left"] -= 1
+
+
+def _drop_a_tournament(hands):
+    hands[:] = [h for h in hands if h["tournament"]["id"] != 2]
+
+
+def _drop_the_winning_hand(hands):
+    last = [h for h in hands if h["tournament"]["id"] == 1][-1]
+    hands.remove(last)
+
+
+def _seat_them_otherwise(hands):
+    players = nth_hand(hands, "f2-1")["players"]
+    players[0]["name"], players[1]["name"] = players[1]["name"], players[0]["name"]
+
+
+@pytest.mark.parametrize(
+    ("edit", "message"),
+    [
+        (_change_a_stack, "chips, and ended the hand before with"),
+        (_start_with_more_chips, "starts with other than 200 chips"),
+        (_give_a_wrong_place, "went out, and the cards say"),
+        (_delete_a_hand, "tournament 2 is missing hands"),
+        (_change_the_level, "it says level"),
+        (_change_the_blinds, "the blinds are not level 1's (1/2)"),
+        (_move_the_button, "the button is on seat"),
+        (_miscount_who_is_left, "were left"),
+        (_drop_a_tournament, "a tournament is missing: the file has 1, 3"),
+        (_drop_the_winning_hand, "tournament 1 stops partway"),
+        (_seat_them_otherwise, "the seats are not as drawn for it"),
+    ],
+    ids=lambda value: value.__name__.strip("_") if callable(value) else "",
+)
+def test_a_doctored_folder_of_freezeouts_is_caught(played, tmp_path, edit, message) -> None:
+    assert verify_folder(played) == []
+    folder = tmp_path / "fz"
+    shutil.copytree(played, folder)
+    hands = [json.loads(line) for line in (folder / "hands.jsonl").read_text().splitlines()]
+    edit(hands)
+    (folder / "hands.jsonl").write_text("".join(json.dumps(h) + "\n" for h in hands))
+    run = json.loads((folder / "run.json").read_text())
+    (folder / "run.json").write_text(json.dumps(run | {"hands": len(hands)}))
+    problems = verify_folder(folder)
+    assert any(message in problem for problem in problems), problems
+
+
+def test_a_run_of_freezeouts_cut_short_cannot_claim_it_finished(played, tmp_path) -> None:
+    folder = tmp_path / "fz"
+    shutil.copytree(played, folder)
+    lines = (folder / "hands.jsonl").read_text().splitlines(keepends=True)
+    (folder / "hands.jsonl").write_text("".join(lines[:-1]))
+    problems = verify_folder(folder)
+    assert f"run.json says {len(lines)} hands, and the file has {len(lines) - 1}" in problems
+    assert "run.json says 3 tournaments are over, and 2 are" in problems
+    assert "it says it finished, with 2 of 3 tournaments over" in problems
+
+
+def test_the_command_checks_a_folder_of_freezeouts(played, capsys) -> None:
+    assert main(["verify", str(played)]) == 0
+    assert f"{played}: checks out" in capsys.readouterr().out
