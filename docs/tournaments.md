@@ -190,6 +190,10 @@ give it. Against the 500 at twenty hands a level above, the top two stay on top,
 blinds leave less room for skill: `tag` averages 2.18 instead of 1.81 and wins 28% of the time
 instead of 54%, while `maniac` wins 30% instead of 17%.
 
+**Heads-up.** Two seats make a heads-up freezeout. `nash:pushfold` plays its push/fold chart once
+the stacks are short, antes included: [solver-seats.md](solver-seats.md#nashpushfold) has 5,000
+of them against each bot, next to `tag` in its seat.
+
 ### Why the seats are drawn
 
 The 500 above always seat `tag, rock, maniac, station, random` in that order, with `tag` on the

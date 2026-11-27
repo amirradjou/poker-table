@@ -206,13 +206,18 @@ class Agent(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class TableShape:
-    """What a table deals at its first hand: how many seats, the stakes and the stacks."""
+    """What a table deals at its first hand: how many seats, the stakes and the stacks.
+
+    ``levels`` is a freezeout's whole blind schedule, the first level included, as (small blind,
+    big blind, ante) for each. It is empty at a cash table, whose blinds never change.
+    """
 
     seats: int
     small_blind: int
     big_blind: int
     ante: int
     stack: int
+    levels: tuple[tuple[int, int, int], ...] = ()
 
 
 def seating_problems(agents: Sequence[Any], shape: TableShape) -> list[str]:
