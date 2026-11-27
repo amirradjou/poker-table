@@ -10,14 +10,14 @@ every chip — the right thing when the question is "who survives".
 from __future__ import annotations
 
 import random
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 
-from poker_table.agents.base import Agent, SeatView, TableShape, seating_problems
-from poker_table.engine import Hand
-from poker_table.history import HandHistory, public_view
+from poker_table.agents.base import Agent, Decision, SeatView, TableShape, seating_problems
+from poker_table.engine import Action, Hand
+from poker_table.history import DecisionTrace, HandHistory, parse_action, public_view
 from poker_table.stats import PlayerStats, compute_stats
-from poker_table.table import DecisionRecord, new_hand, play_hand
+from poker_table.table import DecisionRecord, PlayedHand, new_hand, play_hand
 
 
 def spent_usd(agents: Iterable[Agent]) -> float:
@@ -196,6 +196,18 @@ DEFAULT_SCHEDULE = (
 )
 
 
+def parse_levels(text: str) -> tuple[Level, ...]:
+    """``"1/2,2/4,5/10+1"`` -> a blind schedule; ``+n`` on a level is its ante."""
+    levels = []
+    for part in text.split(","):
+        stakes, _, ante = part.strip().partition("+")
+        small, big = parse_blinds(stakes)
+        levels.append(Level(small, big, int(ante) if ante else 0))
+    if not levels:
+        raise ValueError("a schedule needs at least one level, e.g. 1/2")
+    return tuple(levels)
+
+
 @dataclass(frozen=True, slots=True)
 class TournamentConfig:
     """A freezeout: one buy-in each, rising blinds, no rebuys, play until one seat has it all."""
@@ -208,6 +220,10 @@ class TournamentConfig:
     max_hands: int = 5000
     seed: int = 0
     budget_usd: float | None = None  # stop, unfinished, once model calls cost this much
+    # Goes in front of each hand's number, to keep several tournaments apart in one file.
+    hand_prefix: str = ""
+    # Written into each hand's tournament record as its "id", when a file holds several.
+    number: int | None = None
 
     def level_number(self, hand_number: int) -> int:
         """The 1-based level the ``hand_number``-th hand (0-based) is played at."""
@@ -230,6 +246,9 @@ class TournamentResult:
     stacks: dict[str, int] = field(default_factory=dict)  # chips at the end
     spent_usd: float = 0.0
     over_budget: bool = False
+    # Resuming: a seat asked again about an earlier hand that answered otherwise than the record,
+    # with the first hand it did so in. Its own random choices no longer follow the first run.
+    differed: dict[str, str] = field(default_factory=dict)
 
     @property
     def winner(self) -> str | None:
@@ -281,13 +300,25 @@ def run_tournament(
     agents: Sequence[Agent],
     config: TournamentConfig | None = None,
     *,
+    resume_from: Sequence[HandHistory] = (),
     on_hand: Callable[[HandHistory], None] | None = None,
     on_hand_start: Callable[[Hand], None] | None = None,
     on_view: Callable[[SeatView], None] | None = None,
     on_decision: Callable[[DecisionRecord, Hand], None] | None = None,
     keep_histories: bool = True,
+    stop: Callable[[], bool] | None = None,
 ) -> TournamentResult:
-    """Play a freezeout between ``agents`` until one of them holds every chip."""
+    """Play a freezeout between ``agents`` until one of them holds every chip.
+
+    ``resume_from`` carries on a tournament from the hands a file kept of it. Those hands are
+    played again with the actions they record, so stacks, who is left, the button, the places
+    and the decks all come out of the same code as before. A seat with no ``usage`` (a scripted
+    bot) is asked again at each of its decisions, and its answer only compared with the record,
+    so its own random choices move on as they did and the tournament carries on as if it had
+    never stopped. A model seat is not asked: a call costs money and need not answer alike.
+
+    ``stop`` is asked after each new hand, and a yes ends the tournament there, unfinished.
+    """
     config = config if config is not None else TournamentConfig()
     if len(agents) < 2:
         raise ValueError("a tournament needs at least two agents")
@@ -306,6 +337,7 @@ def run_tournament(
     live = list(range(len(agents)))  # seats still in it, in seating order
     button = 0  # a seat index; it moves on round the table even when that seat is out
     number = 0
+    earlier = list(resume_from)
 
     while len(live) > 1 and number < config.max_hands:
         while button not in live:
@@ -321,13 +353,17 @@ def run_tournament(
             big_blind=level.big_blind,
             ante=level.ante,
             seed=seeds.randrange(2**63),
-            hand_id=str(number + 1),
+            hand_id=f"{config.hand_prefix}{number + 1}",
         )
+        record = earlier[number] if number < len(earlier) else None
         for i in live:
             result.hands_dealt[names[i]] += 1
-        if on_hand_start is not None:
-            on_hand_start(hand)
-        played = play_hand(hand, players, on_view=on_view, on_decision=on_decision)
+        if record is None:
+            if on_hand_start is not None:
+                on_hand_start(hand)
+            played = play_hand(hand, players, on_view=on_view, on_decision=on_decision)
+        else:
+            played = _play_again(hand, players, record, result.differed)
         for seat, index in enumerate(live):
             stacks[names[index]] = hand.seats[seat].stack
 
@@ -342,26 +378,108 @@ def run_tournament(
             out[names[index]] = survivors + len(busted) - offset
             result.finishes[names[index]] = out[names[index]]
             result.out_at[names[index]] = result.level
-        history = replace(
-            HandHistory.from_played(played),
-            tournament={"level": result.level, "left": len(live), "out": out},
-        )
+        where: dict[str, object] = {"level": result.level, "left": len(live), "out": out}
+        if config.number is not None:
+            where = {"id": config.number} | where
+        history = replace(HandHistory.from_played(played), tournament=where)
+        if record is not None:
+            if _as_dealt(history) != _as_dealt(record):
+                raise ValueError(_not_this_tournament(record))
+            history = record  # keep what the first run wrote: its reasoning, times and costs
         show_hand(seated, history)
         if keep_histories:
             result.histories.append(history)
-        if on_hand is not None:
-            on_hand(history)
         live = [i for i in live if stacks[names[i]] > 0]
         button = (button + 1) % len(agents)
+        if record is not None:
+            continue
+        if on_hand is not None:
+            on_hand(history)
         result.spent_usd = spent_usd(agents)
         if config.budget_usd is not None and result.spent_usd >= config.budget_usd:
             result.over_budget = len(live) > 1
             break
+        if stop is not None and len(live) > 1 and stop():
+            break
 
+    if number < len(earlier):
+        raise ValueError(f"the tournament is over after {number} hands, and more were given")
     result.hands = number
     result.stacks = dict(stacks)
     result.complete = len(live) == 1
+    result.spent_usd = spent_usd(agents)
     # The winner, or — if the hand limit ran out first — the survivors by chip count.
     for place, index in enumerate(sorted(live, key=lambda i: -stacks[names[i]]), start=1):
         result.finishes[names[index]] = place
     return result
+
+
+def _not_this_tournament(record: HandHistory) -> str:
+    return f"hand {record.hand_id} is not what this tournament deals there, so it cannot go on"
+
+
+def _as_dealt(history: HandHistory) -> tuple[object, ...]:
+    """What a hand played again must repeat: the deal, every action, the result and the
+    tournament record. Times, reasoning and costs are the first run's own."""
+    return (
+        history.hand_id,
+        history.seed,
+        history.button,
+        (history.small_blind, history.big_blind, history.ante),
+        [(p.name, p.stack, p.hole, p.net) for p in history.players],
+        history.board,
+        dict(history.payouts),
+        [(d.seat, d.applied) for d in history.decisions],
+        history.tournament,
+    )
+
+
+class _Recorded:
+    """A seat in a hand played again: it answers with what the record says it did.
+
+    A seat with no ``usage`` is asked as well, and its answer only compared with the record,
+    so that whatever it keeps between decisions (its random choices) moves on as it did. A
+    record that does not fit the hand gets folds, and the check after the hand refuses it.
+    """
+
+    def __init__(
+        self,
+        agent: Agent,
+        record: HandHistory,
+        turns: Iterator[DecisionTrace],
+        differed: dict[str, str],
+    ) -> None:
+        self.name = agent.name
+        self.agent = agent
+        self.record = record
+        self.turns = turns
+        self.differed = differed
+        self.ask = getattr(agent, "usage", None) is None
+
+    def act(self, view: SeatView) -> Decision:
+        recorded = next(self.turns, None)
+        if recorded is None or recorded.seat != view.seat:
+            return Decision(Action.fold())
+        if self.ask:
+            try:
+                answer = str(self.agent.act(view).action)
+            except Exception:  # noqa: BLE001 - play_hand folds for a seat that crashes
+                answer = "fold"
+            if answer != recorded.requested:
+                self.differed.setdefault(self.name, self.record.hand_id)
+        return Decision(
+            parse_action(recorded.applied),
+            reasoning=recorded.reasoning,
+            table_talk=recorded.table_talk,
+            meta=dict(recorded.meta),
+        )
+
+
+def _play_again(
+    hand: Hand, agents: dict[int, Agent], record: HandHistory, differed: dict[str, str]
+) -> PlayedHand:
+    turns = iter(record.decisions)
+    seats: dict[int, Agent] = {
+        seat: _Recorded(agent, record, turns, differed) for seat, agent in agents.items()
+    }
+    return play_hand(hand, seats)

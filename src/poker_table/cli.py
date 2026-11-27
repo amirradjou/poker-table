@@ -24,9 +24,9 @@ from poker_table.history import HandHistory, filter_by_date, read_jsonl, write_j
 from poker_table.league import (
     DEFAULT_SCHEDULE,
     LeagueConfig,
-    Level,
     TournamentConfig,
     parse_blinds,
+    parse_levels,
     run_league,
     run_tournament,
 )
@@ -553,18 +553,6 @@ def cmd_eval(args: argparse.Namespace, out) -> int:
         }
         args.json.write_text(json.dumps(payload, indent=1), encoding="utf-8")
     return 0
-
-
-def parse_levels(text: str) -> tuple[Level, ...]:
-    """``"1/2,2/4,5/10+1"`` -> a blind schedule; ``+n`` on a level is its ante."""
-    levels = []
-    for part in text.split(","):
-        stakes, _, ante = part.strip().partition("+")
-        small, big = parse_blinds(stakes)
-        levels.append(Level(small, big, int(ante) if ante else 0))
-    if not levels:
-        raise ValueError("a schedule needs at least one level, e.g. 1/2")
-    return tuple(levels)
 
 
 def hand_writer(args: argparse.Namespace, out, *, every_hand: bool):

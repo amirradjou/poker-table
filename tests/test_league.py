@@ -1,3 +1,7 @@
+import json
+from dataclasses import replace
+from types import SimpleNamespace
+
 import pytest
 
 from poker_table.agents import CallingStation, TightAggressive
@@ -274,3 +278,103 @@ def test_a_league_stops_when_asked_between_hands() -> None:
         stop=lambda: len(played) == 3,
     )
     assert result.hands == 3 and len(result.histories) == 3
+
+
+# ----- carrying on a half-played freezeout --------------------------------------------------
+
+
+def as_written(history) -> dict:
+    """A hand as the file holds it, less the clock: when it was played and how long each
+    decision took are the only things a second run cannot repeat."""
+    data = json.loads(history.to_json())
+    del data["played_at"]
+    for decision in data["decisions"]:
+        del decision["latency_ms"]
+    return data
+
+
+def bots():
+    # tag, maniac and random keep their own random choices, so these test the replay properly
+    return make_agents(["tag", "rock", "maniac", "station", "random"], seed=6)
+
+
+QUICK = TournamentConfig(seed=6, hands_per_level=5, hand_prefix="f2-", number=2)
+
+
+def test_a_tournament_carried_on_from_any_hand_plays_out_as_if_never_stopped() -> None:
+    whole = run_tournament(bots(), QUICK)
+    assert whole.complete and whole.hands > 20
+    expected = [as_written(h) for h in whole.histories]
+    busts = [i for i, h in enumerate(whole.histories) if h.tournament["out"]]
+    assert busts  # cuts at, just before and just after the hands where seats went out
+    for cut in range(whole.hands + 1):
+        new = []
+        rest = run_tournament(bots(), QUICK, resume_from=whole.histories[:cut], on_hand=new.append)
+        assert [as_written(h) for h in new] == expected[cut:], f"carried on after hand {cut}"
+        assert rest.differed == {}
+        assert (rest.finishes, rest.out_at, rest.hands_dealt, rest.stacks, rest.level) == (
+            whole.finishes,
+            whole.out_at,
+            whole.hands_dealt,
+            whole.stacks,
+            whole.level,
+        )
+        assert [as_written(h) for h in rest.histories] == expected
+
+
+def test_each_hand_of_a_numbered_tournament_says_which_one_it_is() -> None:
+    result = run_tournament(bots(), QUICK)
+    assert [h.hand_id for h in result.histories[:2]] == ["f2-1", "f2-2"]
+    assert all(h.tournament["id"] == 2 for h in result.histories)
+    assert list(result.histories[0].tournament) == ["id", "level", "left", "out"]
+    plain = run_tournament(bots(), TournamentConfig(seed=6, hands_per_level=5))
+    assert "id" not in plain.histories[0].tournament  # play --tournament writes what it did
+
+
+class Priced(TightAggressive):
+    """A seat with ``usage``, the way a model seat has: it must not be asked again."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name, seed=3)
+        self.usage = SimpleNamespace(cost_usd=0.0, calls=0, errors=0)
+
+    def act(self, view):
+        self.usage.calls += 1
+        return super().act(view)
+
+
+def test_a_model_seat_is_not_asked_again_and_a_bot_that_answers_otherwise_is_named() -> None:
+    def seats():
+        return [Priced("model"), TightAggressive("tag", seed=1), CallingStation("station")]
+
+    config = TournamentConfig(seed=4, hands_per_level=5)
+    whole = run_tournament(seats(), config)
+    again, new = seats(), []
+    rest = run_tournament(again, config, resume_from=whole.histories[:10], on_hand=new.append)
+    asked = sum(h.players[d.seat].name == "model" for h in new for d in h.decisions)
+    assert asked and again[0].usage.calls == asked  # only its new hands, not the ten before
+    assert rest.differed == {}
+
+    other = [Priced("model"), TightAggressive("tag", seed=2), CallingStation("station")]
+    moved = run_tournament(other, config, resume_from=whole.histories[:10])
+    assert set(moved.differed) == {"tag"}  # another seed: tag's own choices no longer match
+
+
+def test_carrying_on_from_hands_this_tournament_did_not_deal_is_refused() -> None:
+    whole = run_tournament(bots(), QUICK)
+    with pytest.raises(ValueError, match="not what this tournament deals"):
+        run_tournament(bots(), replace(QUICK, seed=7), resume_from=whole.histories[:3])
+    edited = replace(whole.histories[2], players=list(reversed(whole.histories[2].players)))
+    with pytest.raises(ValueError, match="hand f2-3 is not what"):
+        run_tournament(bots(), QUICK, resume_from=[*whole.histories[:2], edited])
+    with pytest.raises(ValueError, match="more were given"):
+        run_tournament(bots(), QUICK, resume_from=[*whole.histories, whole.histories[-1]])
+
+
+def test_a_tournament_stops_when_asked_and_carries_on_from_there() -> None:
+    whole = run_tournament(bots(), QUICK)
+    played = []
+    cut = run_tournament(bots(), QUICK, on_hand=played.append, stop=lambda: len(played) == 7)
+    assert cut.hands == 7 and not cut.complete
+    rest = run_tournament(bots(), QUICK, resume_from=played)
+    assert rest.finishes == whole.finishes and rest.hands == whole.hands
