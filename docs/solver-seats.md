@@ -277,8 +277,8 @@ docstring says which run tests each one, and what result would rule it out.
 - **Rounding: ruled out.** Rounding to 1/255 moves the number by less than 1 mbb/hand: 380.1
   unrounded and 379.7 rounded at 250 iterations, 440.1 and 440.8 at 2,000.
 - **A different game: ruled out.** Trained again from the saved chance model, the
-  2,000-iteration average rounds to the shipped file byte for byte, so the best response plays
-  the game that was trained. Made to play a fixed random strategy, the best response's walk
+  2,000-iteration average rounds to the shipped strategy's table byte for byte, so the best
+  response plays the game that was trained. Made to play a fixed random strategy, the best response's walk
   values it at -0.060099167687 bb for the small blind, the same to 12 decimal places as
   `expected_value` and the trainer's own walk (`match`: 3.1 minutes, load 3.2 to 3.5). So all
   three use one tree, one chance model and one set of payoffs. Beyond the abstraction, the best
@@ -330,8 +330,9 @@ What this leaves: the number rises because by 2,000 iterations CFR+ on this abst
 strategies that an opponent who remembers beats by about 450 mbb/hand, and the average starts
 below that level. It is not rounding, a mismatched game or a bug these checks would catch,
 and no other averaging does better. Why the level is not zero is likely imperfect recall, but on the shipped game that
-is not measured. Whether the average levels off near 450 or keeps climbing would need a run of
-about 4,000 iterations, past the 30-minute cap. The shipped strategy is the 2,000-iteration one
+is not measured. Whether the average levels off near 450, keeps climbing, or turns back down
+(the last iterate was still falling at 2,000) would need a run of about 4,000 iterations, past
+the 30-minute cap. The shipped strategy is the 2,000-iteration one
 as planned, not the least exploitable one: picking by this number would be tuning on the
 measurement.
 
