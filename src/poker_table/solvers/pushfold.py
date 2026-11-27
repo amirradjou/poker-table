@@ -1,8 +1,9 @@
 """The heads-up push/fold game: exact all-in equities between the 169 classes, and the game.
 
 The small blind (the button) either shoves all in or folds; the big blind calls or folds. Both
-start the hand with the same stack, ``stack`` big blinds before the blinds go in, and there is
-no ante. Chips are counted in big blinds: the small blind posts 1/2 and the big blind 1.
+start the hand with the same stack, ``stack`` big blinds before the antes and blinds go in.
+Chips are counted in big blinds: each player posts the ante (none by default), then the small
+blind posts 1/2 and the big blind 1.
 """
 
 from __future__ import annotations
@@ -89,20 +90,34 @@ def deal_chances() -> np.ndarray:
     return sizes[:, None] * compatible / (COMBOS * 1225)  # 1225 hands are left for the other
 
 
-def game(stack: float, equity: np.ndarray, chances: np.ndarray | None = None) -> Game:
-    """The push/fold game at ``stack`` big blinds. Player 0 is the small blind."""
+def posted(stack: float, ante: float) -> tuple[float, float]:
+    """What the small blind and the big blind have in before anyone acts: the ante and the
+    blind, or the whole stack when it is shorter than that."""
+    return min(stack, ante + 0.5), min(stack, ante + 1.0)
+
+
+def game(
+    stack: float, equity: np.ndarray, chances: np.ndarray | None = None, ante: float = 0.0
+) -> Game:
+    """The push/fold game at ``stack`` big blinds. Player 0 is the small blind.
+
+    ``ante`` is what each player posts before the blinds, in big blinds. It is dead money: a
+    fold loses it with the blind, and a shove that is not called wins the other ante and the big
+    blind. A shove that is called puts each whole stack in, antes included.
+    """
+    small, big = posted(stack, ante)
     root = Node.decision(
         0,
         0,
         [
-            ("fold", Node.fold(0, 0, 0.5, 1.0)),
+            ("fold", Node.fold(0, 0, small, big)),
             (
                 "shove",
                 Node.decision(
                     0,
                     1,
                     [
-                        ("fold", Node.fold(0, 1, stack, 1.0)),
+                        ("fold", Node.fold(0, 1, stack, big)),
                         ("call", Node.showdown(0, stack, stack)),
                     ],
                 ),
@@ -110,7 +125,7 @@ def game(stack: float, equity: np.ndarray, chances: np.ndarray | None = None) ->
         ],
     )
     return Game(
-        states=(CLASSES,),
+        states=(len(equity),),
         p0=deal_chances() if chances is None else chances,
         transitions=(None,),
         share={0: equity},

@@ -87,3 +87,58 @@ def test_hand_strength_counts_every_other_hand_once() -> None:
     assert len(combos) == 1081  # 47 cards left, two each
     assert set(totals.tolist()) == {990}  # 45 cards left for the other hand
     assert wins2.sum() == 1081 * 990  # every pair counted from both sides adds to two
+
+
+# ----- the push/fold game with an ante ------------------------------------------------------
+
+# Two kinds of hand, dealt independently: a strong one beats a weak one every time, and two of
+# a kind split. Strong hands shove and call; the weak ones mix, and the mix has a closed form.
+# The big blind's weak hand is indifferent when S / (1 + p) = 1 + a (p: how often a weak small
+# blind shoves); the small blind's weak hand when S / 2 = (1 - q)(1 + a) / 2 + 1/2 + a (q: how
+# often a weak big blind calls). So p = S / (1 + a) - 1 and q = (2 + 3a - S) / (1 + a).
+TOY_EQUITY = [[0.5, 1.0], [0.0, 0.5]]
+
+
+@pytest.mark.parametrize(("stack", "ante"), [(1.75, 0.0), (1.75, 0.125), (2.0, 0.1)])
+def test_push_fold_with_an_ante_has_the_toy_games_closed_form(stack: float, ante: float) -> None:
+    from poker_table.solvers.pushfold import game
+
+    toy = game(stack, np.array(TOY_EQUITY), np.full((2, 2), 0.25), ante=ante)
+    _, avg = solved(toy, 20000)
+    weak = 1
+    assert avg[0][0, 1] == pytest.approx(1.0, abs=1e-3)  # a strong small blind shoves
+    assert avg[1][0, 1] == pytest.approx(1.0, abs=1e-3)  # a strong big blind calls
+    assert avg[0][weak, 1] == pytest.approx(stack / (1 + ante) - 1, abs=0.01)
+    assert avg[1][weak, 1] == pytest.approx((2 + 3 * ante - stack) / (1 + ante), abs=0.01)
+
+
+@pytest.mark.parametrize("ante", [0.0, 0.1, 0.125])
+def test_the_ante_is_dead_money_in_the_push_fold_game(ante: float) -> None:
+    from poker_table.solvers.pushfold import game
+
+    toy = game(10.0, np.array(TOY_EQUITY), np.full((2, 2), 0.25), ante=ante)
+    folds, shoves = toy.uniform(), toy.uniform()
+    folds[0][:] = [1.0, 0.0]  # the small blind always folds: it loses its ante and blind
+    assert expected_value(toy, folds) == pytest.approx(-(0.5 + ante))
+    shoves[0][:] = [0.0, 1.0]  # it always shoves and the big blind always folds
+    shoves[1][:] = [1.0, 0.0]
+    assert expected_value(toy, shoves) == pytest.approx(1.0 + ante)
+    shoves[1][:] = [0.0, 1.0]  # called every time: the whole stacks, antes in them, at showdown
+    assert expected_value(toy, shoves) == pytest.approx(0.0)
+
+
+def test_a_big_blind_all_in_from_its_post_calls_everything_and_the_game_is_even() -> None:
+    from poker_table.agents.pushfold import equities
+    from poker_table.solvers.pushfold import game, posted
+
+    # At 1 bb with an ante of 1/8 the big blind has nothing behind: folding loses all of it,
+    # so it calls with every hand, and against that the small blind shoves every hand. Both
+    # seats then go to showdown every deal, which is worth nothing by symmetry: the deals are
+    # as likely either way round and the equities add to one.
+    assert posted(1.0, 0.125) == (0.625, 1.0)
+    full = game(1.0, np.array(equities()), ante=0.125)
+    _, avg = solved(full, 300)
+    assert avg[1][:, 1].min() > 0.99 and avg[0][:, 1].min() > 0.99
+    assert expected_value(full, avg) == pytest.approx(0.0, abs=1e-3)
+    everything = [np.tile([0.0, 1.0], (169, 1)), np.tile([0.0, 1.0], (169, 1))]
+    assert expected_value(full, everything) == pytest.approx(0.0, abs=1e-12)
