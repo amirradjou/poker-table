@@ -19,7 +19,15 @@ from poker_table.solvers.cfr import (  # noqa: E402
     expected_value,
     exploitability,
 )
-from poker_table.solvers.recall import coarsen, lift, with_recall  # noqa: E402
+from poker_table.solvers.recall import (  # noqa: E402
+    coarsen,
+    dense,
+    equity_groups,
+    lift,
+    lift_groups,
+    remember_groups,
+    with_recall,
+)
 from poker_table.solvers.toy_games import _betting, leduc  # noqa: E402
 
 
@@ -141,3 +149,58 @@ def test_training_one_seat_against_a_fixed_strategy_finds_the_best_response() ->
         best = best_response_value(game, fixed, seat)
         assert value <= best + 1e-9
         assert value == pytest.approx(best, abs=0.01)
+
+
+GROUPS = [np.array([0, 1, 1]), np.array([1, 0, 2])]
+
+
+@pytest.mark.parametrize("groups", GROUPS)
+def test_a_group_carried_along_is_the_same_game_written_densely(groups) -> None:
+    """The chance steps that carry a preflop group along do what their dense arrays do: in
+    CFR+, in the best response and in ``expected_value``."""
+    grouped = remember_groups(markov(5), groups)
+    written = dense(grouped)
+    count = groups.max() + 1
+    assert grouped.states == (3, 2 * count, 2 * count)
+    for move in written.transitions[1:]:
+        assert np.allclose(move.sum(axis=(2, 3)), 1.0)
+    solvers = [CFRPlus(grouped), CFRPlus(written)]
+    for solver in solvers:
+        solver.run(40)
+    for a, b in zip(solvers[0].average(), solvers[1].average(), strict=True):
+        assert np.allclose(a, b, rtol=0, atol=1e-12)
+    strategy = random_strategy(grouped, 6)
+    for seat in (0, 1):
+        assert best_response_value(grouped, strategy, seat) == pytest.approx(
+            best_response_value(written, strategy, seat), abs=1e-12
+        )
+    assert expected_value(grouped, strategy) == pytest.approx(
+        expected_value(written, strategy), abs=1e-12
+    )
+
+
+@pytest.mark.parametrize("groups", GROUPS)
+def test_a_forgetting_strategy_is_worth_the_same_with_the_group_carried_along(groups) -> None:
+    """What lets the cfr:blueprint's two versions be compared: the best response wins as much
+    against a strategy in its own game as against it lifted into the game with groups."""
+    game = markov(6)
+    grouped = remember_groups(game, groups)
+    strategy = random_strategy(game, 7)
+    lifted = lift_groups(game, strategy, groups.max() + 1)
+    for seat in (0, 1):
+        assert best_response_value(game, strategy, seat) == pytest.approx(
+            best_response_value(grouped, lifted, seat), abs=1e-12
+        )
+    assert expected_value(game, strategy) == pytest.approx(
+        expected_value(grouped, lifted), abs=1e-12
+    )
+
+
+def test_equity_groups_split_the_deals_by_equity() -> None:
+    game = markov(2, states=(6, 2, 2))
+    groups = equity_groups(game, 3)
+    assert sorted(set(groups.tolist())) == [0, 1, 2]
+    equity = (game.p0 * game.share[0]).sum(axis=1) / game.p0.sum(axis=1)
+    # every state of a lower group has more equity than every state of a higher one
+    for g in range(2):
+        assert equity[groups == g].min() > equity[groups == g + 1].max()

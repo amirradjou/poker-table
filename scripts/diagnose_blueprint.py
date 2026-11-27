@@ -72,7 +72,7 @@ from poker_table.solvers.cfr import (  # noqa: E402
     expected_value,
     regret_matching,
 )
-from poker_table.solvers.recall import coarsen, lift, with_recall  # noqa: E402
+from poker_table.solvers.recall import coarsen, equity_groups, lift, with_recall  # noqa: E402
 
 LIMIT_SECONDS = 30 * 60
 
@@ -237,18 +237,6 @@ def exploiter(folder: Path, names: list[str], at: list[int]) -> None:
 # ----- the same small game, forgetting and remembering ---------------------------------------
 
 
-def preflop_groups(game: Game, count: int) -> np.ndarray:
-    """The 169 classes in ``count`` groups of about equal weight, by equity against a random
-    hand."""
-    dealt = game.p0.sum(axis=1)
-    equity = (game.p0 * game.share[0]).sum(axis=1) / dealt
-    order = np.argsort(-equity, kind="stable")
-    position = np.empty(len(order), dtype=np.int64)
-    position[order] = np.arange(len(order))
-    share_before = np.cumsum(dealt[order]) - dealt[order]
-    return np.minimum((share_before * count).astype(np.int64), count - 1)[position]
-
-
 def level_groups(buckets: int, levels: int, count: int, draws: bool) -> np.ndarray:
     """Group a street's buckets by strength level alone (dropping the draw flag on the flop and
     turn), ``count`` groups of about as many levels each."""
@@ -260,7 +248,7 @@ def small_game(game: Game, sizes: tuple[int, int, int, int]) -> Game:
     cards = shipped().cards
     flop, turn = cards.buckets(FLOP), cards.buckets(TURN)
     groups = [
-        preflop_groups(game, sizes[0]),
+        equity_groups(game, sizes[0]),  # the same groups the format-2 blueprint keeps
         level_groups(flop, flop // 2, sizes[1], draws=True),
         level_groups(turn, turn // 2, sizes[2], draws=True),
         level_groups(cards.buckets(RIVER), cards.buckets(RIVER), sizes[3], draws=False),

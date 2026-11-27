@@ -36,16 +36,19 @@ from poker_table.agents.abstraction import (
     ALL_IN,
     CHANCE,
     DECISION,
+    FLOP,
+    PREFLOP,
+    RIVER,
     SHOWDOWN,
+    TURN,
     Spot,
     Strategy,
-    bucket,
     pseudo_harmonic,
     raise_target,
     read_strategy,
 )
 from poker_table.agents.base import Decision, MethodUsage, SeatView, TableShape
-from poker_table.agents.handclass import class_index, class_name
+from poker_table.agents.handclass import class_name
 from poker_table.agents.pushfold import put_in
 from poker_table.agents.scripted import TightAggressive
 from poker_table.engine import Action, ActionType, EventKind, Street
@@ -62,6 +65,7 @@ _STREETS = {
     Street.TURN: "turn",
     Street.RIVER: "river",
 }
+_ROUNDS = {Street.PREFLOP: PREFLOP, Street.FLOP: FLOP, Street.TURN: TURN, Street.RIVER: RIVER}
 
 
 @cache
@@ -173,7 +177,7 @@ class BlueprintAgent:
             hand.off = "the tree expected the other player to act"
             return self._fallback(view, hand.off, meta)
 
-        state = self._state(view)
+        state = self.strategy.state(view.hole, view.board)
         probabilities = self.strategy.probabilities(node, state)
         dealer = random.Random(f"{self.seed}:{view.hand_id}:{len(view.events)}")
         # The likeliest action catches a roll past the rounded total, never an unplayed one.
@@ -191,7 +195,12 @@ class BlueprintAgent:
         hand.mine = "c" if passive else label
         method = "translated" if hand.translated else "own"
         street = _STREETS[view.street]
-        what = class_name(state) if view.street is Street.PREFLOP else f"bucket {state}"
+        if view.street is Street.PREFLOP:
+            what = class_name(state)
+        else:
+            buckets = self.strategy.cards.buckets(_ROUNDS[view.street])
+            group, held = divmod(state, buckets)
+            what = f"group {group} bucket {held}" if self.strategy.groups else f"bucket {held}"
         why = f"{street} {what}: {describe(label)} ({chance:.0%})"
         return self._decide(action, method, why, meta | {"bucket": state})
 
@@ -211,11 +220,6 @@ class BlueprintAgent:
                     f"{depth:g} bb deep, outside the {DEPTH_BAND[0]:g}-{DEPTH_BAND[1]:g} it plays"
                 )
         return hand
-
-    def _state(self, view: SeatView) -> int:
-        if view.street is Street.PREFLOP:
-            return class_index(*view.hole)
-        return bucket(self.strategy.cards, view.hole, view.board)
 
     def _catch_up(self, view: SeatView, hand: _Hand) -> None:
         """Walk the tree through every action since this seat last looked."""
