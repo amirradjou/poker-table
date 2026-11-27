@@ -77,15 +77,16 @@ def play(strategy_file: Path, out: Path) -> int:
     return 0
 
 
-def per_hand(folder: Path) -> dict[str, tuple[int, tuple, float]]:
-    """Hand number -> (seed, hole cards, the entrant's all-in adjusted big blinds)."""
+def per_hand(folder: Path) -> dict[str, tuple[int, tuple, float, bool]]:
+    """Hand number -> (seed, hole cards, the entrant's all-in adjusted big blinds, whether the
+    hand needed adjusting)."""
     found = {}
     for history in read_jsonl(folder / "hands.jsonl"):
         seat = next(p.seat for p in history.players if p.name == ENTRANT)
         worth = all_in_adjusted(history)
         chips = history.players[seat].net if worth is None else worth[seat]
         holes = tuple(tuple(p.hole) for p in history.players)
-        found[history.hand_id] = (history.seed, holes, chips / history.big_blind)
+        found[history.hand_id] = (history.seed, holes, chips / history.big_blind, worth is not None)
     return found
 
 
@@ -106,16 +107,17 @@ def pair(first: Path, second: Path) -> int:
         if a.keys() != b.keys():
             raise SystemExit(f"{name}: the two runs have different hands")
         differences = []
-        for hand, (seed, holes, chips) in a.items():
+        for hand, (seed, holes, chips, _) in a.items():
             if (seed, holes) != b[hand][:2]:
                 raise SystemExit(f"{name}, hand {hand}: not the same deal")
             differences.append(chips - b[hand][2])
         every += differences
         mean, half = interval(differences)
         same = sum(d == 0 for d in differences)
+        adjusted = [sum(v[3] for v in run.values()) for run in (a, b)]
         print(
             f"  vs {opponent}: {mean:+.1f} ±{half:.1f} over {len(differences)} hands "
-            f"({same} hands the same)"
+            f"({same} hands the same; all-in adjusted {adjusted[0]} and {adjusted[1]})"
         )
     mean, half = interval(every)
     low, high = mean - half, mean + half
