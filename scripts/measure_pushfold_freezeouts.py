@@ -53,6 +53,7 @@ def freezeout(seat: str, opponent: str, number: int) -> dict:
     entrant = agents[0]
     seated = [agents[i] for i in experiment.seating(number)]
     reasons: Counter[str] = Counter()
+    charts: Counter[str] = Counter()  # the chart's own and translated decisions, by ante
 
     def on_decision(record, hand) -> None:
         if hand.seats[record.seat].name != ENTRANT:
@@ -61,6 +62,8 @@ def freezeout(seat: str, opponent: str, number: int) -> dict:
             raise SystemExit(f"{seat} broke in tournament {number}: {record.reasoning}")
         if record.meta.get("method") == "fallback":
             reasons[record.meta.get("off_chart", "?")] += 1
+        elif record.meta.get("method") in ("own", "translated"):
+            charts[record.meta.get("ante", "0")] += 1
 
     result = run_tournament(
         seated,
@@ -77,6 +80,7 @@ def freezeout(seat: str, opponent: str, number: int) -> dict:
         "translated": usage.translated if usage else 0,
         "fallback": usage.fallback if usage else 0,
         "reasons": reasons,
+        "charts": charts,
     }
 
 
@@ -110,9 +114,15 @@ def measure(opponent: str, count: int) -> tuple[str, str, list[dict]]:
     for a in chart:
         reasons.update(a["reasons"])
     fallbacks = sum(reasons.values())
+    charts: Counter[str] = Counter()
+    for a in chart:
+        charts.update(a["charts"])
+    played = sum(charts.values())
     detail = (
         f"{opponent}: {decisions} decisions, {fallbacks} by the fallback ("
         + ", ".join(f"{why} {n / decisions:.1%}" for why, n in reasons.most_common())
+        + f"), {played} from a chart ("
+        + ", ".join(f"ante {key} {charts[key] / played:.0%}" for key in ("0", "1/10", "1/8"))
         + f"); the chart never played in {untouched} tournaments, and those came out the same "
         f"as tag's; {unfinished} unfinished"
     )
