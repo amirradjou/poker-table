@@ -94,6 +94,8 @@ Kinds: `random`, `station`, `tag`, `rock`, `maniac`, `laya`, `human`, `llm:mania
 defines (`poker-table agents` lists them). Name a seat with `name:kind`, as in `me:human`.
 The two solver seats play heads-up only (`--seats me:human,cfr:blueprint`); what they are and how
 they measure: [docs/solver-seats.md](https://github.com/amirradjou/poker-table/blob/main/docs/solver-seats.md).
+The papers behind them, and why the others are not seats:
+[docs/research-seats.md](https://github.com/amirradjou/poker-table/blob/main/docs/research-seats.md).
 
 ```sh
 # LLM seats run on your own key (export ANTHROPIC_API_KEY=...): kind is llm:<personality>[@model]

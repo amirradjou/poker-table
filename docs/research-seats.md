@@ -3,7 +3,8 @@
 Several papers say they solved poker, or beat professionals. Before any of them becomes a seat
 here, this page checks each claim against the paper's own text. It also records what game the
 result covers, what was released and under which licence, and what it cost to build. The last
-column says what this table will do with it. Everything was checked on 2026-11-26,
+column says what this table does with it. The seats it led to are in
+[solver-seats.md](solver-seats.md). Everything was checked on 2026-11-26,
 and anything that could not be checked says "not verified".
 
 ## What "solved" means
@@ -142,18 +143,21 @@ for each decision.
 - **Frameworks (20-21).** Not seats. OpenSpiel's CFR on Kuhn or Leduc poker could cross-check our
   CFR code in a test.
 
-## What this table will offer
+## What this table offers
 
-**Research seats planned**, as our own reimplementations in a separate PR. Both will play at
-two-seat tables only and be refused anywhere else:
+**Two research seats**, our own reimplementations. Both play at two-seat tables only and are
+refused anywhere else. What each one is, how it was checked and how it measures is in
+[solver-seats.md](solver-seats.md):
 
 - `nash:pushfold`: a heads-up push/fold equilibrium we compute, for short stacks (row 18).
-- `cfr:blueprint`: a CFR-family blueprint on our own coarse heads-up no-limit abstraction, in the
+- `cfr:blueprint`: a CFR+ blueprint on our own coarse heads-up no-limit abstraction, in the
   style of the Libratus and Pluribus blueprints (rows 3 and 5), without their subgame solving.
 
-Each will be named for what it is and link its paper, never called "Libratus" or "Pluribus". Both
-will be measured like every other seat: on the [benchmark](leaderboard.md) with all-in adjusted bb/100
-and intervals, plus exploitability within our abstraction where it can be computed.
+Each is named for what it is and links its paper, never called "Libratus" or "Pluribus". Both are
+measured like every other seat, with all-in adjusted bb/100 and intervals, on the
+[heads-up track](leaderboard-heads-up.md) of the benchmark, because the main
+[benchmark](leaderboard.md) is five-handed. Their exploitability within our abstraction is in
+[solver-seats.md](solver-seats.md).
 
 **Wrappers: none.** A wrapper has to play no-limit hold'em, ship a usable strategy (or one we can
 train here), and carry a licence that fits MIT. Nothing passes all three. Slumbot's code is MIT but
@@ -181,4 +185,5 @@ paper for now); and frameworks (OpenSpiel, PokerRL, RLCard).
    100 bb. A seat should be built for the depth it plays at. Comparing with a paper's number needs
    the 200 bb format (`--stack 400` at blinds of 1/2).
 
-Trained strategy files too big for git go in release assets, as the plan says.
+Trained strategy files too big for git go in release assets, as the plan says. The blueprint is
+128 KB, so it ships in the package.
