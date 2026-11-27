@@ -79,7 +79,7 @@ It makes no model calls and needs no training. It plays at any table from 2 to 9
 browser demo can run it.
 
 ```sh
-uv run poker-table play -n 200 --seats exploiter,station,maniac --show
+uv run poker-table play -n 200 --seats exploiter,station --show
 ```
 
 **When a read counts.** An opponent needs 20 hands seen before any read of it counts. Its fold
