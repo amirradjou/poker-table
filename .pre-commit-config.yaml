@@ -8,12 +8,13 @@ repos:
       - id: check-yaml
       - id: check-json
       - id: check-added-large-files
-        exclude: ^docs/results/[^/]+/hands\.jsonl$
+        exclude: ^docs/results(/[^/]+/hands|-slumbot/[^/]+/(hands|api)-\d+)\.jsonl$
       # A published run has to keep the hands it was played with, so those get more room.
+      # The Slumbot benchmark splits its hands and API exchanges into files under 1.9 MB.
       - id: check-added-large-files
         name: check for very large published hand files
         args: [--maxkb=2048]
-        files: ^docs/results/[^/]+/hands\.jsonl$
+        files: ^docs/results(/[^/]+/hands|-slumbot/[^/]+/(hands|api)-\d+)\.jsonl$
       - id: check-merge-conflict
       - id: detect-private-key
 # Language-specific hooks are appended by /new-project (ruff, prettier, gofmt, rustfmt…)

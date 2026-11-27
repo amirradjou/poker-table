@@ -1,0 +1,353 @@
+{
+ "check_call_to_showdown": [
+  {
+   "endpoint": "new_hand",
+   "request": {},
+   "response": {
+    "old_action": "",
+    "action": "b200",
+    "client_pos": 0,
+    "hole_cards": [
+     "Kc",
+     "7h"
+    ],
+    "board": []
+   }
+  },
+  {
+   "endpoint": "act",
+   "request": {
+    "incr": "c"
+   },
+   "response": {
+    "old_action": "b200",
+    "action": "b200c/",
+    "client_pos": 0,
+    "hole_cards": [
+     "Kc",
+     "7h"
+    ],
+    "board": [
+     "Ah",
+     "Ac",
+     "6d"
+    ]
+   }
+  },
+  {
+   "endpoint": "act",
+   "request": {
+    "incr": "k"
+   },
+   "response": {
+    "old_action": "b200c/",
+    "action": "b200c/kb200",
+    "client_pos": 0,
+    "hole_cards": [
+     "Kc",
+     "7h"
+    ],
+    "board": [
+     "Ah",
+     "Ac",
+     "6d"
+    ]
+   }
+  },
+  {
+   "endpoint": "act",
+   "request": {
+    "incr": "c"
+   },
+   "response": {
+    "old_action": "b200c/kb200",
+    "action": "b200c/kb200c/",
+    "client_pos": 0,
+    "hole_cards": [
+     "Kc",
+     "7h"
+    ],
+    "board": [
+     "Ah",
+     "Ac",
+     "6d",
+     "Td"
+    ]
+   }
+  },
+  {
+   "endpoint": "act",
+   "request": {
+    "incr": "k"
+   },
+   "response": {
+    "old_action": "b200c/kb200c/",
+    "action": "b200c/kb200c/kk/",
+    "client_pos": 0,
+    "hole_cards": [
+     "Kc",
+     "7h"
+    ],
+    "board": [
+     "Ah",
+     "Ac",
+     "6d",
+     "Td",
+     "3d"
+    ]
+   }
+  },
+  {
+   "endpoint": "act",
+   "request": {
+    "incr": "k"
+   },
+   "response": {
+    "old_action": "b200c/kb200c/kk/",
+    "action": "b200c/kb200c/kk/kk",
+    "client_pos": 0,
+    "hole_cards": [
+     "Kc",
+     "7h"
+    ],
+    "board": [
+     "Ah",
+     "Ac",
+     "6d",
+     "Td",
+     "3d"
+    ],
+    "bot_hole_cards": [
+     "Kd",
+     "6s"
+    ],
+    "winnings": -400,
+    "won_pot": -800,
+    "session_num_hands": 1,
+    "baseline_winnings": 0,
+    "session_total": -400,
+    "session_baseline_total": 0
+   }
+  }
+ ],
+ "fold_the_button": [
+  {
+   "endpoint": "new_hand",
+   "request": {},
+   "response": {
+    "old_action": "",
+    "action": "",
+    "client_pos": 1,
+    "hole_cards": [
+     "5c",
+     "4h"
+    ],
+    "board": []
+   }
+  },
+  {
+   "endpoint": "act",
+   "request": {
+    "incr": "f"
+   },
+   "response": {
+    "old_action": "",
+    "action": "f",
+    "client_pos": 1,
+    "hole_cards": [
+     "5c",
+     "4h"
+    ],
+    "board": [],
+    "bot_hole_cards": [
+     "Td",
+     "8d"
+    ],
+    "winnings": -50,
+    "won_pot": -150,
+    "session_num_hands": 2,
+    "baseline_winnings": 1150,
+    "session_total": -450,
+    "session_baseline_total": 1150
+   }
+  }
+ ],
+ "bad_bet_then_shove": [
+  {
+   "endpoint": "new_hand",
+   "request": {},
+   "response": {
+    "old_action": "",
+    "action": "b200",
+    "client_pos": 0,
+    "hole_cards": [
+     "8c",
+     "2d"
+    ],
+    "board": []
+   }
+  },
+  {
+   "endpoint": "act",
+   "request": {
+    "incr": "b1"
+   },
+   "response": {
+    "old_action": "b200",
+    "error_msg": "Bet size too small"
+   }
+  },
+  {
+   "endpoint": "act",
+   "request": {
+    "incr": "b20000"
+   },
+   "response": {
+    "old_action": "b200",
+    "action": "b200b20000f",
+    "client_pos": 0,
+    "hole_cards": [
+     "8c",
+     "2d"
+    ],
+    "board": [],
+    "bot_hole_cards": [
+     "Jc",
+     "3d"
+    ],
+    "winnings": 200,
+    "won_pot": 20200,
+    "session_num_hands": 3,
+    "baseline_winnings": 300,
+    "session_total": -250,
+    "session_baseline_total": 1450
+   }
+  }
+ ],
+ "shove_the_button": [
+  {
+   "endpoint": "new_hand",
+   "request": {},
+   "response": {
+    "old_action": "",
+    "action": "",
+    "client_pos": 1,
+    "hole_cards": [
+     "6h",
+     "4d"
+    ],
+    "board": []
+   }
+  },
+  {
+   "endpoint": "act",
+   "request": {
+    "incr": "b20000"
+   },
+   "response": {
+    "old_action": "",
+    "action": "b20000f",
+    "client_pos": 1,
+    "hole_cards": [
+     "6h",
+     "4d"
+    ],
+    "board": [],
+    "bot_hole_cards": [
+     "Qh",
+     "6d"
+    ],
+    "winnings": 100,
+    "won_pot": 20100,
+    "session_num_hands": 4,
+    "baseline_winnings": -300,
+    "session_total": -150,
+    "session_baseline_total": 1150
+   }
+  }
+ ],
+ "left_unfinished": [
+  {
+   "endpoint": "new_hand",
+   "request": {},
+   "response": {
+    "old_action": "",
+    "action": "b200",
+    "client_pos": 0,
+    "hole_cards": [
+     "Tc",
+     "5c"
+    ],
+    "board": []
+   }
+  }
+ ],
+ "fold_the_button_again": [
+  {
+   "endpoint": "new_hand",
+   "request": {},
+   "response": {
+    "old_action": "",
+    "action": "",
+    "client_pos": 1,
+    "hole_cards": [
+     "Ac",
+     "6c"
+    ],
+    "board": []
+   }
+  },
+  {
+   "endpoint": "act",
+   "request": {
+    "incr": "f"
+   },
+   "response": {
+    "old_action": "",
+    "action": "f",
+    "client_pos": 1,
+    "hole_cards": [
+     "Ac",
+     "6c"
+    ],
+    "board": [],
+    "bot_hole_cards": [
+     "8s",
+     "6s"
+    ],
+    "winnings": -50,
+    "won_pot": -150,
+    "session_num_hands": 2,
+    "baseline_winnings": 150,
+    "session_total": -50,
+    "session_baseline_total": 150
+   }
+  }
+ ],
+ "slumbot_folds_in_new_hand": [
+  {
+   "endpoint": "new_hand",
+   "request": {},
+   "response": {
+    "old_action": "",
+    "action": "f",
+    "client_pos": 0,
+    "hole_cards": [
+     "9s",
+     "8d"
+    ],
+    "board": [],
+    "bot_hole_cards": [
+     "3c",
+     "2d"
+    ],
+    "winnings": 50,
+    "won_pot": 150,
+    "session_num_hands": 3,
+    "baseline_winnings": 0,
+    "session_total": 0,
+    "session_baseline_total": 150
+   }
+  }
+ ]
+}
