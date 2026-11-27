@@ -1,0 +1,20 @@
+{
+  "seat": "station",
+  "kind": "station",
+  "against": "Slumbot, through its public API (https://www.slumbot.com/)",
+  "stakes": "blinds 50/100, 20,000 chips (200 big blinds), reset every hand",
+  "hands": 1000,
+  "runs": [
+    {
+      "run": 1,
+      "seed": 2026,
+      "started": "2026-11-27T18:12:37+00:00",
+      "ended": "2026-11-27T18:36:04+00:00",
+      "seconds": 1407.5,
+      "hands": 1000,
+      "refused": 0,
+      "requests": 5629,
+      "stopped": "finished"
+    }
+  ]
+}
