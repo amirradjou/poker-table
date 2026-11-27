@@ -97,9 +97,15 @@ def interval(differences: list[float]) -> tuple[float, float]:
     return mean, half
 
 
+def _rounded(result: tuple[float, float]) -> str:
+    """A run's own result as the leaderboard prints it."""
+    return f"{result[0]:+.0f} ±{result[1]:.0f}"
+
+
 def pair(first: Path, second: Path) -> int:
     started = time.monotonic()
     every: list[float] = []
+    sides: tuple[list[float], list[float]] = ([], [])  # each run's own result in every hand
     print(f"{first} minus {second}, all-in adjusted, in bb/100:")
     for opponent in OPPONENTS:
         name = heads_up_name(SEAT, opponent)
@@ -115,13 +121,19 @@ def pair(first: Path, second: Path) -> int:
         mean, half = interval(differences)
         same = sum(d == 0 for d in differences)
         adjusted = [sum(v[3] for v in run.values()) for run in (a, b)]
+        for side, run in zip(sides, (a, b), strict=True):
+            side += [v[2] for v in run.values()]
+        own = [_rounded(interval([v[2] for v in run.values()])) for run in (a, b)]
         print(
             f"  vs {opponent}: {mean:+.1f} ±{half:.1f} over {len(differences)} hands "
-            f"({same} hands the same; all-in adjusted {adjusted[0]} and {adjusted[1]})"
+            f"({same} hands the same; all-in adjusted {adjusted[0]} and {adjusted[1]}; "
+            f"on their own {own[0]} and {own[1]})"
         )
     mean, half = interval(every)
     low, high = mean - half, mean + half
     print(f"  all {len(every)} hands: {mean:+.1f} ±{half:.1f} (from {low:+.1f} to {high:+.1f})")
+    own = [_rounded(interval(side)) for side in sides]
+    print(f"  on their own: {own[0]} for {first.name}, {own[1]} for {second.name}")
     if all(d == 0 for d in every):
         print("  every hand is the same: the two runs played alike")
     print(f"{time.monotonic() - started:.0f} s, load {load()}")
