@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import random
+import secrets
 import socket
 import sys
 import tempfile
@@ -33,6 +34,7 @@ from poker_table.margins import calls, seat_margins
 from poker_table.stats import compute_stats, format_table
 
 DEFAULT_SEATS = "tag,rock,maniac,station,random"
+SHARED_TIME_LIMIT = 60.0  # seconds a decision, by default, at a table with two or more people
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -279,6 +281,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     watch.add_argument("--port", type=int, help="the port (default: the first free from 8765)")
     watch.add_argument("--no-open", action="store_true", help="do not open the browser")
+    add_reach_options(watch)
+    add_time_limit_option(watch)
 
     serve = sub.add_parser("serve", help="open the replay viewer and leaderboard in a browser")
     serve.add_argument("file", type=Path, help="JSONL file (may still be growing)")
@@ -298,15 +302,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="also export the odds panel (about half a second of maths per hand)",
     )
-    serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
-    serve.add_argument(
-        "--allow-host",
-        action="append",
-        default=[],
-        metavar="NAME",
-        help="a name this table also answers to, such as a tunnel's (repeatable)",
-    )
+    add_reach_options(serve)
     serve.add_argument("--open", action="store_true", help="open the browser")
     serve.add_argument(
         "--live",
@@ -322,7 +319,12 @@ def build_parser() -> argparse.ArgumentParser:
     add_tournament_options(serve)
     serve.add_argument("-s", "--seats", default=DEFAULT_SEATS, help="seats for --live ('human' ok)")
     add_agents_option(serve)
-    serve.add_argument("--seed", type=int, default=0)
+    serve.add_argument(
+        "--seed",
+        type=int,
+        help="the decks to deal with --live (default 0; with two or more people, a secret one)",
+    )
+    add_time_limit_option(serve)
     serve.add_argument("--blinds", default="1/2")
     serve.add_argument("--stack", type=int, default=200)
     serve.add_argument(
@@ -338,6 +340,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="seconds between bot decisions with --live, so hands can be watched (default 0.8)",
     )
     return parser
+
+
+def add_reach_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="the address to listen on (default 127.0.0.1; 0.0.0.0 for other machines)",
+    )
+    parser.add_argument(
+        "--allow-host",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="a name this table also answers to, such as a tunnel's (repeatable)",
+    )
+
+
+def add_time_limit_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--time-limit",
+        type=float,
+        metavar="SECONDS",
+        help=(
+            "seconds a person has for each decision before the table checks or folds for them "
+            f"(default {SHARED_TIME_LIMIT:g} with two or more people, none with one; 0 for none)"
+        ),
+    )
 
 
 def add_tournament_options(parser: argparse.ArgumentParser) -> None:
@@ -1016,8 +1045,8 @@ def cmd_watch(args: argparse.Namespace, out) -> int:
         argparse.Namespace(
             file=hands,
             export=None,
-            host="127.0.0.1",
-            allow_host=[],
+            host=args.host,
+            allow_host=args.allow_host,
             port=args.port or free_port(),
             open=not args.no_open,
             live=True,
@@ -1027,7 +1056,9 @@ def cmd_watch(args: argparse.Namespace, out) -> int:
             level_hands=args.level_hands,
             seats=args.seats,
             agents=args.agents,
-            seed=random.randrange(2**32) if args.seed is None else args.seed,
+            seed=args.seed,
+            fresh_decks=True,
+            time_limit=args.time_limit,
             blinds="1/2",
             stack=200,
             budget=args.budget,
@@ -1037,11 +1068,51 @@ def cmd_watch(args: argparse.Namespace, out) -> int:
     )
 
 
+def is_person(spec: str) -> bool:
+    """Whether a seat spec seats a person (``human``, ``ann:human``; ``llm:human`` is a model)."""
+    parts = [p.strip().lower() for p in spec.split(":")]
+    return parts[-1] == "human" and (len(parts) == 1 or (len(parts) == 2 and parts[0] != "llm"))
+
+
+def lan_address() -> str:
+    """This machine's address on its local network, for links that other machines open."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+        try:
+            probe.connect(("192.0.2.1", 9))  # a documentation address: UDP connect sends nothing
+            return probe.getsockname()[0]
+        except OSError:
+            return "127.0.0.1"
+
+
+def print_seat_links(live: Any, host: str, port: int, allow_host: Sequence[str], out) -> None:
+    """One private link per person, and one for watching, to send to friends."""
+    from poker_table.web.guard import EVERY_INTERFACE, LOOPBACK
+
+    address = lan_address() if host in EVERY_INTERFACE else host
+    base = f"http://{address}:{port}/"
+    width = max(len(name) for name in ["watch", *(a.name for a in live.humans)])
+    print("Seat links. Send each one privately: whoever opens it plays that seat.", file=out)
+    for agent in live.humans:
+        print(f"  {agent.name:<{width}}  {base}?seat={agent.token}", file=out)
+    print(f"  {'watch':<{width}}  {base}  (no seat, no cards)", file=out)
+    limit = f"{live.time_limit:g} s a decision, then" if live.time_limit else "no time limit, so"
+    print(f"Each person has {limit} the table checks or folds for them.", file=out)
+    if allow_host:
+        tunnel = f"https://{allow_host[0]}/?seat=..."
+        print(f"Through a tunnel, put its address at the start of each link: {tunnel}", file=out)
+    elif host in LOOPBACK:
+        print(
+            "This table only listens on this computer. For friends elsewhere: --host 0.0.0.0 on "
+            "a network you trust, or a tunnel with --allow-host NAME.",
+            file=out,
+        )
+
+
 def cmd_serve(args: argparse.Namespace, out) -> int:
     import uvicorn
 
     from poker_table.web.app import create_app
-    from poker_table.web.guard import hosts_to_answer
+    from poker_table.web.guard import EVERY_INTERFACE, hosts_to_answer
 
     if args.export is not None:
         from poker_table.web.export import export_site
@@ -1067,6 +1138,14 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
 
         small, big = parse_blinds(args.blinds)
         specs = [s for s in args.seats.split(",") if s.strip()]
+        people = sum(map(is_person, specs))
+        if args.seed is None:
+            # Friends see their own cards and every board, and a known or small seed would let
+            # them work out the rest of each deck. A table of bots keeps its replayable seeds.
+            if people > 1:
+                args.seed = secrets.randbits(63)
+            else:
+                args.seed = random.randrange(2**32) if getattr(args, "fresh_decks", False) else 0
         agents = [
             WebHumanAgent(a.name) if isinstance(a, HumanAgent) else a
             for a in make_agents(specs, seed=args.seed, custom=custom_kinds(args))
@@ -1084,8 +1163,16 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
         args.file.parent.mkdir(parents=True, exist_ok=True)
         args.file.touch()
         tournament = tournament_config(args) if args.tournament else None
+        time_limit = args.time_limit
+        if time_limit is None:
+            time_limit = SHARED_TIME_LIMIT if people > 1 else 0.0
         live = LiveSession(
-            agents, config, args.file, pace=max(0.0, args.pace), tournament=tournament
+            agents,
+            config,
+            args.file,
+            pace=max(0.0, args.pace),
+            tournament=tournament,
+            time_limit=max(0.0, time_limit),
         )
     allowed_hosts = hosts_to_answer(args.host, args.allow_host)
     if allowed_hosts is None:
@@ -1095,7 +1182,9 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
             file=sys.stderr,
         )
     app = create_app(args.file, live, allowed_hosts=allowed_hosts)
-    url = f"http://{args.host}:{args.port}/"
+    # A browser cannot open 0.0.0.0 by name once --allow-host guards the table: use this machine.
+    local = "127.0.0.1" if args.host in EVERY_INTERFACE else args.host
+    url = f"http://{local}:{args.port}/"
     print(f"poker-table viewer on {url} (Ctrl-C to stop)", file=out)
     if live is not None:
         seats = ", ".join(a.name for a in live.agents)
@@ -1105,6 +1194,10 @@ def cmd_serve(args: argparse.Namespace, out) -> int:
         else:
             what = f"{live.config.hands} hands between {seats}"
         print(f"live: {what}, appending to {args.file}", file=out)
+        if live.shared:
+            print_seat_links(live, args.host, args.port, args.allow_host, out)
+            if args.open:
+                print("Your browser opens the watching page: open your own link to play.", file=out)
         live.start()
     if args.open:
         import webbrowser

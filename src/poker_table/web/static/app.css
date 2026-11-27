@@ -470,6 +470,8 @@ input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 
 }
 .action-bar .lead { width: 100%; font: 600 18px var(--condensed); }
 .action-bar .lead span { font: 400 15px "Barlow", sans-serif; color: var(--ivory-soft); margin-left: 6px; }
+.action-bar .lead .clock { float: right; font: 600 17px var(--condensed); color: var(--brass-hi); font-variant-numeric: tabular-nums; }
+.action-bar .lead .clock.low { color: var(--down); }
 .action-bar button { font: 600 17px var(--condensed); padding: 7px 18px; }
 .action-bar button.primary { background: #1f7a4a; border-color: #2a8f59; color: #f3fbf6; }
 .action-bar button.primary:hover { background: #238a54; }
