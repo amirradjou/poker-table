@@ -29,6 +29,7 @@ from poker_table.league import (
     parse_levels,
     run_league,
     run_tournament,
+    tournament_shape,
 )
 from poker_table.margins import calls, seat_margins
 from poker_table.stats import compute_stats, format_table
@@ -607,9 +608,7 @@ def note_spending(agents: Sequence[Agent], budget: float | None) -> None:
 def table_shape(args: argparse.Namespace, seats: int) -> TableShape:
     """The first hand's table, as a seat built for one kind of table needs to know it."""
     if getattr(args, "tournament", False):
-        first = tournament_config(args)
-        level = first.schedule[0]
-        return TableShape(seats, level.small_blind, level.big_blind, level.ante, args.stack)
+        return tournament_shape(seats, tournament_config(args).schedule, args.stack)
     small, big = parse_blinds(args.blinds or "1/2")
     return TableShape(seats, small, big, getattr(args, "ante", None) or 0, args.stack)
 

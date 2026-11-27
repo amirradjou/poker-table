@@ -66,6 +66,7 @@ from poker_table.league import (
     show_hand,
     spent_usd,
     standings_of,
+    tournament_shape,
 )
 from poker_table.margins import CAVEAT, Finish, all_in_note, calls, finish_calls, seat_margins
 from poker_table.stats import compute_stats, format_table
@@ -123,8 +124,7 @@ class Experiment:
     def shape(self, seats: int) -> TableShape:
         """The first hand's table, as a seat built for one kind of table needs to know it."""
         if self.tournaments:
-            first = self.levels[0]
-            return TableShape(seats, first.small_blind, first.big_blind, first.ante, self.stack)
+            return tournament_shape(seats, self.levels, self.stack)
         return TableShape(seats, self.small_blind, self.big_blind, self.ante, self.stack)
 
     # ----- freezeouts: tournament ``number`` counts from 1 ------------------------------------

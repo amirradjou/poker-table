@@ -231,6 +231,15 @@ DEFAULT_SCHEDULE = (
 )
 
 
+def tournament_shape(seats: int, schedule: Sequence[Level], stack: int) -> TableShape:
+    """A freezeout's first hand, as a seat built for one kind of table needs to know it, with
+    the levels to come: a seat can then tell a table it can never play from one it can play
+    later."""
+    first = schedule[0]
+    levels = tuple((level.small_blind, level.big_blind, level.ante) for level in schedule)
+    return TableShape(seats, first.small_blind, first.big_blind, first.ante, stack, levels)
+
+
 def parse_levels(text: str) -> tuple[Level, ...]:
     """``"1/2,2/4,5/10+1"`` -> a blind schedule; ``+n`` on a level is its ante."""
     levels = []
@@ -360,10 +369,7 @@ def run_tournament(
     names = [a.name for a in agents]
     if len(set(names)) != len(names):
         raise ValueError("agent names must be unique")
-    first = config.schedule[0]
-    shape = TableShape(
-        len(agents), first.small_blind, first.big_blind, first.ante, config.starting_stack
-    )
+    shape = tournament_shape(len(agents), config.schedule, config.starting_stack)
     _refuse(seating_problems(agents, shape))
 
     result = TournamentResult(config, hands_dealt=dict.fromkeys(names, 0))
