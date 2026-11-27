@@ -164,6 +164,20 @@ def test_a_replay_steps_through_a_hand(page: Page, serve, hands: Path) -> None:
     expect(scrub).to_have_value("0")
 
 
+def test_an_exploiter_seat_says_what_it_is(page: Page, serve, tmp_path: Path) -> None:
+    path = tmp_path / "exploiter.jsonl"
+    seats = "exploiter,station"
+    assert main(["play", "-n", "2", "--seats", seats, "--seed", "7", "-o", str(path), "-q"]) == 0
+    page.goto(serve(create_app(path)))
+    page.locator("#hand-list button").first.click()
+    seat = page.locator("#table .seat", has_text="exploiter")
+    expect(seat.locator(".pos")).to_contain_text("exploiter")
+    label = seat.locator(".pos span[title]")
+    expect(label).to_have_attribute(
+        "title", "a tag that adapts to what it has seen of each opponent"
+    )
+
+
 def test_the_leaderboard_fills_in_its_error_bars(page: Page, serve, hands: Path) -> None:
     page.goto(serve(create_app(hands)))
     page.locator("#tab-board").click()

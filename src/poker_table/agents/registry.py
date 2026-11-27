@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from poker_table.agents.base import Agent, TableShape, heads_up_refusal, seating_problems
 from poker_table.agents.blueprint import BlueprintAgent
 from poker_table.agents.compat import is_compat
+from poker_table.agents.exploiter import ExploiterAgent
 from poker_table.agents.human import HumanAgent
 from poker_table.agents.laya import DEFAULT_MODEL as LAYA_MODEL
 from poker_table.agents.laya import INSTALL_HINT, LayaAgent
@@ -35,6 +36,7 @@ SCRIPTED: dict[str, Factory] = {
         name, tightness=2, aggression=0.3, seed=seed, kind="rock"
     ),
     "maniac": lambda name, seed: Maniac(name, seed=seed),
+    "exploiter": lambda name, seed: ExploiterAgent(name, seed=seed),
     "human": lambda name, seed: HumanAgent(name),
 }
 
@@ -50,6 +52,7 @@ PREFIXES = ("llm", "cfr", "nash")
 BUILT_IN: dict[str, str] = {
     "tag": "tight-aggressive regular: Chen-formula preflop, made-hand rules after the flop",
     "rock": "a tag that waits longer and bets less",
+    "exploiter": "a tag that adapts to what it has seen of each opponent",
     "maniac": "raises most of the time and almost never folds",
     "station": "calls everything, never raises",
     "random": "any legal action, chosen at random",
