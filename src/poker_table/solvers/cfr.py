@@ -23,6 +23,10 @@ convergence guarantee, which is also true of the abstractions behind the big pok
 best response here always remembers its own earlier states, so it can only be stronger than one
 that forgets.
 
+A chance step can also be an object instead of a dense array (``Chance``): ``solvers/recall.py``
+uses that for a game whose later states carry a preflop group along, where the dense array would
+be mostly zeros. The walks below do the same arithmetic either way.
+
 CFR+ is Tammelin (2014), https://arxiv.org/abs/1407.5042: regret matching with regrets floored
 at zero, alternating updates, and an average strategy weighted by iteration number.
 """
@@ -31,6 +35,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from typing import Protocol
 
 import numpy as np
 
@@ -95,11 +100,42 @@ def number_decisions(root: Node) -> list[Node]:
     return found
 
 
+class Chance(Protocol):
+    """A chance step kept in a form that is cheaper than the dense ``[a, b, c, d]`` array."""
+
+    def deal(self, reach: np.ndarray) -> np.ndarray:
+        """``einsum("ab,abcd->cd", reach, move)``."""
+        ...
+
+    def undeal(self, value: np.ndarray) -> np.ndarray:
+        """``einsum("abcd,cd->ab", move, value)``."""
+        ...
+
+    def responder_block(self, br_player: int, state: int) -> tuple[np.ndarray, np.ndarray]:
+        """For the best response in seat ``br_player`` holding ``state``: a matrix ``[other's
+        old state, (its new state, other's new state)]``, then the new states it can move to,
+        in the order of the matrix's column blocks. The other player is the one whose strategy
+        is fixed."""
+        ...
+
+
+def deal(move: np.ndarray | Chance, reach: np.ndarray) -> np.ndarray:
+    if isinstance(move, np.ndarray):
+        return np.einsum("ab,abcd->cd", reach, move)
+    return move.deal(reach)
+
+
+def undeal(move: np.ndarray | Chance, value: np.ndarray) -> np.ndarray:
+    if isinstance(move, np.ndarray):
+        return np.einsum("abcd,cd->ab", move, value)
+    return move.undeal(value)
+
+
 @dataclass
 class Game:
     states: tuple[int, ...]
     p0: np.ndarray
-    transitions: tuple[np.ndarray | None, ...]  # [r] leads into round r; [0] is None
+    transitions: tuple[np.ndarray | Chance | None, ...]  # [r] leads into round r; [0] is None
     share: dict[int, np.ndarray]
     root: Node
     decisions: list[Node] = field(init=False)
@@ -179,15 +215,10 @@ class CFRPlus:
             return _utility0(node, self.game.share)
         if kind == CHANCE:
             move = self.game.transitions[node.round]
-            value = self._walk(
-                node.children[0],
-                np.einsum("ab,abcd->cd", r0, move),
-                np.einsum("ab,abcd->cd", r1, move),
-                player,
-            )
+            value = self._walk(node.children[0], deal(move, r0), deal(move, r1), player)
             if np.ndim(value) == 0:
                 return value
-            return np.einsum("abcd,cd->ab", move, value)
+            return undeal(move, value)
 
         sigma = regret_matching(self.regrets[node.index])
         actor = node.player
@@ -225,8 +256,7 @@ def expected_value(game: Game, strategy: Sequence[np.ndarray]) -> float:
         if node.kind == FOLD or node.kind == SHOWDOWN:
             return float((reach * _utility0(node, game.share)).sum())
         if node.kind == CHANCE:
-            move = game.transitions[node.round]
-            return walk(node.children[0], np.einsum("ab,abcd->cd", reach, move))
+            return walk(node.children[0], deal(game.transitions[node.round], reach))
         sigma = strategy[node.index]
         total = 0.0
         for a, child in enumerate(node.children):
@@ -268,6 +298,8 @@ def best_response_value(
             return (mass * ours_by_theirs[last]).sum(axis=1)
         if node.kind == CHANCE:
             move = game.transitions[node.round]
+            if not isinstance(move, np.ndarray):
+                return walk_chance(node, mass, last, move)
             # arrange as [our old, their old, our new, their new]
             move = move.transpose(1, 0, 3, 2) if br_player == 0 else move
             n_old, n_ours, n_theirs = move.shape[0], move.shape[2], move.shape[3]
@@ -299,6 +331,27 @@ def best_response_value(
                 continue
             total += walk(child, mass * column[None, :], last)
         return total
+
+    def walk_chance(node: Node, mass: np.ndarray, last: np.ndarray, move: Chance) -> np.ndarray:
+        # Only the new states each history can reach: with a group carried along, the others
+        # would be mostly zeros.
+        histories = mass.shape[0]
+        blocks = {int(s): move.responder_block(br_player, int(s)) for s in np.unique(last)}
+        sizes = np.zeros(histories, dtype=np.int64)
+        for state, (_, support) in blocks.items():
+            sizes[last == state] = len(support)
+        starts = np.cumsum(sizes) - sizes
+        matrix, support = next(iter(blocks.values()))
+        n_ours = matrix.shape[1] // len(support)
+        moved = np.empty((int(sizes.sum()), n_ours))
+        new_last = np.empty(len(moved), dtype=np.int64)
+        for state, (matrix, support) in blocks.items():
+            rows = np.flatnonzero(last == state)
+            at = (starts[rows][:, None] + np.arange(len(support))).ravel()
+            moved[at] = (mass[rows] @ matrix).reshape(len(at), n_ours)
+            new_last[at] = np.tile(support, len(rows))
+        value = walk(node.children[0], moved, new_last)
+        return np.bincount(np.repeat(np.arange(histories), sizes), value, minlength=histories)
 
     start = game.p0 if br_player == 0 else game.p0.T
     return float(walk(game.root, start, np.arange(start.shape[0])).sum())

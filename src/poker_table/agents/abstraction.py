@@ -16,6 +16,11 @@ from the hand's strength now (``wins2 / (2 * totals)``: its chance of beating on
 this board, ties as a half) and, on the flop and turn, whether it holds a flush draw or an
 open-ended straight draw. Each street's bucket forgets the earlier ones (imperfect recall).
 
+**Format 2** of the strategy file adds a little memory: after the flop the seat's state is
+(preflop group, bucket), where the group is one of a few groups of the 169 classes, listed in
+the file. State (g, b) is numbered ``g * buckets + b`` (``grouped_state``), as the solver's
+``solvers/recall.py`` numbers it. A format-1 file has no groups.
+
 **Translation.** Actions that are not in the tree (an opponent's bet of 0.7 pot) are mapped to a
 neighbouring size with the pseudo-harmonic mapping of Ganzfried and Sandholm (IJCAI 2013,
 https://www.ijcai.org/Proceedings/13/Papers/028.pdf).
@@ -36,7 +41,8 @@ from poker_table.evaluator import evaluate
 PREFLOP, FLOP, TURN, RIVER = range(4)
 DECISION, CHANCE, FOLD, SHOWDOWN = "decision", "chance", "fold", "showdown"
 ALL_IN = "a"
-MAGIC = b"PTBLUEPRINT1\n"
+MAGIC = b"PTBLUEPRINT"  # then the format's number and a newline
+FORMATS = (1, 2)  # 1: buckets that forget; 2: buckets that also keep a preflop group
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,8 +297,13 @@ def level(strength: float, cuts: Sequence[float]) -> int:
     return sum(1 for cut in cuts if strength >= cut)
 
 
+def grouped_state(group: int, bucket: int, buckets: int) -> int:
+    """The number of state (preflop group, bucket) on a street with ``buckets`` buckets."""
+    return group * buckets + bucket
+
+
 def bucket(cards: Cards, hole: Sequence[Card], board: Sequence[Card]) -> int:
-    """The seat's state on this street: a class of starting hands, or a bucket of hands."""
+    """The seat's bucket on this street: a class of starting hands, or a bucket of hands."""
     from poker_table.agents.handclass import class_index
 
     if not board:
@@ -332,13 +343,22 @@ def quantize(probabilities: Sequence[float]) -> bytes:
 
 
 def write_strategy(
-    path, betting: Betting, cards: Cards, rows: Sequence[bytes], header: dict
+    path,
+    betting: Betting,
+    cards: Cards,
+    rows: Sequence[bytes],
+    header: dict,
+    groups: Sequence[int] = (),
 ) -> None:
+    """Format 1 without ``groups``; format 2, which keeps a preflop group, with them."""
     payload = dict(header, betting=asdict(betting), cards=asdict(cards))
+    if groups:
+        payload["groups"] = [int(g) for g in groups]
     head = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     blob = zlib.compress(b"".join(rows), 9)
+    version = 2 if groups else 1
     with open(path, "wb") as fh:
-        fh.write(MAGIC + struct.pack(">I", len(head)) + head + blob)
+        fh.write(MAGIC + b"%d\n" % version + struct.pack(">I", len(head)) + head + blob)
 
 
 @dataclass(frozen=True, slots=True)
@@ -350,6 +370,28 @@ class Strategy:
     nodes: tuple[Spot, ...]
     table: bytes
     offsets: tuple[int, ...]  # where each decision node's rows start in ``table``
+    groups: tuple[int, ...] = ()  # format 2: the preflop group of each of the 169 classes
+
+    @property
+    def version(self) -> int:
+        return 2 if self.groups else 1
+
+    def rows(self, street: int) -> int:
+        """How many states a player can be in on ``street``: one row of the table each."""
+        if street == PREFLOP or not self.groups:
+            return self.cards.buckets(street)
+        return (max(self.groups) + 1) * self.cards.buckets(street)
+
+    def state(self, hole: Sequence[Card], board: Sequence[Card]) -> int:
+        """The row this hand plays on this board."""
+        held = bucket(self.cards, hole, board)
+        if not board or not self.groups:
+            return held
+        from poker_table.agents.handclass import class_index
+
+        street = {3: FLOP, 4: TURN, 5: RIVER}[len(board)]
+        group = self.groups[class_index(*hole)]
+        return grouped_state(group, held, self.cards.buckets(street))
 
     def probabilities(self, node: Spot, state: int) -> list[float]:
         width = len(node.labels)
@@ -358,9 +400,17 @@ class Strategy:
 
 
 def read_strategy(data: bytes) -> Strategy:
-    if not data.startswith(MAGIC):
+    if not data.startswith(MAGIC) or b"\n" not in data[: len(MAGIC) + 8]:
         raise ValueError("not a blueprint strategy file")
-    at = len(MAGIC)
+    end = data.index(b"\n")
+    version = data[len(MAGIC) : end].decode("ascii", "replace")
+    if version not in {str(f) for f in FORMATS}:
+        known = " and ".join(str(f) for f in FORMATS)
+        raise ValueError(
+            f"a blueprint strategy file in format {version}; this version of poker-table reads "
+            f"formats {known}"
+        )
+    at = end + 1
     (length,) = struct.unpack(">I", data[at : at + 4])
     header = json.loads(data[at + 4 : at + 4 + length])
     table = zlib.decompress(data[at + 4 + length :])
@@ -375,12 +425,18 @@ def read_strategy(data: bytes) -> Strategy:
     )
     c = header["cards"]
     cards = Cards(flop=tuple(c["flop"]), turn=tuple(c["turn"]), river=tuple(c["river"]))
+    groups: tuple[int, ...] = ()
+    if version == "2":
+        groups = tuple(int(g) for g in header["groups"])
+        if len(groups) != 169 or set(groups) != set(range(max(groups) + 1)):
+            raise ValueError("a format-2 file needs a group 0, 1, ... for each of the 169 classes")
     root = build_tree(betting)
     nodes = tuple(number(root))
+    strategy = Strategy(betting, cards, header, root, nodes, table, (), groups)
     offsets, at = [], 0
     for node in nodes:
         offsets.append(at)
-        at += cards.buckets(node.street) * len(node.labels)
+        at += strategy.rows(node.street) * len(node.labels)
     if at != len(table):
         raise ValueError(f"the strategy has {len(table)} bytes and the tree needs {at}")
-    return Strategy(betting, cards, header, root, nodes, table, tuple(offsets))
+    return Strategy(betting, cards, header, root, nodes, table, tuple(offsets), groups)
