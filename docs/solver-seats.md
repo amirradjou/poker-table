@@ -30,7 +30,7 @@ shoves all in or folds, and the big blind calls or folds. It is solved with no a
 each player posting an ante of 1/10 or 1/8 of the big blind: the two sizes in the default blind
 schedule (`DEFAULT_SCHEDULE` in `league.py`, levels 4-8 and 9-12). Miltersen and Sørensen solved
 this game for a heads-up tournament and found jam/fold near-optimal for short stacks
-([AAMAS 2007](https://www.itu.dk/~trbj/papers/poker.pdf)); that is the paper the seat links.
+([AAMAS 2007](https://doi.org/10.1145/1329125.1329357), [archived PDF](https://web.archive.org/web/20240429153436/https://www.itu.dk/~trbj/papers/poker.pdf)); that is the paper the seat links.
 
 **How it is computed** (`scripts/solve_pushfold.py`):
 
