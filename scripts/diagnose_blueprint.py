@@ -127,15 +127,15 @@ def rounded(strategy) -> list[np.ndarray]:
 # ----- checkpoints ---------------------------------------------------------------------------
 
 
-def checkpoints(out: Path, iterations: int, at: list[int]) -> None:
+def checkpoints(out: Path, iterations: int, at: list[int], minutes: float = 30) -> None:
     started = time.monotonic()
     log(f"start, load {load()}")
     game = shipped_game()
     solver = CFRPlus(game)
 
     def tick(n: int) -> None:
-        if time.monotonic() - started > LIMIT_SECONDS:
-            raise SystemExit(f"stopped at iteration {n}: past 30 minutes")
+        if time.monotonic() - started > minutes * 60:
+            raise SystemExit(f"stopped at iteration {n}: past {minutes:g} minutes")
         if n in at:
             np.savez(
                 out / f"cfr-{n}.npz", weights=flat(solver.weights), regrets=flat(solver.regrets)
@@ -432,6 +432,9 @@ def main() -> int:
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--iterations", type=int, default=2000)
     p.add_argument("--at", default="60,250,500,1000,2000")
+    p.add_argument(
+        "--minutes", type=float, default=30, help="stop past this; longer needs the owner's yes"
+    )
     p = sub.add_parser("measure", help="an exact best response against saved strategies")
     p.add_argument("folder", type=Path)
     p.add_argument("variants", nargs="+")
@@ -449,7 +452,7 @@ def main() -> int:
     args = parser.parse_args()
     if args.command == "checkpoints":
         at = [int(n) for n in args.at.split(",")]
-        checkpoints(args.out, args.iterations, at)
+        checkpoints(args.out, args.iterations, at, args.minutes)
     elif args.command == "measure":
         measure(args.folder, args.variants)
     elif args.command == "exploiter":

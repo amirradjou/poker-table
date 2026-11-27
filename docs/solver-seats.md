@@ -329,12 +329,35 @@ is not trained with it.
 What this leaves: the number rises because by 2,000 iterations CFR+ on this abstraction plays
 strategies that an opponent who remembers beats by about 450 mbb/hand, and the average starts
 below that level. It is not rounding, a mismatched game or a bug these checks would catch,
-and no other averaging does better. Why the level is not zero is likely imperfect recall, but on the shipped game that
-is not measured. Whether the average levels off near 450, keeps climbing, or turns back down
-(the last iterate was still falling at 2,000) would need a run of about 4,000 iterations, past
-the 30-minute cap. The shipped strategy is the 2,000-iteration one
-as planned, not the least exploitable one: picking by this number would be tuning on the
+and no other averaging does better. Why the level is not zero is likely imperfect recall, but on
+the shipped game that is not measured. The shipped strategy is the 2,000-iteration one as
+planned, not the least exploitable one: picking by this number would be tuning on the
 measurement.
+
+**Trained on to 4,000 iterations, it levels off.** CFR+ was run again to 4,000 from the saved
+chance model, saving every 500 from 2,000 (`checkpoints --iterations 4000 --minutes 45`: 27.7
+minutes, load 1.5 when it started and 2.3 when it ended). Its 2,000-iteration checkpoint is the
+earlier run's, array for array. Before any number was seen, three readings were written down:
+the average "levels off" if it ends within 10 mbb/hand of its value at 2,000, "keeps climbing"
+if it ends more than 10 above, "turns down" if more than 10 below. The swap rule was written
+down too. A best response wins, in mbb/hand (each measurement 2.3 to 3.2 minutes, three at a
+time, load 1.1 to 9.2):
+
+| iterations | average | last iterate |
+|---:|---:|---:|
+| 2,000 | 440.1 | 457.6 |
+| 2,500 | 440.9 | |
+| 3,000 | 441.7 | 456.7 |
+| 3,500 | 442.5 | |
+| 4,000 | 442.8 (443.8 rounded as shipped) | 456.8 |
+
+The average of iterations 2,001 to 4,000 alone is 446.7. The average gains 2.7 mbb/hand over
+the extra 2,000 iterations, so it levels off, and the last iterate stops falling at about 457.
+CFR+ on this abstraction has settled between about 440 and 457: doubling the training did not
+bring the number down. The 4,000-iteration strategy is no less exploitable than the shipped one
+(443.8 rounded, against 441), so the blueprint stays as it is. A lower number is more likely to
+come from a different abstraction, such as buckets that remember the earlier streets, than from
+more iterations.
 
 **Where it plays, and what it does off its tree.**
 
@@ -397,6 +420,8 @@ uv run python scripts/diagnose_blueprint.py match
 uv run python scripts/diagnose_blueprint.py recall --groups 3,2,2,3
 uv run python scripts/diagnose_blueprint.py recall --groups 6,2,1,2
 uv run python scripts/diagnose_blueprint.py recall --groups 3,2,2,3 --arms own-reach --no-check
+uv run python scripts/diagnose_blueprint.py checkpoints --out bp4000 --iterations 4000 --at 2000,2500,3000,3500,4000 --minutes 45
+uv run python scripts/diagnose_blueprint.py measure bp4000 avg:2500 avg:3000 avg:3500 avg:4000 avg:4000:rounded current:3000 current:4000 window:2000-4000
 uv run python scripts/run_heads_up_track.py          # the heads-up track, then the leaderboards
 uv run pytest -q tests/test_solvers.py               # Kuhn and Leduc
 uv run pytest -q tests/test_recall.py                # forgetting and remembering
