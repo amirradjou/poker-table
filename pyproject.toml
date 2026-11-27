@@ -49,6 +49,7 @@ browser = [
 ]
 dev = [
   "httpx>=0.28.1",
+  "numpy>=2.5.3",
   "pytest>=8",
   "ruff>=0.13",
 ]

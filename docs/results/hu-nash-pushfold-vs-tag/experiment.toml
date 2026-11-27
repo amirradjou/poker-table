@@ -1,0 +1,6 @@
+name = "hu-nash-pushfold-vs-tag"
+description = "The heads-up track: nash:pushfold against tag."
+seats = ["entrant:nash:pushfold", "tag"]
+hands = 400
+seed = 2026
+coach = false

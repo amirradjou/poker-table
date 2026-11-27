@@ -90,8 +90,10 @@ after another. `serve FILE --export DIR` writes it as a static site, which is ho
 ## Seats
 
 Kinds: `random`, `station`, `tag`, `rock`, `maniac`, `laya`, `human`, `llm:maniac`, `llm:rock`,
-`llm:nerd`, `llm:storyteller`, and whatever an agents file defines (`poker-table agents` lists
-them). Name a seat with `name:kind`, as in `me:human`.
+`llm:nerd`, `llm:storyteller`, `nash:pushfold`, `cfr:blueprint`, and whatever an agents file
+defines (`poker-table agents` lists them). Name a seat with `name:kind`, as in `me:human`.
+The two solver seats play heads-up only (`--seats me:human,cfr:blueprint`); what they are and how
+they measure: [docs/solver-seats.md](https://github.com/amirradjou/poker-table/blob/main/docs/solver-seats.md).
 
 ```sh
 # LLM seats run on your own key (export ANTHROPIC_API_KEY=...): kind is llm:<personality>[@model]

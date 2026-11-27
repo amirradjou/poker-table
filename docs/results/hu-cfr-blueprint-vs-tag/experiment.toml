@@ -1,0 +1,6 @@
+name = "hu-cfr-blueprint-vs-tag"
+description = "The heads-up track: cfr:blueprint against tag."
+seats = ["entrant:cfr:blueprint", "tag"]
+hands = 400
+seed = 2026
+coach = false

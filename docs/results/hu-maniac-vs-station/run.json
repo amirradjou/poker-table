@@ -1,0 +1,13 @@
+{
+ "name": "hu-maniac-vs-station",
+ "planned_hands": 400,
+ "hands": 400,
+ "stopped": "finished",
+ "tables": 1,
+ "seconds": 0.1,
+ "spent_usd": 0.0,
+ "last_started": "2026-11-26T20:19:27+00:00",
+ "last_saved": "2026-11-26T20:19:28+00:00",
+ "version": "0.2.0",
+ "commit": "0c5eea9"
+}

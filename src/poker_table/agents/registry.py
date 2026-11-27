@@ -9,7 +9,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
-from poker_table.agents.base import Agent
+from poker_table.agents.base import Agent, TableShape, heads_up_refusal, seating_problems
+from poker_table.agents.blueprint import BlueprintAgent
 from poker_table.agents.compat import is_compat
 from poker_table.agents.human import HumanAgent
 from poker_table.agents.laya import DEFAULT_MODEL as LAYA_MODEL
@@ -17,6 +18,7 @@ from poker_table.agents.laya import INSTALL_HINT, LayaAgent
 from poker_table.agents.llm import DEFAULT_MODEL, LLMAgent, explain_model_error
 from poker_table.agents.ollama import is_local
 from poker_table.agents.personalities import PERSONALITIES
+from poker_table.agents.pushfold import PushFoldAgent
 from poker_table.agents.scripted import CallingStation, Maniac, RandomAgent, TightAggressive
 
 if TYPE_CHECKING:
@@ -36,6 +38,14 @@ SCRIPTED: dict[str, Factory] = {
     "human": lambda name, seed: HumanAgent(name),
 }
 
+# Seats built from the poker-AI research: methods we compute ourselves, named for what they are.
+RESEARCH: dict[str, Factory] = {
+    "cfr:blueprint": lambda name, seed: BlueprintAgent(name, seed=seed),
+    "nash:pushfold": lambda name, seed: PushFoldAgent(name, seed=seed),
+}
+# "llm:...", "cfr:..." and "nash:..." name a kind, never a seat called llm, cfr or nash.
+PREFIXES = ("llm", "cfr", "nash")
+
 # One line per built-in kind, for `poker-table agents`.
 BUILT_IN: dict[str, str] = {
     "tag": "tight-aggressive regular: Chen-formula preflop, made-hand rules after the flop",
@@ -45,6 +55,10 @@ BUILT_IN: dict[str, str] = {
     "random": "any legal action, chosen at random",
     "human": "you, at the terminal (or in the browser with serve --live)",
     "laya": "the open Laya decision model (pip install 'poker-table[laya]')",
+    "cfr:blueprint": "a CFR+ blueprint in the style of the Libratus and Pluribus blueprints, on "
+    "our much coarser abstraction, for 100 big blinds (heads-up only)",
+    "nash:pushfold": "a heads-up push/fold Nash equilibrium we computed with CFR+, for effective "
+    "stacks up to 15 big blinds (heads-up only)",
 }
 
 
@@ -52,6 +66,7 @@ def available_kinds(custom: Custom | None = None) -> list[str]:
     return (
         sorted(SCRIPTED)
         + ["laya"]
+        + sorted(RESEARCH)
         + [f"llm:{p}" for p in sorted(PERSONALITIES)]
         + sorted(custom or {})
     )
@@ -63,6 +78,8 @@ def _build(kind: str, name: str, seed: int, custom: Custom) -> Agent:
         return custom[base].make(name, seed, model or None)
     if kind in SCRIPTED:
         return SCRIPTED[kind](name, seed)
+    if kind in RESEARCH:
+        return RESEARCH[kind](name, seed)
     if kind.startswith("llm:"):
         personality, _, model = kind[4:].partition("@")
         if personality in custom and custom[personality].type == "llm":
@@ -81,6 +98,8 @@ def _build(kind: str, name: str, seed: int, custom: Custom) -> Agent:
 def _default_name(kind: str) -> str:
     if kind.startswith("llm:"):
         return kind[4:].partition("@")[0]
+    if kind in RESEARCH:
+        return kind.partition(":")[2]  # cfr:blueprint sits as "blueprint"
     return "laya" if kind.startswith("laya") else kind.partition("@")[0]
 
 
@@ -88,7 +107,7 @@ def _is_kind(word: str, custom: Custom) -> bool:
     word = word.lower()
     return (
         word in SCRIPTED
-        or word == "llm"
+        or word in PREFIXES
         or word.startswith("laya")
         or word.partition("@")[0] in custom
     )
@@ -105,8 +124,8 @@ def make_agent(
     """
     custom = custom or {}
     parts = [p.strip() for p in spec.split(":")]
-    # "llm:..." is the kind's own prefix, never a seat called llm
-    named = len(parts) > 1 and parts[0].lower() != "llm" and _is_kind(parts[1], custom)
+    # "llm:...", "cfr:..." and "nash:..." are a kind's own prefix, never a seat's name
+    named = len(parts) > 1 and parts[0].lower() not in PREFIXES and _is_kind(parts[1], custom)
     name = parts[0] if named else ""
     kind, at, model = ":".join(parts[1:] if named else parts).partition("@")
     kind = kind.lower() + at + model  # a model's name is the provider's, so its case is kept
@@ -134,8 +153,19 @@ def make_agents(
     return agents
 
 
-def check_seats_ready(agents: Sequence[Agent]) -> None:
-    """Fail before the first hand if a seat cannot run, rather than folding its way through."""
+def check_seats_ready(agents: Sequence[Agent], shape: TableShape | None = None) -> None:
+    """Fail before the first hand if a seat cannot run, rather than folding its way through.
+
+    ``shape`` is the table it will sit at, when known: a seat built for one kind of table (two
+    seats, these stakes) refuses any other here.
+    """
+    for agent in agents:
+        if getattr(agent, "heads_up_only", False) and len(agents) != 2:
+            raise ValueError(heads_up_refusal(agent, len(agents)))
+    if shape is not None:
+        problems = seating_problems(agents, shape)
+        if problems:
+            raise ValueError(problems[0])
     for agent in agents:
         if isinstance(agent, LayaAgent) and not agent.loadable:
             raise ValueError(f"seat {agent.name!r}: {INSTALL_HINT}")

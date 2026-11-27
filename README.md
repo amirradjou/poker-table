@@ -36,6 +36,7 @@ No key needed. Docker and other ways to install are in the
   hands and drills. `poker-table import ~/Downloads/HH*.txt -o mine.jsonl`, then
   `poker-table coach mine.jsonl`
 - **Work out the odds** for any spot. `poker-table odds "Ah Kh" -b "Qh 7h 2c" --vs 2`
+- **Play heads-up against a solver** we computed. `poker-table watch --seats me:human,cfr:blueprint`
 
 Every hand is saved with each seat's private reasoning, and the replay shows it beside the table:
 
