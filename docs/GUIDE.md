@@ -115,6 +115,7 @@ poker-table play -n 20 --seats me:human,tag,maniac   # sit down in the terminal
 # a freezeout: rising blinds and antes, no rebuys, until one seat has every chip
 poker-table play --tournament --seats tag,rock,maniac,station,random
 poker-table play --tournament --levels 2/4,5/10+1,20/40+5 --level-hands 10
+poker-table play --tournament --seats nash:pushfold,tag   # heads-up: the chart plays the short end
 poker-table play -n 200 --seats tag,station --ante 1      # or a cash game with antes
 ```
 

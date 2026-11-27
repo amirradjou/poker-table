@@ -137,7 +137,9 @@ for each decision.
 - **Push/fold (18).** The paper's game has about 13 big blinds in play in total and optimises the
   chance of winning a heads-up tournament. `nash:pushfold` is our own computation of the same kind
   of strategy (all in or fold), heads-up and for short stacks only. The 1.4-point bound belongs to
-  the paper's game, not to our seat.
+  the paper's game, not to our seat. It also has charts for antes of 1/10 and 1/8 of the big
+  blind, so it plays the short-stack end of our heads-up freezeouts, and its share of them won is
+  measured in [solver-seats.md](solver-seats.md#nashpushfold).
 - **Three-player jam/fold (19).** A possible later extension of `nash:pushfold`, if the owner wants
   three-handed endgames.
 - **Frameworks (20-21).** Not seats. OpenSpiel's CFR on Kuhn or Leduc poker could cross-check our
