@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import subprocess
 import sys
@@ -16,6 +17,7 @@ from poker_table.agents.human import HumanAgent
 from poker_table.cli import main
 from poker_table.history import HandHistory, parse_action, read_jsonl
 from poker_table.web.demo_play import BOTS, DemoTable, command, seats_for
+from poker_table.web.export import export_site
 
 SRC = Path(__file__).parents[1] / "src"
 
@@ -137,7 +139,7 @@ def test_the_page_routes_answer_as_the_server_does(tmp_path: Path) -> None:
     assert page("get", path="/api/live")["body"]["pace"] == 5.0
 
     session = page("get", path="/api/session")["body"]
-    assert session["hands"] == 1 and session["file"] == "your table" and session["hero"] == "you"
+    assert session["hands"] == 1 and session["file"] == "your session" and session["hero"] == "you"
     assert page("get", path="/api/hands?offset=0&limit=100")["body"]["total"] == 1
     hand = page("get", path="/api/hands/1")["body"]
     assert hand["hand_id"] == "1" and hand["steps"]
@@ -162,6 +164,32 @@ def test_seats_and_the_command_that_deals_the_same_hands() -> None:
     )
     with pytest.raises(ValueError, match="one person"):
         DemoTable(["a:human", "b:human", "tag"], seed=1, path=Path("/nonexistent/x.jsonl"))
+
+
+def test_an_export_with_a_wheel_has_a_table_to_play(tmp_path: Path) -> None:
+    hands = tmp_path / "hands.jsonl"
+    assert main(["play", "-n", "3", "--seats", "tag,station", "-o", str(hands), "-q"]) == 0
+    wheel = tmp_path / "poker_table-0.2.0-py3-none-any.whl"
+    wheel.write_bytes(b"PK" + bytes(98))
+    out = io.StringIO()
+    site = tmp_path / "site"
+    args = ["serve", str(hands), "--export", str(site), "--export-coach", "tag"]
+    assert main([*args, "--export-play", str(wheel)], out=out) == 0
+    assert "a table to play the bots at" in out.getvalue()
+    page = (site / "index.html").read_text()
+    where = '{"url": "play/poker_table-0.2.0-py3-none-any.whl", "bytes": 100}'
+    assert f"window.POKER_TABLE_PLAY_WHEEL = {where};" in page
+    assert page.index("static/app.js") < page.index("static/play.js")  # it uses app.js's viewer
+    assert "static/play.css" in page
+    assert (site / "play" / wheel.name).read_bytes() == wheel.read_bytes()
+    assert {p.name for p in (site / "static").iterdir()} >= {"play.js", "play-worker.js"}
+
+    plain = tmp_path / "plain"
+    export_site(hands, plain, players=[])
+    assert "PLAY" not in (plain / "index.html").read_text()
+    assert not (plain / "play").exists() and not (plain / "static" / "play.js").exists()
+    with pytest.raises(ValueError, match="not a wheel"):
+        export_site(hands, tmp_path / "bad", players=[], play_wheel=hands)
 
 
 # What the browser has: the standard library and the wheel, installed without its dependencies.

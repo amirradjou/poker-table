@@ -1,0 +1,38 @@
+/* Play in the demo (play.js): the button in the header and the bar under it. The table itself
+   is the viewer's own. */
+.play-open {
+  padding: 3px 12px; border-radius: 999px; border: 1px solid var(--brass);
+  background: none; color: var(--brass-hi); font: 600 16px var(--condensed); white-space: nowrap;
+}
+.play-open:hover, .play-open[aria-pressed="true"] { background: rgba(202, 162, 76, .14); }
+
+.play-bar {
+  flex: none; position: relative; padding: 10px 20px;
+  background: #211a14; border-bottom: 1px solid var(--line); font-size: 15px;
+}
+.play-setup, .play-seated { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.play-setup strong { font: 600 19px var(--condensed); }
+.play-bots { display: inline-flex; align-items: center; gap: 4px; color: var(--ivory-soft); }
+.play-bots button { min-width: 34px; padding: 3px 0; border-radius: 999px; font: 600 16px var(--condensed); }
+.play-bots button:first-child { margin-left: 4px; }
+.play-bots button[aria-pressed="true"] { background: var(--brass); border-color: var(--brass-hi); color: #1d1712; }
+.play-bar button.primary { background: #1f7a4a; border-color: #2a8f59; color: #f3fbf6; font: 600 17px var(--condensed); padding: 5px 16px; }
+.play-bar button.primary:hover { background: #238a54; }
+.play-bar button:disabled { opacity: .7; cursor: progress; }
+.play-status { color: var(--ivory-soft); font-variant-numeric: tabular-nums; }
+.play-note { flex-basis: 100%; color: var(--ivory-faint); font-size: 13px; }
+.play-seated { color: var(--ivory-soft); }
+.play-seated b { color: var(--ivory); font-weight: 600; }
+.play-seated code { font-size: 12.5px; overflow-wrap: anywhere; }
+.play-seated button { margin-left: auto; padding: 3px 12px; font-size: 14px; }
+.play-error { margin: 8px 0 0; color: var(--down); }
+.play-progress { position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; background: var(--room-4); }
+.play-progress i { display: block; height: 100%; width: var(--p, 0%); background: var(--brass); transition: width .2s linear; }
+
+@media (max-width: 640px) {
+  .play-bar { padding: 8px 14px; font-size: 14px; }
+  .play-open { font-size: 15px; padding: 2px 10px; }
+  .play-seated { gap: 4px 10px; }
+  .play-seated .play-same { flex-basis: 100%; font-size: 13px; }
+  .play-seated button { margin-left: 0; }
+}

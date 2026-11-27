@@ -193,7 +193,7 @@ class DemoTable:
         store = self.store
         if route == "/api/session":
             store.reload()
-            return session_payload(store) | {"file": "your table"}
+            return session_payload(store) | {"file": "your session"}
         if route == "/api/hands":
             return hands_payload(
                 store, query.number("offset", 0), query.number("limit", 100), query.text("ids")
