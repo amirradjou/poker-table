@@ -12,7 +12,7 @@ Slumbot never sits at our table: one of our seats goes and plays on its server.
 ## The results
 
 Played on 2026-11-27. This prints the table from the folders in
-[`results-slumbot/`](results-slumbot/):
+[`results-slumbot/`](results-slumbot/), with a "played" column (the date) left out here:
 
 ```sh
 uv run python scripts/bench_slumbot.py --report docs/results-slumbot/tag docs/results-slumbot/exploiter docs/results-slumbot/station
@@ -126,6 +126,8 @@ Every run is in each folder's `run.json`, with its start, end, requests and why 
   cards were two of the three deuces the client took Slumbot's stand-in cards from. It now picks
   from four. The crash also left `run.json` saying "finished". That entry was corrected by hand,
   and a crash now says so itself. The lost hand has no record, and the resumed run played on.
+  It is the one hand here left out because of its cards, not its position. One hand of 200 big
+  blinds can move tag's row by at most 10 bb/100, well inside its ±57.
 - Before these runs, 37 hands tried the protocol out: 7 by hand and 30 with maniac. They are not
   in the folders. The 7, and exploiter's hand 942 (all in on the turn), are the recorded hands the
   tests replay.

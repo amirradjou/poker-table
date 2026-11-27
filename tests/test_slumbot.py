@@ -241,6 +241,7 @@ class Folder:
         self.name = name
         self.views: list[SeatView] = []
         self.observed: list[str] = []
+        self.shown: list[Any] = []  # the histories it was shown, as it was shown them
 
     def act(self, view: SeatView) -> Decision:
         self.views.append(view)
@@ -248,6 +249,7 @@ class Folder:
 
     def observe(self, history) -> None:
         self.observed.append(history.hand_id)
+        self.shown.append(history)
 
 
 class Shover:
@@ -687,6 +689,20 @@ def test_a_run_writes_every_hand_and_counts_each_position_equally(
     assert summary.hands == 4 and summary.bb_per_100 == 0.0
     assert summary.baseline == pytest.approx((0 + 1150 + 0 + 150) / 4)
     assert "| folder | 4 | +0" in capsys.readouterr().out
+
+
+def test_a_seat_that_learns_never_sees_the_cards_slumbot_shows_after_a_fold(
+    bench, serve, folder_seat, tmp_path: Path
+) -> None:
+    out = tmp_path / "folder"
+    bench.run("folder", 4, out, api=api_for(folding_stand_in(serve)), say=lambda _: None)
+    _, histories = bench.read_folder(out)
+    # The record keeps Slumbot's cards, because the API shows them at the end of every hand ...
+    assert all(len(h.players[THEIRS].hole) == 2 for h in histories.values())
+    # ... but the seat is shown each hand from its own chair, as at our table: nobody showed down.
+    seen = folder_seat[0].shown
+    assert [h.hand_id for h in seen] == ["1", "2", "3", "4"]
+    assert all(h.players[THEIRS].hole == [] and len(h.players[0].hole) == 2 for h in seen)
 
 
 def test_a_full_folder_needs_resume(bench, serve, folder_seat, tmp_path: Path) -> None:
