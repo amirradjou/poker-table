@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -72,6 +72,23 @@ def play_hand(
     ``on_view`` is called just before a seat is asked (who is thinking), ``on_decision`` right
     after its decision has been applied — the hooks a live table streams from.
     """
+    return answer_all(play_turns(hand, on_view=on_view, on_decision=on_decision), agents)
+
+
+def play_turns(
+    hand: Hand,
+    *,
+    on_view: Callable[[SeatView], None] | None = None,
+    on_decision: Callable[[DecisionRecord, Hand], None] | None = None,
+) -> Generator[SeatView, Decision, PlayedHand]:
+    """:func:`play_hand` with the asking left to the caller: the hand is played up to each
+    decision, the seat's view is yielded, and the :class:`Decision` sent back is checked and
+    applied. Returns the played hand.
+
+    This is the one loop every table plays. ``play_hand`` answers each view from the seats; the
+    browser demo answers its player's views from the page, one at a time, because a page cannot
+    wait inside a call for a click.
+    """
     played = PlayedHand(hand)
     talk: list[tuple[str, str]] = []
     while not hand.finished:
@@ -81,10 +98,7 @@ def play_hand(
         if on_view is not None:
             on_view(view)
         started = time.perf_counter()
-        try:
-            decision = agents[seat.index].act(view)
-        except Exception as exc:  # an agent crash must not take the table down
-            decision = Decision(Action.fold(), reasoning=f"agent error: {exc!r}")
+        decision = yield view
         latency = (time.perf_counter() - started) * 1000
         applied = sanitize(decision.action, view.legal)
         illegal = applied is None
@@ -108,6 +122,26 @@ def play_hand(
         if on_decision is not None:
             on_decision(record, hand)
     return played
+
+
+def ask(agent: Agent, view: SeatView) -> Decision:
+    """One seat's decision. An agent crash must not take the table down: it folds."""
+    try:
+        return agent.act(view)
+    except Exception as exc:
+        return Decision(Action.fold(), reasoning=f"agent error: {exc!r}")
+
+
+def answer_all[T](
+    turns: Generator[SeatView, Decision, T], agents: Mapping[int, Agent] | Sequence[Agent]
+) -> T:
+    """Play ``turns`` to the end, asking ``agents[view.seat]`` for every view; its result."""
+    try:
+        view = next(turns)
+        while True:
+            view = turns.send(ask(agents[view.seat], view))
+    except StopIteration as done:
+        return done.value
 
 
 def new_hand(

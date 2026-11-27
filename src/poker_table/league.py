@@ -10,14 +10,14 @@ every chip — the right thing when the question is "who survives".
 from __future__ import annotations
 
 import random
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Generator, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 
-from poker_table.agents.base import Agent, SeatView, TableShape, seating_problems
+from poker_table.agents.base import Agent, Decision, SeatView, TableShape, seating_problems
 from poker_table.engine import Hand
 from poker_table.history import HandHistory, public_view
 from poker_table.stats import PlayerStats, compute_stats
-from poker_table.table import DecisionRecord, new_hand, play_hand
+from poker_table.table import DecisionRecord, answer_all, new_hand, play_hand, play_turns
 
 
 def spent_usd(agents: Iterable[Agent]) -> float:
@@ -94,6 +94,33 @@ def run_league(
     ``on_view`` and ``on_decision`` fire as a hand is dealt and played, for a live table.
     ``stop`` is asked after each hand, and a yes ends the league there.
     """
+    turns = league_turns(
+        agents,
+        config,
+        on_hand=on_hand,
+        on_hand_start=on_hand_start,
+        on_view=on_view,
+        on_decision=on_decision,
+        keep_histories=keep_histories,
+        stop=stop,
+    )
+    return answer_all(turns, agents)
+
+
+def league_turns(
+    agents: Sequence[Agent],
+    config: LeagueConfig,
+    *,
+    on_hand: Callable[[HandHistory], None] | None = None,
+    on_hand_start: Callable[[Hand], None] | None = None,
+    on_view: Callable[[SeatView], None] | None = None,
+    on_decision: Callable[[DecisionRecord, Hand], None] | None = None,
+    keep_histories: bool = True,
+    stop: Callable[[], bool] | None = None,
+) -> Generator[SeatView, Decision, LeagueResult]:
+    """:func:`run_league` with the asking left to the caller (see ``table.play_turns``): it
+    yields every seat's view and plays the :class:`Decision` sent back. Every seat sits in every
+    hand, in order, so ``agents[view.seat]`` is the seat being asked."""
     if len(agents) < 2:
         raise ValueError("a league needs at least two agents")
     if config.first_hand and not config.top_up:
@@ -120,7 +147,7 @@ def run_league(
                 if stack == 0:
                     stacks[i] = config.buy_in
                     result.rebuys[names[i]] += 1
-        hand, seated = new_hand(
+        hand, _ = new_hand(
             agents,
             stacks,
             button=n % len(agents),
@@ -132,7 +159,7 @@ def run_league(
         )
         if on_hand_start is not None:
             on_hand_start(hand)
-        played = play_hand(hand, seated, on_view=on_view, on_decision=on_decision)
+        played = yield from play_turns(hand, on_view=on_view, on_decision=on_decision)
         history = HandHistory.from_played(played)
         show_hand(agents, history)
         for player in history.players:
