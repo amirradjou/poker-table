@@ -66,7 +66,7 @@ for each decision.
 | 8 | [Student of Games](https://doi.org/10.1126/sciadv.adg3256) ([arXiv](https://arxiv.org/abs/2112.03178)), Schmid et al., Sci. Adv. 2023 | HU NL, 200 bb | "beats the strongest openly available agent" (Slumbot) by 7 ± 3 mbb a hand | no code found | TPU scale, "similar" to an AlphaZero run on 3,500 TPUv4 actors | (c) |
 | 9 | [AlphaHoldem](https://doi.org/10.1609/aaai.v36i4.20394), Zhao et al., AAAI 2022 | HU NL, depth not verified | "defeats Slumbot and DeepStack" | hand data repo now gone (404). No official code found | 3 days on 8 GPUs and 64 cores | (c) |
 | 10 | [DecisionHoldem](https://arxiv.org/abs/2201.11580), Zhou et al., arXiv 2022 | HU NL vs Slumbot (200 bb) | beats Slumbot "by more than 730 mbb/h" | [code](https://github.com/AI-Decision/DecisionHoldem), AGPL-3.0, plus a blueprint download link | ~4,000 core hours (48 cores, 3-4 days) | (c) licence |
-| 11 | [Slumbot](https://www.slumbot.com/), Eric Jackson | HU NL, 200 bb | the 2018 version "won the Annual Computer Poker Competition" (its site) | [solver code](https://github.com/ericgjackson/slumbot2019), MIT, no strategy. A public API | ~250,000 core hours, 2 TB of memory (per the Modicum paper) | (c) as a seat. API benchmark is the owner's call |
+| 11 | [Slumbot](https://www.slumbot.com/), Eric Jackson | HU NL, 200 bb | the 2018 version "won the Annual Computer Poker Competition" (its site) | [solver code](https://github.com/ericgjackson/slumbot2019), MIT, no strategy. A public API | ~250,000 core hours, 2 TB of memory (per the Modicum paper) | (c) as a seat. Its API is a [benchmark](slumbot.md) |
 | 12 | [GTO Wizard Benchmark](https://arxiv.org/abs/2603.23660), Provost et al., arXiv 2026 | HU NL, 200 bb | GTO Wizard AI beat Slumbot by 19.4 ± 4.1 bb/100 | proprietary agent behind a public API | not given | (c) as a seat. API benchmark is the owner's call |
 | 13 | [Deep CFR](https://arxiv.org/abs/1811.00164), Brown et al., ICML 2019, with [SD-CFR](https://arxiv.org/abs/1901.07621) | HU L (flop hold'em, limit hold'em) | "the first non-tabular variant of CFR to be successful in large games" | [Deep-CFR](https://github.com/EricSteinberger/Deep-CFR), MIT. [OpenSpiel](https://github.com/google-deepmind/open_spiel), Apache-2.0 | not given in hardware terms | (c) limit |
 | 14 | [DREAM](https://arxiv.org/abs/2006.10410), Steinberger et al., arXiv 2020 | Leduc, HU L flop hold'em | "state-of-the-art performance among model-free algorithms" | [DREAM](https://github.com/EricSteinberger/DREAM), MIT | "multiple days of training" | (c) limit |
@@ -120,9 +120,10 @@ for each decision.
 - **Slumbot (11).** The code is MIT but ships no strategy, and building one costs far more than this
   laptop has. The [API](https://www.slumbot.com/) cannot be a seat: its server deals the cards (its
   responses carry your hole cards and the board), so it plays its own 200 bb match, not a hand at
-  this table. One of our heads-up seats could go and play there, as a benchmark. No terms of use were
-  found on the site, and the API has not been called. The 2013 workshop paper ("Slumbot NL", cited
-  by Student of Games) could not be located.
+  this table. So our seats go and play there instead, as a benchmark:
+  [slumbot.md](slumbot.md) has how and the results. No terms of use were found on the site. The
+  owner approved the runs on 2026-11-27, and they keep to one request at a time. The 2013 workshop
+  paper ("Slumbot NL", cited by Student of Games) could not be located.
 - **GTO Wizard Benchmark (12).** The API "handles game state management", so it probably deals its
   own hands too (not verified). PokerSkill's README passes a `GTO_WIZARD_API_KEY`, so it seems to
   need a key (not verified with GTO Wizard).
@@ -174,10 +175,10 @@ paper for now); and frameworks (OpenSpiel, PokerRL, RLCard).
 **For the owner to decide:**
 
 1. **Other people's servers.** Neither Slumbot's API nor GTO Wizard's can sit at this table. Either
-   could host an opt-in run that sends one of our heads-up seats to play on their server, in their
-   200 bb format. That needs the owner's yes and a terms check first. Slumbot's site shows no terms,
-   so the check means asking its author, and GTO Wizard seems to need a key. Neither has been
-   called from this repo.
+   can host a run that sends one of our heads-up seats to play on their server, in their 200 bb
+   format. Slumbot's was approved on 2026-11-27 and is measured in [slumbot.md](slumbot.md). GTO
+   Wizard's still needs the owner's yes and a terms check, and it seems to need a key. It has not
+   been called from this repo.
 2. **Long training.** Modicum-style search on top of `cfr:blueprint` (row 4): about two and a half
    days of all 12 cores at Modicum's scale, then slow benchmark runs.
 3. **More than two seats.** A Pluribus-style blueprint for three to six seats (row 5). Full size

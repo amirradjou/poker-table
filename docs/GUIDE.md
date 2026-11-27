@@ -175,6 +175,10 @@ How to add a model to the
 [leaderboard](https://github.com/amirradjou/poker-table/blob/main/docs/leaderboard.md) is at its
 end.
 
+Our seats are also measured against Slumbot, a strong public heads-up bot, on its own server and
+at its own 200 big blinds. It deals there, so it is a benchmark and never a seat:
+[docs/slumbot.md](https://github.com/amirradjou/poker-table/blob/main/docs/slumbot.md).
+
 ## Coach your own hands
 
 ```sh
