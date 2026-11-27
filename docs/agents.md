@@ -1,10 +1,12 @@
 # Seats: smarter LLMs, and your own agents
 
 A seat is anything with `act(view) -> Decision`. The table ships scripted bots (`tag`, `rock`,
-`maniac`, `station`, `random`), four LLM personalities (`llm:nerd`, `llm:maniac`, `llm:rock`,
-`llm:storyteller`), a [Laya](laya.md) seat and a human seat. This page covers:
+`maniac`, `station`, `random`), a scripted seat that reads the table (`exploiter`), four LLM
+personalities (`llm:nerd`, `llm:maniac`, `llm:rock`, `llm:storyteller`), a [Laya](laya.md) seat
+and a human seat. This page covers:
 
 - what an LLM seat is handed on top of the bare table;
+- `exploiter`, a tag that adapts to what it has seen of each opponent;
 - how to define your own seats in a TOML file, with no code, or in Python;
 - how to run them on your own key, or on a local model for free;
 - and how to measure whether any of it helps.
@@ -68,6 +70,52 @@ cards, every card turned over at showdown, the actions and the table talk. It dr
 cards and every other seat's reasoning, requested action and model metadata. The tests pin
 this down: a seat's range reading does not change when an opponent's hidden cards do, and a
 folded hand never reaches a read.
+
+## exploiter: a tag that reads the table
+
+`exploiter` plays tag's game, and keeps reads on each opponent from what it has seen. The reads
+are the same HUD the `reads` aid gives an LLM seat, built only from the hands the seat was shown.
+It makes no model calls and needs no training. It plays at any table from 2 to 9 seats, and the
+browser demo can run it.
+
+```sh
+uv run poker-table play -n 200 --seats exploiter,station,maniac --show
+```
+
+**When a read counts.** An opponent needs 20 hands seen before any read of it counts. Its fold
+rate also needs 10 bets faced after the flop, and its aggression 10 bets, raises and calls after
+the flop. Until then the seat plays exactly as tag.
+
+| an opponent is | when it |
+|---|---|
+| a caller | plays at least 40% of hands, and folds to at most 25% of bets after the flop |
+| a passive caller | is a caller with an aggression factor of 1 or less |
+| a folder | folds to at least 60% of bets after the flop |
+| very aggressive | raises first in at least 35% of hands, with an aggression factor of 3 or more |
+
+**The five rules.** Each starts from tag's decision and changes it only in one kind of spot.
+
+| rule | against | what changes |
+|---|---|---|
+| `defend_wide` | very aggressive | before the flop, call a raise of up to 4 big blinds with a Chen score of 5 or more, where tag folds |
+| `call_down` | very aggressive | facing a bet after the flop, call with top pair at any price, and with a weaker pair at the price tag pays with top pair (up to 60% of the pot) |
+| `no_bluff` | a caller | tag's bets with no pair, its c-bets and semi-bluffs, become checks |
+| `thin_value` | a passive caller | when nobody has bet: bet a weaker pair for half the pot, top pair for three quarters, two pair or better for the pot |
+| `bluff_folder` | a folder | on the turn and river, once everyone still in has checked, bet two thirds of the pot with no pair where tag checks |
+
+**Multi-way pots.** A rule fires only when its read holds for every opponent still in the hand.
+Before the flop that includes the seats yet to act. If one opponent does not fit, or has not been
+seen enough, tag plays.
+
+**What it records.** Every decision's `meta` says how it was made: `{"method": "tag"}`, or
+`{"method": "adjusted", "rule": "thin_value", "against": ["station"], "tag": "check"}`, where
+`tag` is the action tag would have played. The reasoning adds the read behind the change.
+`play` ends with a line that counts the decisions a read changed, by rule.
+
+**Same answers every time.** The tag inside is asked at every decision, so its random choices
+run as a tag seat's would, and the rules draw nothing at random. Until a rule fires, its hands
+are a tag seat's hands. A resumed freezeout asks it again and rebuilds its reads from the same
+hands, so it carries on exactly.
 
 ## Your own seats
 

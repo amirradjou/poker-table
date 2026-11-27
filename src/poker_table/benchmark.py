@@ -223,6 +223,11 @@ class HeadsUpEntry:
     played_on: str
 
 
+# The scripted play underneath a seat: a research seat's fallback, or the plain tag play of an
+# exploiter when no read changed the decision.
+UNDERNEATH = ("fallback", "tag")
+
+
 def _own_method(histories) -> str:
     methods = [
         d.meta["method"]
@@ -232,7 +237,7 @@ def _own_method(histories) -> str:
     ]
     if not methods:
         return "-"
-    own = sum(m != "fallback" for m in methods)
+    own = sum(m not in UNDERNEATH for m in methods)
     if 0 < own < len(methods):  # never round a mixed record up to 100% or down to 0%
         return f"{own / len(methods):.1%}"
     return f"{own / len(methods):.0%}"
@@ -300,8 +305,9 @@ def render_heads_up_leaderboard(folders: Sequence[Path | str]) -> str:
         f"different at all. The overall column pools all {total:,} hands; each match column is "
         f'its {HEADS_UP_HANDS} hands alone, so its interval is about twice as wide. "Its own '
         'method" is the share of decisions a research seat made with its own strategy rather '
-        "than the scripted fallback it hands spots to; a dash means the seat has no such "
-        "fallback. A row that reads 0% is the fallback's row.",
+        "than the scripted fallback it hands spots to, or, for exploiter, the share a read "
+        "changed from tag's play; a dash means the seat has no such fallback. A row that "
+        "reads 0% is the fallback's row.",
         "",
         "## Add yours",
         "",

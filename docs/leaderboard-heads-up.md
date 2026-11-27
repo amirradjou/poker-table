@@ -12,7 +12,7 @@ Every entrant plays 400 hands heads-up against each of the four bots (tag, rock,
 | station | -29 | 81 | -191 ±91 | -2 ±18 | +79 ±309 | -0 ±10 | -29 | - | 0% | 0 | 2026-11-26 |
 | random | -385 | 212 | -70 ±101 | -189 ±129 | -1752 ±458 | +472 ±679 | -378 | - | 0% | 0 | 2026-11-26 |
 
-Read the intervals before the order: two rows whose intervals overlap may not be different at all. The overall column pools all 1,600 hands; each match column is its 400 hands alone, so its interval is about twice as wide. "Its own method" is the share of decisions a research seat made with its own strategy rather than the scripted fallback it hands spots to; a dash means the seat has no such fallback. A row that reads 0% is the fallback's row.
+Read the intervals before the order: two rows whose intervals overlap may not be different at all. The overall column pools all 1,600 hands; each match column is its 400 hands alone, so its interval is about twice as wide. "Its own method" is the share of decisions a research seat made with its own strategy rather than the scripted fallback it hands spots to, or, for exploiter, the share a read changed from tag's play; a dash means the seat has no such fallback. A row that reads 0% is the fallback's row.
 
 ## Add yours
 
