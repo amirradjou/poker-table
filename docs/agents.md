@@ -291,8 +291,8 @@ untried here; it fired 5 times against Slumbot ([slumbot.md](slumbot.md)). Again
 which the reads call a caller, `thin_value` and `no_bluff` changed 28% of decisions and won
 nothing measurable (-22 ±62).
 
-What it does not show: one seed, scripted opponents with fixed styles, and the predictions were
-the owner's guesses, not tuned for. No bot was changed after any bb/100 was seen. One was
+What it does not show: one seed, and scripted opponents with fixed styles. The predictions were
+guesses written down first, and no bot was tuned to them. No bot was changed after any bb/100 was seen. One was
 changed after a profile run: at first a loss while on tilt restarted `tilter`'s 15 hands, and on
 the five-handed table it was then on tilt in 88% of hands, a maniac in all but name. So a tilt now
 runs its 15 hands and ends.
