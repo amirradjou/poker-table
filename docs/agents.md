@@ -308,17 +308,20 @@ uv run python scripts/measure_vs_tag.py exploiter --vs fish,lag,calculator,trapp
 [Who beats whom](who-beats-whom.md) plays every pair of the twelve heads-up kinds, 2,000 hands
 each, and marks only the cells whose interval is clear of zero. What it shows on seed 2026:
 
-- `cfr:blueprint` has the most clear wins (8 of 11) and no clear loss. Against lag, fish and the
-  maniac it is too close to call.
+- `cfr:blueprint` has the most clear wins (7 of 11) and no clear loss. Against tag, the
+  exploiter, the calculator and fish it is too close to call. Version 1, which shipped up to
+  v0.3.0, had 8; only the blueprint's own cells changed with version 2.
+- `tag` and the `exploiter` have no clear loss either, with 4 and 3 clear wins.
 - The new styles win where their style fits. `calculator` takes +1556 ±195 off the maniac, more
-  than any other seat does, and +229 ±118 off the tilter. It loses to tag by a hair (-80 ±79) and
-  to the blueprint.
-- `lag` has no clear loss either, but only two clear wins (the station and random).
+  than any other seat does, and +229 ±118 off the tilter. Its one clear loss is to tag, by a
+  hair (-80 ±79).
+- `lag` has only two clear wins (the station and random) and one clear loss, to the blueprint
+  (-44 ±41).
 - `fish` beats only the three loose bots and loses clearly only to trapper (-53 ±50); against the
   rest it is too close to call. `tilter` loses clearly to the blueprint and the calculator.
 
 ```sh
-uv run python scripts/who_beats_whom.py --out docs/who-beats-whom.md   # 12 minutes
+uv run python scripts/who_beats_whom.py --out docs/who-beats-whom.md   # 11 minutes
 ```
 
 ## Your own seats
