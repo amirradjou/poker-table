@@ -303,6 +303,24 @@ uv run python scripts/measure_vs_tag.py fish --five-handed                      
 uv run python scripts/measure_vs_tag.py exploiter --vs fish,lag,calculator,trapper,tilter
 ```
 
+### Every bot against every other
+
+[Who beats whom](who-beats-whom.md) plays every pair of the twelve heads-up kinds, 2,000 hands
+each, and marks only the cells whose interval is clear of zero. What it shows on seed 2026:
+
+- `cfr:blueprint` has the most clear wins (8 of 11) and no clear loss. Against lag, fish and the
+  maniac it is too close to call.
+- The new styles win where their style fits. `calculator` takes +1556 ±195 off the maniac, more
+  than any other seat does, and +229 ±118 off the tilter. It loses to tag by a hair (-80 ±79) and
+  to the blueprint.
+- `lag` has no clear loss either, but only two clear wins (the station and random).
+- `fish` beats only the three loose bots and loses clearly only to trapper (-53 ±50); against the
+  rest it is too close to call. `tilter` loses clearly to the blueprint and the calculator.
+
+```sh
+uv run python scripts/who_beats_whom.py --out docs/who-beats-whom.md   # 12 minutes
+```
+
 ## Your own seats
 
 An agents file is TOML. Each `[agents.<name>]` table defines a kind that `--seats` can name like
