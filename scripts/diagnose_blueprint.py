@@ -10,6 +10,13 @@
 A best response takes about 2.5 minutes, so ``measure`` takes that long per variant;
 docs/solver-seats.md has every command behind its numbers, with times and load averages.
 
+These runs were made on version 1, the format-1 file shipped up to v0.3.0. The shipped file is now
+version 2, which keeps 3 preflop groups (``--groups 3``). To check a run without groups against
+version 1, get it back and pass it as ``--like``::
+
+    git show v0.3.0:src/poker_table/agents/data/blueprint.bin > v1.bin
+    uv run python scripts/diagnose_blueprint.py checkpoints --like v1.bin --out DIR
+
 All of them read the chance model that scripts/train_blueprint.py saved (it is recounted, not
 saved, when it is missing) and never write it or the shipped strategy.
 
@@ -25,12 +32,13 @@ Five causes were possible. The run that tells each one apart, and what would cle
    of iterations A to B only, a delayed average). If they rise as well, the averaging scheme is
    not it.
 4. **A different game.** ``checkpoints`` retrains from the saved chance model and checks the
-   2,000-iteration strategy is the shipped one, byte for byte: the model ``measure`` uses is the
-   trained one. ``match`` walks the shipped game three ways (the best response's walk with the
-   responder made to play a fixed strategy, ``expected_value``, and the trainer's own walk) and
-   checks they agree on what a random strategy is worth from both seats: one tree, one chance
-   model, one set of payoffs. What the best response knows beyond the strategy is its own memory,
-   and ``recall`` checks that it is no more than that.
+   2,000-iteration strategy is the file it was trained as (the shipped one when the groups match,
+   or ``--like``), byte for byte: the model ``measure`` uses is the trained one. ``match`` walks
+   the shipped game three ways (the best response's walk with the responder made to play a fixed
+   strategy, ``expected_value``, and the trainer's own walk) and checks they agree on what a
+   random strategy is worth from both seats: one tree, one chance model, one set of payoffs. What
+   the best response knows beyond the strategy is its own memory, and ``recall`` checks that it is
+   no more than that.
 5. **A plain bug.** The anchors (Kuhn, Leduc) and the remembering game converging say the solver
    and the best response are right where the theory says they must be.
 
@@ -99,6 +107,11 @@ def load() -> str:
     """The load average, as uptime prints it."""
     out = subprocess.run(["uptime"], capture_output=True, text=True).stdout
     return out.strip().split("load average: ")[-1]
+
+
+def shipped_groups() -> int:
+    """How many preflop groups the shipped file keeps after the flop: 0 for format 1."""
+    return len(set(shipped().groups))
 
 
 def shipped_game(groups: int = 0) -> Game:
@@ -187,7 +200,7 @@ def checkpoints(
     solver.run(iterations, tick)
     minutes = (time.monotonic() - started) / 60
     print(f"{iterations} iterations in {minutes:.1f} min, load {load()}")
-    if not groups and iterations == shipped().header["iterations"]:
+    if groups == shipped_groups() and iterations == shipped().header["iterations"]:
         same = table_of(solver) == shipped().table
         print(f"the {iterations}-iteration average, rounded, is the shipped strategy: {same}")
         if not same:
@@ -197,7 +210,10 @@ def checkpoints(
 def variant(folder: Path, name: str, like) -> list[np.ndarray]:
     """``avg:N``, ``avg:N:rounded``, ``current:N``, ``window:A-B`` or ``shipped``."""
     if name == "shipped":
-        return measuring.strategy_arrays(shipped())
+        arrays = measuring.strategy_arrays(shipped())
+        if [a.shape for a in arrays] != [a.shape for a in like]:
+            raise SystemExit(f"the shipped file keeps {shipped_groups()} groups: pass --groups")
+        return arrays
     kind, _, rest = name.partition(":")
     when, _, rounding = rest.partition(":")
     if kind == "window":

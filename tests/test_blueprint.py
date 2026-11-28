@@ -48,9 +48,9 @@ CUTS = Cards(
 
 
 @pytest.fixture(scope="module")
-def uniform(tmp_path_factory):
-    """A blueprint that plays every action of the tree equally often: the widest test of the
-    seat's bookkeeping, since it goes everywhere in the tree."""
+def uniform_file(tmp_path_factory) -> Path:
+    """A format-1 blueprint that plays every action of the tree equally often: the widest test
+    of the seat's bookkeeping, since it goes everywhere in the tree."""
     betting = Betting()
     nodes = number(build_tree(betting))
     rows = [
@@ -60,7 +60,12 @@ def uniform(tmp_path_factory):
     ]
     path = tmp_path_factory.mktemp("blueprint") / "uniform.bin"
     write_strategy(path, betting, CUTS, rows, {"about": "uniform, for tests"})
-    return read_strategy(path.read_bytes())
+    return path
+
+
+@pytest.fixture(scope="module")
+def uniform(uniform_file):
+    return read_strategy(uniform_file.read_bytes())
 
 
 GROUPS = [i % 3 for i in range(169)]
@@ -230,6 +235,7 @@ def test_the_shipped_strategy_fits_and_matches_its_tree() -> None:
     assert DATA.stat().st_size < 500_000  # the repository's pre-commit limit
     strategy = shipped()
     assert len(strategy.nodes) == 7744
+    assert strategy.version == 2 and max(strategy.groups) + 1 == 3  # v2 keeps a preflop group
     assert strategy.betting == Betting()  # 200 chips at 1/2, no ante: the table's defaults
     assert strategy.header["method"].startswith("CFR+")
     root = strategy.probabilities(strategy.root, 0)  # aces, first to act
@@ -312,8 +318,8 @@ def test_a_format_two_seat_plays_its_own_tree(grouped_file) -> None:
 
 def test_a_file_in_a_format_it_cannot_read_is_refused() -> None:
     data = DATA.read_bytes()
-    assert data.startswith(b"PTBLUEPRINT1\n")
-    unknown = b"PTBLUEPRINT9\n" + data[len(b"PTBLUEPRINT1\n") :]
+    assert data.startswith(b"PTBLUEPRINT2\n")
+    unknown = b"PTBLUEPRINT9\n" + data[len(b"PTBLUEPRINT2\n") :]
     with pytest.raises(ValueError, match="format 9; this version of poker-table reads formats 1"):
         read_strategy(unknown)
     with pytest.raises(ValueError, match="not a blueprint strategy file"):
@@ -347,9 +353,9 @@ print("played without numpy")
 """
 
 
-def test_the_seat_plays_without_numpy(grouped_file) -> None:
+def test_the_seat_plays_without_numpy(grouped_file, uniform_file) -> None:
     run = subprocess.run(
-        [sys.executable, "-c", NO_NUMPY, str(DATA), str(grouped_file)],
+        [sys.executable, "-c", NO_NUMPY, str(DATA), str(grouped_file), str(uniform_file)],
         capture_output=True,
         text=True,
     )

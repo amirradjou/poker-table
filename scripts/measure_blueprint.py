@@ -1,9 +1,9 @@
 """How exploitable the shipped cfr:blueprint is inside its own abstract game.
 
-    uv run python scripts/measure_blueprint.py
+    uv run python scripts/measure_blueprint.py                                # the shipped file
     uv run python scripts/measure_blueprint.py --strategy /tmp/bp500.bin --no-uniform
-    uv run python scripts/measure_blueprint.py --groups 3 --no-uniform    # in the game with groups
-    uv run python scripts/measure_blueprint.py --strategy v2.bin --no-uniform
+    uv run python scripts/measure_blueprint.py --strategy v1.bin --no-uniform    # version 1
+    uv run python scripts/measure_blueprint.py --strategy v1.bin --groups 3 --no-uniform
 
 It rebuilds the abstract game the blueprint was trained in (the chance model that
 scripts/train_blueprint.py saved, recounted from the same seed if that file is missing), reads the
@@ -16,9 +16,11 @@ This is exploitability in the model game (the tree's bet sizes, the buckets, cha
 remembers the current pair of buckets), not in real hold'em. A uniform random strategy is
 measured the same way for scale.
 
-A format-2 file, whose states after the flop keep a preflop group, is measured in the same game
-with that group carried along (``solvers/recall.py``, ``remember_groups``). ``--groups G`` measures
-a format-1 file there too, lifted: each (group, bucket) plays what the bucket played. The best
+A format-2 file, such as the shipped version 2, whose states after the flop keep a preflop group,
+is measured in the same game with that group carried along (``solvers/recall.py``,
+``remember_groups``). ``--groups G`` measures a format-1 file there too, lifted: each (group,
+bucket) plays what the bucket played. Version 1, the format-1 file shipped up to v0.3.0, comes
+back with ``git show v0.3.0:src/poker_table/agents/data/blueprint.bin > v1.bin``. The best
 response must then win exactly what it wins in the game without groups, which is what puts the
 two formats' numbers on one scale.
 """
