@@ -33,6 +33,20 @@ At a table of bots, each seat's chance of winning sits under its nameplate, like
 you at the table those numbers stay off, because they come from everyone's cards; you get your own
 odds on your turn instead, and a line from the coach after each hand.
 
+### Links, pictures and sound
+
+- **Copy link**, under a replay, copies a link to that hand at that step:
+  `…/#hand=17&step=9`. It works in the served viewer and on an exported site. A hand the file doesn't
+  have opens the newest hand instead. The link never carries a seat's `?seat=` key. It isn't
+  offered for the hands you play in the demo, because those live only in your browser.
+- **Save picture** downloads a PNG of the hand's result. It shows the seats and their kinds, the
+  board, the pot, who won what and the hand's number. Only cards turned over at showdown are drawn
+  face up; everyone else's are backs.
+- **Sound** turns on short cues for the deal, a bet or raise (a call is one chip), a check, a fold
+  and the pot going to the winner, at replays and at live tables. It is off until you turn it on,
+  and the browser remembers your choice. The cues are made by the page (WebAudio), and nothing
+  plays until you have clicked or pressed a key on the page.
+
 ### Friends at the table
 
 With two or more `human` seats, `watch` and `serve --live` print a private link for each person and
@@ -69,7 +83,9 @@ picks a secret one, because anyone who knows the seed knows every card.
 ### Play in the demo
 
 [The demo](https://amirradjou.github.io/poker-table/) opens on replays. Press **Play the bots**,
-pick 1 to 5 bots (3 if you don't), and press **Deal me in**: you get a live table in the page, with
+pick who sits down (a number takes the first that many of tag, maniac, station, rock, random and
+exploiter; each name turns one bot on or off; tag, maniac and station if you don't), and press
+**Deal me in**: you get a live table in the page, with
 your cards, the buttons, your odds on your turn and a line from the coach after each hand. Finished
 hands go to the Hands list, and the Leaderboard and Coach tabs read them. The first time, the button
 downloads about 6.8 MB (Python and this package). Nothing about your game leaves the page; Pyodide

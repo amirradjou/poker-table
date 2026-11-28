@@ -16,7 +16,7 @@ from poker_table.agents.base import Decision
 from poker_table.agents.human import HumanAgent
 from poker_table.cli import main
 from poker_table.history import HandHistory, parse_action, read_jsonl
-from poker_table.web.demo_play import BOTS, DemoTable, command, seats_for
+from poker_table.web.demo_play import BOTS, DemoTable, command, open_table, seats_for
 from poker_table.web.export import export_site
 
 SRC = Path(__file__).parents[1] / "src"
@@ -165,15 +165,37 @@ def test_the_page_routes_answer_as_the_server_does(tmp_path: Path) -> None:
 
 def test_seats_and_the_command_that_deals_the_same_hands() -> None:
     assert seats_for(1) == ["you:human", "tag"]
-    assert seats_for(5) == ["you:human", *BOTS]
+    assert seats_for(6) == ["you:human", *BOTS]  # 5 and 6 before the exploiter joined
     with pytest.raises(ValueError):
-        seats_for(6)
+        seats_for(7)
     assert (
         command(seats_for(3), 42)
         == "poker-table play --seed 42 --seats you:human,tag,maniac,station"
     )
     with pytest.raises(ValueError, match="one person"):
         DemoTable(["a:human", "b:human", "tag"], seed=1, path=Path("/nonexistent/x.jsonl"))
+
+
+def test_new_bots_only_join_at_the_end() -> None:
+    # Seats are seeded by position: the first N bots must be the ones they always were.
+    assert BOTS[:5] == ("tag", "maniac", "station", "rock", "random")
+    assert BOTS[5] == "exploiter"
+
+
+def test_a_visitor_picks_which_bots_sit_down(tmp_path: Path) -> None:
+    # Picked in any order, they sit in the order of BOTS: picking the first N is bots=N.
+    assert seats_for(["station", "tag", "maniac"]) == seats_for(3)
+    assert seats_for(["exploiter", "rock"]) == ["you:human", "rock", "exploiter"]
+    for bad in ([], ["tag", "tag"], ["claude"], ["llm:claude-haiku-4-5"]):
+        with pytest.raises(ValueError):
+            seats_for(bad)
+    path = tmp_path / "t.jsonl"
+    table = open_table('{"bots": ["exploiter", "tag"], "seed": 9, "hands": 1}', path)
+    assert table.seats == ["you:human", "tag", "exploiter"]
+    assert table.command == "poker-table play --seed 9 --seats you:human,tag,exploiter -n 1"
+    assert open_table('{"bots": 2, "seed": 9}', path).seats == seats_for(2)  # as before
+    with pytest.raises(ValueError):
+        open_table('{"bots": ["nobody"], "seed": 9}', path)
 
 
 def test_an_export_with_a_wheel_has_a_table_to_play(tmp_path: Path) -> None:
@@ -189,6 +211,8 @@ def test_an_export_with_a_wheel_has_a_table_to_play(tmp_path: Path) -> None:
     page = (site / "index.html").read_text()
     where = '{"url": "play/poker_table-0.2.0-py3-none-any.whl", "bytes": 100}'
     assert f"window.POKER_TABLE_PLAY_WHEEL = {where};" in page
+    bots = json.dumps({"names": list(BOTS), "default": 3})  # the picker's, before Python loads
+    assert f"window.POKER_TABLE_PLAY_BOTS = {bots};" in page
     assert page.index("static/app.js") < page.index("static/play.js")  # it uses app.js's viewer
     assert "static/play.css" in page
     assert (site / "play" / wheel.name).read_bytes() == wheel.read_bytes()
