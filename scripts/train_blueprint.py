@@ -69,7 +69,7 @@ QUANTILES = {
     RIVER: (0.15, 0.3, 0.45, 0.58, 0.7, 0.8, 0.87, 0.93, 0.97),
 }
 LIMIT_SECONDS = 30 * 60
-SHIPPED_GROUPS = 0  # the shipped file's preflop groups: 0 is format 1, buckets that forget
+SHIPPED_GROUPS = 3  # preflop groups the shipped file keeps after the flop (format 2); 0: format 1
 
 
 def log(text: str) -> None:
