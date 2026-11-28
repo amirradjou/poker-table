@@ -409,9 +409,32 @@ So keeping a preflop group takes about 96 mbb/hand off what a best response wins
 and the track shows no harm. But like the shipped strategy, its average gets more exploitable
 as it trains: 338.2 at 1,000 iterations, 345.3 at 2,000. The fixed conditions asked for no rise,
 so the shipped file stays as it is. Changing a condition after seeing the numbers would be
-tuning on the measurement. Not measured: where v2's curve goes after 2,000 iterations (4,000
-would take about 40 minutes, past the 30-minute rule), and a game whose chances are counted by
-(group, bucket).
+tuning on the measurement. Not measured: a game whose chances are counted by (group, bucket).
+
+**Run on to 4,000 iterations, v2 levels off too.** The reading was written down before the run,
+with the shipped strategy's tolerance above: the average "levels off" if it ends within 10
+mbb/hand of its value at 2,000. The run checked itself on the way: at 2,000 iterations its
+rounded average was v2's file, table for table (`checkpoints --groups 3 --like v2.bin`: 38.1
+minutes, load 0.8 when it started and 2.9 when it ended). A best response wins, in mbb/hand (each
+measurement 4 to 5 minutes, one at a time, load 1.6 to 5.0):
+
+| iterations | v2 average | the shipped strategy's average, from above |
+|---:|---:|---:|
+| 2,000 | 344.8 | 440.1 |
+| 3,000 | 350.1 | 441.7 |
+| 4,000 | 351.6 (352.3 rounded) | 442.8 |
+
+It ends 6.8 above its value at 2,000, so it levels off. Its last iterate at 4,000 wins 374.8
+(479 as the small blind, 271 as the big blind), and the average of iterations 2,001 to 4,000 wins
+358.6. As with the shipped strategy, the average climbs toward iterates that sit above it, and
+the climb slows (5.3, then 1.5). v2 stays 91 to 95 mbb/hand less exploitable at each checkpoint.
+
+None of this changes the shipped file. A 4,000-iteration file took 38 minutes, past the 30-minute
+rule. The 2,000-iteration file still fails the "not rising" condition fixed in #50. The shipped
+strategy itself would fail that condition: from 1,000 to 2,000 its average rose from 426 to 440,
+twice v2's rise of 338.2 to 345.3. It passes only the "levels off" reading. Whether v2 should
+be held to that reading instead is an open decision. Making it after seeing these numbers is what
+the fixed conditions exist to prevent, so this run does not make it.
 
 **Where it plays, and what it does off its tree.**
 
@@ -484,6 +507,8 @@ uv run python scripts/compare_blueprints.py play src/poker_table/agents/data/blu
 uv run python scripts/compare_blueprints.py pair replay              # must be zero in every hand
 uv run python scripts/compare_blueprints.py play v2.bin --out v2-track
 uv run python scripts/compare_blueprints.py pair v2-track
+uv run python scripts/diagnose_blueprint.py checkpoints --groups 3 --like v2.bin --out bpv2 --iterations 4000 --at 1000,2000,3000,4000 --minutes 60
+uv run python scripts/diagnose_blueprint.py measure --groups 3 bpv2 avg:2000 avg:3000 avg:4000 avg:4000:rounded current:4000 window:2000-4000
 uv run python scripts/run_heads_up_track.py          # the heads-up track, then the leaderboards
 uv run pytest -q tests/test_solvers.py               # Kuhn and Leduc
 uv run pytest -q tests/test_recall.py                # forgetting and remembering
