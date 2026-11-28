@@ -837,6 +837,26 @@ def test_a_visitor_picks_which_bots_sit_down(page: Page, demo_url: str) -> None:
     )
 
 
+def test_a_full_table_turns_the_other_bots_off(page: Page, demo_url: str) -> None:
+    # Eight bots and you fill the nine seats: the rest wait until one of the eight leaves.
+    page.goto(f"{demo_url}?seed=12")
+    expect(page.locator("#replay")).to_be_visible()
+    page.locator("#play-open").click()
+    page.locator('#play-bar [data-bots="8"]').click()
+    expect(page.locator('#play-bar [data-bots="9"]')).to_have_count(0)
+    expect(page.locator('#play-bar [data-bot="calculator"]')).to_be_disabled()
+    page.locator('#play-bar [data-bot="random"]').click()
+    expect(page.locator('#play-bar [data-bot="calculator"]')).to_be_enabled()
+    page.locator('#play-bar [data-bot="calculator"]').click()
+    expect(page.locator('#play-bar [data-bot="trapper"]')).to_be_disabled()
+    page.locator("#play-deal").click()
+    bots = "tag,maniac,station,rock,exploiter,fish,lag,calculator"
+    expect(page.locator("#play-command")).to_have_text(
+        f"poker-table play --seed 12 --seats you:human,{bots}", timeout=LOAD
+    )
+    expect(page.locator("#table .seat")).to_have_count(9)
+
+
 def test_bots_in_the_browser_deal_and_play_what_the_cli_does(
     page: Page, demo_url: str, tmp_path: Path
 ) -> None:

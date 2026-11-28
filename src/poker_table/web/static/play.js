@@ -22,8 +22,9 @@
   const PYODIDE_UNPACKED = 12_378_418;
   const DOWNLOAD = PYODIDE_SENT + WHEEL.bytes;
   const BEAT = 3000;  // ms to look at a hand's result before the next one is dealt
-  // The bots to pick from, in the order they sit down (demo_play.BOTS, written by the export).
-  const { names: BOTS, default: DEFAULT_BOTS } = window.POKER_TABLE_PLAY_BOTS;
+  // The bots to pick from, in the order they sit down, and how many can sit at once
+  // (demo_play.BOTS and MOST_BOTS, written by the export).
+  const { names: BOTS, default: DEFAULT_BOTS, most: MOST_BOTS } = window.POKER_TABLE_PLAY_BOTS;
   const megabytes = (bytes) => `${(bytes / 1e6).toFixed(1)} MB`;
 
   // ---- the Play button and the bar under the header ----
@@ -43,7 +44,7 @@
     <div class="play-setup" id="play-setup">
       <strong>Sit down with the bots</strong>
       <span class="play-bots" role="group" aria-label="How many bots">Bots
-        ${BOTS.map((_, i) => `<button type="button" data-bots="${i + 1}" aria-pressed="${i + 1 === DEFAULT_BOTS}" title="The first ${i + 1}">${i + 1}</button>`).join("")}
+        ${BOTS.slice(0, MOST_BOTS).map((_, i) => `<button type="button" data-bots="${i + 1}" aria-pressed="${i + 1 === DEFAULT_BOTS}" title="The first ${i + 1}">${i + 1}</button>`).join("")}
       </span>
       <span class="play-pick" role="group" aria-label="Which bots">
         ${BOTS.map((name, i) => `<button type="button" data-bot="${name}" aria-pressed="${i < DEFAULT_BOTS}">${name}</button>`).join("")}
@@ -70,7 +71,10 @@
     const picked = BOTS.filter((name) => bots.has(name));
     const prefix = picked.every((name, i) => name === BOTS[i]) ? picked.length : 0;
     for (const b of bar.querySelectorAll("[data-bots]")) b.setAttribute("aria-pressed", +b.dataset.bots === prefix);
-    for (const b of bar.querySelectorAll("[data-bot]")) b.setAttribute("aria-pressed", bots.has(b.dataset.bot));
+    for (const b of bar.querySelectorAll("[data-bot]")) {
+      b.setAttribute("aria-pressed", bots.has(b.dataset.bot));
+      b.disabled = !bots.has(b.dataset.bot) && bots.size >= MOST_BOTS;  // the table is full
+    }
   }
   for (const b of bar.querySelectorAll("[data-bots]")) {
     b.onclick = () => { bots = new Set(BOTS.slice(0, +b.dataset.bots)); showPicked(); };
@@ -78,7 +82,7 @@
   for (const b of bar.querySelectorAll("[data-bot]")) {
     b.onclick = () => {
       const name = b.dataset.bot;
-      if (!bots.has(name)) bots.add(name);
+      if (!bots.has(name)) { if (bots.size < MOST_BOTS) bots.add(name); }
       else if (bots.size > 1) bots.delete(name);  // somebody has to sit across from you
       showPicked();
     };
