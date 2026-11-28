@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -235,6 +236,32 @@ def test_export_writes_a_static_site_answering_the_same_json(tmp_path: Path, han
     assert [h["hand_id"] for h in listed["hands"]] == [str(i) for i in range(12, 0, -1)]
     assert listed["hands"][:5] == client.get("/api/hands?limit=5").json()["hands"]
     assert len(list((site / "data" / "hands").glob("*.json"))) == 12
+
+
+CONTROLS = ('id="copy-link"', 'id="save-picture"', 'id="toggle-sound"')
+
+
+def test_the_viewer_has_a_link_a_picture_and_sound_served_and_exported(
+    tmp_path: Path, hands_file: Path
+) -> None:
+    from poker_table.web.export import export_site
+
+    client = TestClient(create_app(hands_file))
+    served = client.get("/").text
+    export_site(hands_file, tmp_path / "site", players=[])
+    exported = (tmp_path / "site" / "index.html").read_text()
+    for page in (served, exported):
+        assert all(control in page for control in CONTROLS)
+    js = client.get("/static/app.js").text
+    assert (tmp_path / "site" / "static" / "app.js").read_text() == js
+    for part in ("function openLink(", "function pictureModel(", "function cue("):
+        assert part in js
+    assert "localStorage" in js and "<audio" not in served and "<audio" not in exported
+    # What a link asks of the server to open its hand, or to find that the file has no such hand.
+    assert [h["hand_id"] for h in client.get("/api/hands?ids=5").json()["hands"]] == ["5"]
+    assert client.get("/api/hands?ids=no-such-hand").json() == {"total": 0, "hands": []}
+    hand = client.get("/api/hands/5").json()
+    assert hand == json.loads((tmp_path / "site" / "data" / "hands" / "5.json").read_text())
 
 
 def test_export_refuses_what_it_cannot_write(tmp_path: Path, hands_file: Path) -> None:

@@ -21,6 +21,7 @@ from poker_table.agents.ollama import is_local
 from poker_table.agents.personalities import PERSONALITIES
 from poker_table.agents.pushfold import PushFoldAgent
 from poker_table.agents.scripted import CallingStation, Maniac, RandomAgent, TightAggressive
+from poker_table.agents.styles import Calculator, Fish, LooseAggressive, Tilter, Trapper
 
 if TYPE_CHECKING:
     from poker_table.agents.custom import CustomKind
@@ -37,6 +38,11 @@ SCRIPTED: dict[str, Factory] = {
     ),
     "maniac": lambda name, seed: Maniac(name, seed=seed),
     "exploiter": lambda name, seed: ExploiterAgent(name, seed=seed),
+    "fish": lambda name, seed: Fish(name, seed=seed),
+    "lag": lambda name, seed: LooseAggressive(name, seed=seed),
+    "calculator": lambda name, seed: Calculator(name, seed=seed),
+    "trapper": lambda name, seed: Trapper(name, seed=seed),
+    "tilter": lambda name, seed: Tilter(name, seed=seed),
     "human": lambda name, seed: HumanAgent(name),
 }
 
@@ -55,6 +61,12 @@ BUILT_IN: dict[str, str] = {
     "exploiter": "a tag that adapts to what it has seen of each opponent",
     "maniac": "raises most of the time and almost never folds",
     "station": "calls everything, never raises",
+    "fish": "loose-passive: limps and calls a lot, folds air to a bet, bets top pair or better",
+    "lag": "loose-aggressive: opens and 3-bets wide, c-bets and barrels, folds to a raise",
+    "calculator": "plays its equity against random hands: calls when it beats the price, "
+    "never bluffs",
+    "trapper": "a tag that slow-plays a strong flop and check-raises",
+    "tilter": "a tag that plays like a maniac for 15 hands after losing 40 big blinds at showdown",
     "random": "any legal action, chosen at random",
     "human": "you, at the terminal (or in the browser with serve --live)",
     "laya": "the open Laya decision model (pip install 'poker-table[laya]')",

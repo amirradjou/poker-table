@@ -4,6 +4,9 @@ These need the ``browser`` dependency group and a Chromium for Playwright:
 
     uv sync --group browser && uv run playwright install chromium
 
+``POKER_TABLE_BROWSER=firefox`` runs them in Firefox instead (after ``playwright install
+firefox``); the phone tests need Chromium's mobile emulation and are skipped there.
+
 Without them the tests are skipped, unless ``POKER_TABLE_BROWSER_TESTS=required`` (as in CI),
 where a missing browser is a failure instead of a quiet skip.
 """
@@ -17,7 +20,7 @@ import socket
 import subprocess
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -38,6 +41,7 @@ from poker_table.web.live import LiveSession, WebHumanAgent
 from poker_table.web.payloads import hand_payload
 
 REQUIRED = os.environ.get("POKER_TABLE_BROWSER_TESTS") == "required"
+ENGINE = os.environ.get("POKER_TABLE_BROWSER", "chromium")
 ROOT = Path(__file__).parents[1]
 # A folder for screenshots of the demo's table, to look at by eye; none are taken without it.
 SHOTS = os.environ.get("POKER_TABLE_SHOTS")
@@ -55,13 +59,13 @@ except ImportError:
 def browser() -> Iterator[Any]:
     with sync_playwright() as playwright:
         try:
-            chromium = playwright.chromium.launch()
+            launched = getattr(playwright, ENGINE).launch()
         except PlaywrightError as exc:
             if REQUIRED:
                 raise
-            pytest.skip(f"no Chromium for Playwright ({exc.message.splitlines()[0]})")
-        yield chromium
-        chromium.close()
+            pytest.skip(f"no {ENGINE} for Playwright ({exc.message.splitlines()[0]})")
+        yield launched
+        launched.close()
 
 
 def _free_port() -> int:
@@ -124,6 +128,8 @@ def page(browser: Any, serve: Callable[[Any], str]) -> Iterator[Page]:
 @pytest.fixture
 def phone(browser: Any, serve: Callable[[Any], str]) -> Iterator[Page]:
     """A small phone: 360 by 740, touch, two pixels to the point."""
+    if ENGINE == "firefox":
+        pytest.skip("Firefox has no mobile emulation in Playwright")
     yield from _watched(
         browser,
         viewport={"width": 360, "height": 740},
@@ -264,6 +270,194 @@ def test_the_published_demo_works_with_no_server_behind_it(
     expect(page.locator("#board-call")).not_to_be_empty()
 
 
+# What the page hands the clipboard, kept where a test can read it in any browser.
+CLIPBOARD = """
+  window.copied = [];
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+    writeText: async (text) => { window.copied.push(text); },
+  } });
+"""
+
+
+@pytest.mark.parametrize("where", ["served", "static"])
+def test_a_link_opens_its_hand_at_its_step(page: Page, serve, hands: Path, tmp_path, where) -> None:
+    if where == "served":
+        url = serve(create_app(hands)) + "/"
+    else:
+        export_site(hands, tmp_path / "site", samples=20)
+        url = serve(StaticFiles(directory=tmp_path / "site", html=True)) + "/"
+    page.add_init_script(CLIPBOARD)
+    page.goto(f"{url}#hand=5&step=3")
+    expect(page.locator("#hand-title")).to_have_text("Hand #5")
+    expect(page.locator("#scrub")).to_have_value("3")
+    page.locator("#next").click()
+    page.locator("#copy-link").click()
+    expect(page.locator("#copy-link")).to_have_text("Link copied")
+    assert page.evaluate("window.copied") == [f"{url}#hand=5&step=4"]
+    expect(page).to_have_url(f"{url}#hand=5&step=4")  # the address follows the step too
+
+    # Opening the copied link in a new tab shows the same hand at the same step.
+    other = page.context.new_page()
+    other.goto(f"{url}#hand=5&step=4")
+    expect(other.locator("#hand-title")).to_have_text("Hand #5")
+    expect(other.locator("#scrub")).to_have_value("4")
+    other.close()
+
+    # The older form still opens, and a link to a hand the file lacks opens the first listed,
+    # with no failed request (the page fixture fails the test on any).
+    page.goto(f"{url}#2")
+    expect(page.locator("#hand-title")).to_have_text("Hand #2")
+    page.goto(f"{url}#hand=no-such-hand&step=7")
+    expect(page.locator("#hand-title")).to_have_text("Hand #12")  # the newest, at the top
+    expect(page.locator("#scrub")).to_have_value("0")
+    # A link pasted into the address bar of an open page opens without a reload.
+    page.evaluate("location.hash = 'hand=7&step=2'")
+    expect(page.locator("#hand-title")).to_have_text("Hand #7")
+    expect(page.locator("#scrub")).to_have_value("2")
+
+
+def test_a_link_leaves_out_the_seat_of_a_person_at_a_table_with_friends(
+    page: Page, serve, tmp_path
+) -> None:
+    path = tmp_path / "friends.jsonl"
+    path.touch()
+    ann = WebHumanAgent("ann")
+    session = LiveSession(
+        [ann, WebHumanAgent("bob"), CallingStation("station")],
+        LeagueConfig(hands=1, seed=2, buy_in=100),
+        path,
+        time_limit=0.01,
+    )
+    url = serve(create_app(path, session))
+    session.start()
+    session.join(30)
+    page.add_init_script(CLIPBOARD)
+    page.goto(f"{url}/?seat={ann.token}#hand=1&step=2")
+    expect(page.locator("#hand-title")).to_have_text("Hand #1")
+    page.locator("#copy-link").click()
+    expect(page.locator("#copy-link")).to_have_text("Link copied")
+    assert page.evaluate("window.copied") == [f"{url}/#hand=1&step=2"]
+
+
+def test_a_picture_of_a_hand_downloads_as_a_png(page: Page, serve, hands: Path) -> None:
+    page.goto(serve(create_app(hands)))
+    # A hand shown down by some seats and not others, whose cards the file knows all the same.
+    played = list(read_jsonl(hands))
+    chosen = next(h for h in played if h.showdown and len(h.showdown) < len(h.players))
+    page.evaluate(f"openHand({chosen.hand_id!r})")
+    expect(page.locator("#hand-title")).to_have_text(f"Hand #{chosen.hand_id}")
+    model = page.evaluate("pictureModel(hand)")
+    assert model["id"] == chosen.hand_id and model["pot"] == sum(p["amount"] for p in chosen.pots)
+    assert model["board"] == [str(c) for c in chosen.board]
+    for seat in model["seats"]:
+        player = chosen.players[seat["seat"]]
+        shown = seat["seat"] in chosen.showdown
+        assert seat["cards"] == ([str(c) for c in player.hole] if shown else [None, None])
+        assert seat["kind"]["label"] and seat["net"] == player.net
+    won = sum(w["amount"] for w in model["wins"])
+    assert won == model["pot"] and {w["name"] for w in model["wins"]} <= {
+        p.name for p in chosen.players if p.net > 0
+    }
+
+    with page.expect_download() as download:
+        page.locator("#save-picture").click()
+    saved = download.value
+    assert saved.suggested_filename == f"poker-table-hand-{chosen.hand_id}.png"
+    data = Path(saved.path()).read_bytes()
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+    width, height = int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+    assert (width, height) == (2400, 1600)
+
+
+# Counts every sound the page makes: each AudioContext made, and each tone or noise started.
+COUNT_SOUND = """
+  window.sounds = { contexts: 0, started: 0 };
+  const Real = window.AudioContext;
+  window.AudioContext = class extends Real {
+    constructor(...args) { super(...args); window.sounds.contexts += 1; }
+    createOscillator() { return counted(super.createOscillator()); }
+    createBufferSource() { return counted(super.createBufferSource()); }
+  };
+  function counted(node) {
+    const start = node.start.bind(node);
+    node.start = (...args) => { window.sounds.started += 1; return start(...args); };
+    return node;
+  }
+"""
+
+
+def test_sound_is_off_until_turned_on_and_remembered(page: Page, serve, hands: Path) -> None:
+    page.add_init_script(COUNT_SOUND)
+    page.goto(serve(create_app(hands)))
+    page.locator("#hand-list button").first.click()
+    toggle = page.locator("#toggle-sound")
+    expect(toggle).to_have_attribute("aria-pressed", "false")
+    for _ in range(4):
+        page.locator("#next").click()
+    page.locator("#last").click()
+    expect(page.locator("#street")).to_have_text("Hand over")
+    # Nothing before the switch: not a sound, not even an AudioContext.
+    assert page.evaluate("window.sounds") == {"contexts": 0, "started": 0}
+    assert page.evaluate("localStorage.getItem('poker-table.sound')") is None
+
+    toggle.click()
+    expect(toggle).to_have_attribute("aria-pressed", "true")
+    assert page.evaluate("localStorage.getItem('poker-table.sound')") == "on"
+    started = page.evaluate("window.sounds.started")
+    assert started > 0  # turning it on says so
+    page.locator("#first").click()
+    page.locator("#next").click()
+    page.locator("#last").click()
+    page.keyboard.press("Home")
+    for _ in range(len(page.evaluate("hand.steps"))):
+        page.keyboard.press("ArrowRight")  # every step of the hand: blinds, actions, the pot
+    assert page.evaluate("window.sounds.started") > started
+    assert page.evaluate("window.sounds.contexts") == 1
+
+    page.reload()  # remembered, and still silent until the visitor touches the page
+    expect(page.locator("#toggle-sound")).to_have_attribute("aria-pressed", "true")
+    assert page.evaluate("window.sounds") == {"contexts": 0, "started": 0}
+    page.locator("#toggle-sound").click()
+    expect(page.locator("#toggle-sound")).to_have_attribute("aria-pressed", "false")
+    assert page.evaluate("localStorage.getItem('poker-table.sound')") == "off"
+
+
+def test_sound_cues_play_at_a_live_table(page: Page, serve, tmp_path) -> None:
+    path = tmp_path / "live.jsonl"
+    session = LiveSession(
+        [TightAggressive("tag"), CallingStation("station")],
+        LeagueConfig(hands=3, seed=4, buy_in=100),
+        path,
+        pace=0.3,
+    )
+    url = serve(create_app(path, session))
+    page.add_init_script(COUNT_SOUND)
+    page.add_init_script("localStorage.setItem('poker-table.sound', 'on')")
+    session.start()
+    page.goto(url)
+    toggle = page.locator("#toggle-sound")
+    expect(toggle).to_have_attribute("aria-pressed", "true")  # remembered from before
+    toggle.click()  # off: a click is what lets a page make sound at all
+    toggle.click()  # and on again
+    before = page.evaluate("window.sounds.started")
+    page.wait_for_function(f"window.sounds.started > {before}", timeout=20_000)  # the table's
+    session.pace = 0.0
+    expect(page.locator("#live")).to_have_text("session over, 3 hands", timeout=30_000)
+
+
+def test_storage_that_throws_leaves_the_viewer_working(page: Page, serve, hands: Path) -> None:
+    # A private window or blocked site data can make localStorage throw on every touch.
+    page.add_init_script(
+        "Object.defineProperty(window, 'localStorage', { get() { throw new Error('blocked'); } });"
+    )
+    page.goto(serve(create_app(hands)))
+    page.locator("#hand-list button").first.click()
+    page.locator("#toggle-sound").click()
+    expect(page.locator("#toggle-sound")).to_have_attribute("aria-pressed", "true")
+    page.locator("#next").click()
+    expect(page.locator("#scrub")).to_have_value("1")
+
+
 def _box(page: Page, selector: str) -> dict[str, float]:
     return page.locator(selector).first.bounding_box()
 
@@ -274,7 +468,8 @@ def _overflowing(page: Page) -> list[str]:
         """() => {
           const width = document.documentElement.clientWidth;
           const out = [];
-          for (const el of document.querySelectorAll("#table .seat .plate, #action-bar *")) {
+          const parts = "#table .seat .plate, #action-bar *, .controls *, #play-bar *";
+          for (const el of document.querySelectorAll(parts)) {
             const r = el.getBoundingClientRect();
             if (r.width && (r.left < 0 || r.right > width)) out.push(el.className || el.id);
           }
@@ -542,8 +737,9 @@ def _shot(page: Page, name: str) -> None:
         page.screenshot(path=str(Path(SHOTS) / f"{name}.png"))
 
 
-def _sit_down(page: Page, url: str, *, bots: int, seed: int) -> list[Any]:
-    """Open the demo, press Play and deal; every request the page made, in order."""
+def _sit_down(page: Page, url: str, *, bots: int, seed: int, pick: Sequence[str] = ()) -> list[Any]:
+    """Open the demo, press Play, take the first ``bots`` bots, turn each bot in ``pick`` on or
+    off, and deal; every request the page made, in order."""
     requests: list[Any] = []
     page.on("requestfinished", lambda request: requests.append(request))
     page.goto(f"{url}?seed={seed}")
@@ -554,7 +750,10 @@ def _sit_down(page: Page, url: str, *, bots: int, seed: int) -> list[Any]:
     play = page.locator("#play-open")
     expect(play).to_have_text(re.compile(r"^Play the bots · \d+\.\d MB$"))
     play.click()
+    assert _overflowing(page) == []  # the picker fits a phone too
     page.locator(f'#play-bar [data-bots="{bots}"]').click()
+    for name in pick:
+        page.locator(f'#play-bar [data-bot="{name}"]').click()
     page.locator("#play-deal").click()
     expect(page.locator("#play-seated")).to_be_visible(timeout=LOAD)
     command = f"poker-table play --seed {seed} --seats you:human,"
@@ -621,6 +820,21 @@ def test_a_phone_plays_the_bots_in_the_published_demo(phone: Page, demo_url: str
     assert phone.locator("#table .seat").count() == 6
     assert _play_the_first_hand(phone, "phone") == 4
     assert _box(phone, "#table .seat .plate")["width"] <= 120
+
+
+def test_a_visitor_picks_which_bots_sit_down(page: Page, demo_url: str) -> None:
+    # The first one, then the exploiter on and back off and on again: you, tag and exploiter.
+    _sit_down(page, demo_url, bots=1, seed=6, pick=["exploiter", "exploiter", "exploiter"])
+    expect(page.locator("#play-command")).to_have_text(
+        "poker-table play --seed 6 --seats you:human,tag,exploiter"
+    )
+    expect(page.locator("#play-who")).to_have_text("You and 2 bots: tag, exploiter.")
+    expect(page.locator("#table .seat")).to_have_count(3)
+    names = page.locator("#table .seat .plate .name").all_inner_texts()
+    assert sorted(names) == ["exploiter", "tag", "you"]
+    expect(page.locator("#table .seat", has_text="exploiter").locator(".pos")).to_contain_text(
+        "exploiter"
+    )
 
 
 def test_bots_in_the_browser_deal_and_play_what_the_cli_does(

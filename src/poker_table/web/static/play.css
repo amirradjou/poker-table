@@ -16,6 +16,9 @@
 .play-bots button { min-width: 34px; padding: 3px 0; border-radius: 999px; font: 600 16px var(--condensed); }
 .play-bots button:first-child { margin-left: 4px; }
 .play-bots button[aria-pressed="true"] { background: var(--brass); border-color: var(--brass-hi); color: #1d1712; }
+.play-pick { display: inline-flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.play-pick button { padding: 2px 10px; border-radius: 999px; font: 500 15px var(--condensed); color: var(--ivory-soft); }
+.play-pick button[aria-pressed="true"] { border-color: var(--brass); color: var(--ivory); background: rgba(202, 162, 76, .18); }
 .play-bar button.primary { background: #1f7a4a; border-color: #2a8f59; color: #f3fbf6; font: 600 17px var(--condensed); padding: 5px 16px; }
 .play-bar button.primary:hover { background: #238a54; }
 .play-bar button:disabled { opacity: .7; cursor: progress; }

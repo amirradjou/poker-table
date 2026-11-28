@@ -46,7 +46,9 @@ from poker_table.web.payloads import (
     stats_payload,
 )
 
-BOTS = ("tag", "maniac", "station", "rock", "random")  # the order the bots sit down in
+# The order the bots sit down in. Seats are seeded by position, so a new bot only ever goes on
+# the end: the first N must stay the same for every N, or old seeds would deal other hands.
+BOTS = ("tag", "maniac", "station", "rock", "random", "exploiter")
 DEFAULT_BOTS = 3
 HANDS = 100  # what `poker-table play` deals when not told
 YOU = "you"
@@ -61,11 +63,21 @@ class HttpError(Exception):
         self.detail = detail
 
 
-def seats_for(bots: int = DEFAULT_BOTS) -> list[str]:
-    """The visitor in the first seat and ``bots`` of the scripted bots after them."""
-    if not 1 <= bots <= len(BOTS):
-        raise ValueError(f"the demo seats 1 to {len(BOTS)} bots, not {bots}")
-    return [f"{YOU}:human", *BOTS[:bots]]
+def seats_for(bots: int | Sequence[str] = DEFAULT_BOTS) -> list[str]:
+    """The visitor in the first seat and the bots after them: the first ``bots`` of ``BOTS``,
+    or the ones named. Named bots sit in ``BOTS`` order, whatever order they were picked in, so
+    picking the first three seats the table ``bots=3`` does."""
+    if isinstance(bots, int):
+        if not 1 <= bots <= len(BOTS):
+            raise ValueError(f"the demo seats 1 to {len(BOTS)} bots, not {bots}")
+        return [f"{YOU}:human", *BOTS[:bots]]
+    names = list(bots)
+    unknown = [name for name in names if name not in BOTS]
+    if unknown:
+        raise ValueError(f"the demo has no bot {unknown[0]!r}; it has {', '.join(BOTS)}")
+    if not names or len(set(names)) != len(names):
+        raise ValueError("pick each bot at most once, and at least one")
+    return [f"{YOU}:human", *(bot for bot in BOTS if bot in names)]
 
 
 def command(seats: Sequence[str], seed: int, hands: int = HANDS) -> str:
@@ -274,13 +286,16 @@ class DemoTable:
         raise ValueError(f"unknown request {op!r}")
 
 
-def open_table(request: str) -> DemoTable:
+def open_table(request: str, path: Path = PATH) -> DemoTable:
     """The table the page asks for, in JSON: ``{"bots": 3, "seed": 42}`` seats the visitor with
-    that many bots; ``{"seats": ["tag", "maniac"], "seed": 42, "hands": 10}`` seats exactly
-    those (a table of bots only plays itself out, step by step)."""
+    that many bots, ``{"bots": ["tag", "rock"], "seed": 42}`` with those bots;
+    ``{"seats": ["tag", "maniac"], "seed": 42, "hands": 10}`` seats exactly those (a table of
+    bots only plays itself out, step by step)."""
     ask_for = json.loads(request)
-    seats = ask_for.get("seats") or seats_for(int(ask_for.get("bots", DEFAULT_BOTS)))
-    return DemoTable(seats, seed=int(ask_for["seed"]), hands=int(ask_for.get("hands", HANDS)))
+    bots = ask_for.get("bots", DEFAULT_BOTS)
+    seats = ask_for.get("seats") or seats_for(bots if isinstance(bots, list) else int(bots))
+    hands = int(ask_for.get("hands", HANDS))
+    return DemoTable(seats, seed=int(ask_for["seed"]), hands=hands, path=path)
 
 
 class _Query:
