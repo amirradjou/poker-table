@@ -43,3 +43,26 @@ def test_five_handed_runs_the_benchmarks_bots_and_counts_methods(measure) -> Non
     assert measure.methods(p.control) == "-"  # tag records none
     five = measure.paired("tag", measure.OPPONENTS, hands=30, seed=1)
     assert five.difference == 0.0
+
+
+def test_vs_names_other_opponents_and_leaves_the_default_alone(measure) -> None:
+    assert measure.opponents_of(None) == ("tag", "rock", "maniac", "station")
+    assert measure.opponents_of("fish, lag") == ("fish", "lag")
+    with pytest.raises(SystemExit):
+        measure.opponents_of(",")
+    assert measure.tables() == [(f"vs {o}", (o,)) for o in measure.OPPONENTS]
+    assert measure.tables(five_handed=True)[-1] == ("five-handed", measure.OPPONENTS)
+    many = measure.tables(("fish", "lag", "tilter"), five_handed=True)
+    assert [label for label, _ in many] == ["vs fish", "vs lag", "vs tilter", "4-handed"]
+    assert many[-1][1] == ("fish", "lag", "tilter")
+
+
+def test_vs_runs_from_the_command_line_and_counts_rules(measure, monkeypatch, capsys) -> None:
+    argv = ["measure_vs_tag.py", "exploiter", "--vs", "fish,station", "--hands", "60"]
+    monkeypatch.setattr(sys, "argv", argv)
+    assert measure.main() == 0
+    out = capsys.readouterr().out
+    assert "| vs fish |" in out and "| vs station |" in out and "| vs tag |" not in out
+    p = measure.paired("exploiter", ("station",), hands=120, seed=2026)
+    assert p.seat.rules and set(p.seat.rules) <= {"no_bluff", "thin_value"}
+    assert not p.control.rules

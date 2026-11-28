@@ -3,6 +3,7 @@
     uv run python scripts/measure_vs_tag.py exploiter                 # heads-up, 2,000 hands each
     uv run python scripts/measure_vs_tag.py exploiter --five-handed   # also the benchmark's table
     uv run python scripts/measure_vs_tag.py exploiter --hands 400 --control rock
+    uv run python scripts/measure_vs_tag.py exploiter --vs fish,lag   # other opponents
 
 Each match is played twice from seed 2026: once with the seat being measured in seat 0, once
 with the control (tag unless ``--control`` says otherwise) in that seat instead. Everything else
@@ -14,8 +15,11 @@ the gap between two separate intervals would suggest.
 
 Heads-up is against tag, rock, maniac and station, at the heads-up track's stakes (blinds 1/2,
 200 chips topped up every hand). ``--five-handed`` adds the benchmark's table: the seat with tag,
-rock, maniac and station. Each row also counts how the seat decided, by the ``method`` its
-decisions record (a seat that records none shows ``-``).
+rock, maniac and station. ``--vs fish,lag,...`` names other opponents instead: one heads-up
+match against each, and with ``--five-handed`` one table of the seat with all of them (so with
+five names it is six-handed). Each row also counts how the seat decided, by the ``method`` its
+decisions record (a seat that records none shows ``-``). When decisions record a ``rule`` (as
+exploiter's do), a line under the table counts them by rule.
 
 Measuring the control against itself gives a difference of exactly zero, which a test checks.
 """
@@ -28,7 +32,7 @@ import subprocess
 import sys
 import time
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from poker_table.agents.registry import make_agents
 from poker_table.history import HandHistory
@@ -46,6 +50,7 @@ class Arm:
     adjusted_bb_per_100: float
     margin: float | None
     methods: Counter[str]
+    rules: Counter[str] = field(default_factory=Counter)
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +82,7 @@ def play(seat: str, others: tuple[str, ...], hands: int, seed: int) -> tuple[Arm
     agents = make_agents([f"{SEAT}:{seat}", *others], seed=seed)
     result = run_league(agents, LeagueConfig(hands=hands, buy_in=200, seed=seed))
     methods: Counter[str] = Counter()
+    rules: Counter[str] = Counter()
     for history in result.histories:
         for d in history.decisions:
             if history.players[d.seat].name != SEAT:
@@ -84,8 +90,10 @@ def play(seat: str, others: tuple[str, ...], hands: int, seed: int) -> tuple[Arm
             if d.illegal or d.reasoning.startswith("agent error"):
                 raise SystemExit(f"{seat} broke in hand {history.hand_id}: {d.reasoning}")
             methods[str(d.meta.get("method", "-"))] += 1
+            if d.meta.get("rule"):
+                rules[str(d.meta["rule"])] += 1
     margin = seat_margins(result.histories)[SEAT]
-    arm = Arm(margin.adjusted_bb_per_100, margin.adjusted_margin, methods)
+    arm = Arm(margin.adjusted_bb_per_100, margin.adjusted_margin, methods, rules)
     return arm, per_hand(result.histories)
 
 
@@ -112,6 +120,27 @@ def methods(arm: Arm) -> str:
     return ", ".join(f"{name} {count / total:.0%}" for name, count in arm.methods.most_common())
 
 
+def tables(
+    opponents: tuple[str, ...] = OPPONENTS, five_handed: bool = False
+) -> list[tuple[str, tuple[str, ...]]]:
+    """The matches to play: heads-up against each opponent, then all of them at one table."""
+    rows: list[tuple[str, tuple[str, ...]]] = [(f"vs {o}", (o,)) for o in opponents]
+    if five_handed:
+        label = "five-handed" if len(opponents) == 4 else f"{len(opponents) + 1}-handed"
+        rows.append((label, opponents))
+    return rows
+
+
+def opponents_of(text: str | None) -> tuple[str, ...]:
+    """``--vs fish,lag`` as a tuple of seats; the default opponents when it is not given."""
+    if text is None:
+        return OPPONENTS
+    names = tuple(name.strip() for name in text.split(",") if name.strip())
+    if not names:
+        raise SystemExit("--vs needs at least one seat")
+    return names
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     parser.add_argument("seat", help="the seat to measure, as --seats takes it: exploiter, ...")
@@ -119,13 +148,14 @@ def main() -> int:
     parser.add_argument("--hands", type=int, default=HANDS, help=f"hands a match ({HANDS:,})")
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument("--five-handed", action="store_true", help="also the benchmark's table")
+    parser.add_argument(
+        "--vs", metavar="A,B,...", help=f"opponents instead of {','.join(OPPONENTS)}"
+    )
     args = parser.parse_args()
 
     started = time.monotonic()
     print(f"start: {load()}", file=sys.stderr)
-    tables: list[tuple[str, tuple[str, ...]]] = [(f"vs {o}", (o,)) for o in OPPONENTS]
-    if args.five_handed:
-        tables.append(("five-handed", OPPONENTS))
+    matches = tables(opponents_of(args.vs), args.five_handed)
     print(
         f"{args.seat} in seat 0, then {args.control} in its place on the same deals: "
         f"{args.hands:,} hands a match from seed {args.seed}, all-in adjusted bb/100 with a 95% "
@@ -134,14 +164,22 @@ def main() -> int:
     print()
     print(f"| table | {args.seat} | {args.control} in its seat | difference | how it decided |")
     print("|---|---:|---:|---:|---|")
-    for label, others in tables:
+    fired: list[tuple[str, Counter[str]]] = []
+    for label, others in matches:
         p = paired(args.seat, others, args.hands, args.seed, args.control)
+        fired.append((label, p.seat.rules))
         print(
             f"| {label} | {cell(p.seat.adjusted_bb_per_100, p.seat.margin)} "
             f"| {cell(p.control.adjusted_bb_per_100, p.control.margin)} "
             f"| {cell(p.difference, p.margin)} | {methods(p.seat)} |",
             flush=True,
         )
+    if any(rules for _, rules in fired):
+        print()
+        print("Decisions changed, by the rule their meta records:")
+        for label, rules in fired:
+            counts = ", ".join(f"{n} {c:,}" for n, c in sorted(rules.items())) or "none"
+            print(f"- {label}: {counts}")
     print(f"took {(time.monotonic() - started) / 60:.1f} min; end: {load()}", file=sys.stderr)
     return 0
 

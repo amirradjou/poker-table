@@ -1,12 +1,14 @@
 # Seats: smarter LLMs, and your own agents
 
 A seat is anything with `act(view) -> Decision`. The table ships scripted bots (`tag`, `rock`,
-`maniac`, `station`, `random`), a scripted seat that reads the table (`exploiter`), four LLM
-personalities (`llm:nerd`, `llm:maniac`, `llm:rock`, `llm:storyteller`), a [Laya](laya.md) seat
-and a human seat. This page covers:
+`maniac`, `station`, `random`, and the styles `fish`, `lag`, `calculator`, `trapper`, `tilter`), a
+scripted seat that reads the table (`exploiter`), four LLM personalities (`llm:nerd`,
+`llm:maniac`, `llm:rock`, `llm:storyteller`), a [Laya](laya.md) seat and a human seat. This page
+covers:
 
 - what an LLM seat is handed on top of the bare table;
 - `exploiter`, a tag that adapts to what it has seen of each opponent;
+- five more styles, and how each did against tag on the same deals;
 - how to define your own seats in a TOML file, with no code, or in Python;
 - how to run them on your own key, or on a local model for free;
 - and how to measure whether any of it helps.
@@ -172,6 +174,133 @@ uv run python scripts/exploiter_rules.py --matches                # which rules 
 uv run poker-table benchmark exploiter -o docs/results            # the benchmark folder
 uv run python scripts/run_heads_up_track.py exploiter --replace   # the heads-up track
 uv run python scripts/exploiter_rules.py                          # rules in those folders
+```
+
+## More styles: fish, lag, calculator, trapper, tilter
+
+Five more scripted seats, each a style players name. They make no model calls and play at any
+table from 2 to 9 seats.
+
+| seat | what it does |
+|---|---|
+| `fish` | Loose-passive, but it folds. Before the flop it limps or calls with a Chen score of 2 or more (about 80% of hands) and raises only now and then with 12 or more. After the flop it goes on with a pair or a draw, folds air to a bet, and bets only with top pair or better. |
+| `lag` | Loose-aggressive. It opens 3 Chen points wider than tag and 3-bets with 9 or more (tag needs 12), sometimes lighter from late position. It c-bets 80% of flops it raised before and fires a second barrel on 40% of turns (70% with a draw). Raised after it bets, it goes on only with top pair or better. |
+| `calculator` | Decides from its equity against one random hand for each opponent still in (`odds.chances`). It calls when that equity beats the pot odds, bets at 1.3 times its fair share of the pot and raises at 1.6 times (fair share is 1 over the players in; neither threshold goes above 85%). It never bluffs. |
+| `trapper` | A tag that slow-plays two pair or better made on the flop. On the flop it checks, or calls a bet; a bet after it checked gets raised (a check-raise). On the turn and river it bets or raises. Otherwise it plays as tag. |
+| `tilter` | A tag that goes on tilt after it loses 40 big blinds or more in a hand that reached showdown. For the next 15 hands it plays like the maniac, then calms down. A loss while on tilt does not make the tilt longer. |
+
+```sh
+uv run poker-table play -n 200 --seats fish,lag,calculator,trapper,tilter --show
+```
+
+**What they record.** `calculator`'s decisions carry `{"method": "equity", "equity": 0.41,
+"price": 0.25, "opponents": 1}`. `trapper`'s say `{"method": "trap"}` in the trap line and
+`{"method": "tag"}` otherwise. `tilter`'s say `{"method": "tilt"}` or `{"method": "tag"}`, with
+`tilt` (true or false) and `tilt_hands_left`. Its table talk says when it tilts and when it calms
+down. `fish` and `lag` record nothing.
+
+**Same answers every time.** `fish` and `lag` have their own random stream from their seed.
+`calculator` draws nothing: its sampling is seeded the same way every time, and its preflop
+equity is computed once per hand class. `trapper` and `tilter` hold a tag inside and ask it at
+every decision, as `exploiter` does, so until they depart from it they play a tag seat's hands.
+`tilter` counts its tilt from the hands it is shown, so a resumed freezeout tilts at the same
+hands. None of them changes how `tag`, `rock`, `maniac` or `station` play.
+
+### How they play
+
+Each seat in seat 0 of the benchmark's five-handed table (tag, rock, maniac, station), 2,000 hands
+from seed 2026. The numbers are `stats.compute_stats` and the label is `reads.style_of`.
+
+| seat | VPIP | PFR | PFR/VPIP | folds to a bet | aggression | style_of | ms a decision |
+|---|---:|---:|---:|---:|---:|---|---:|
+| fish | 76% | 1% | 0.01 | 36% | 0.4 | loose-passive, calls down | 0.0 |
+| lag | 41% | 35% | 0.84 | 55% | 2.3 | loose-aggressive | 0.0 |
+| calculator | 35% | 4% | 0.10 | 46% | 1.7 | loose-passive, calls down | 8.2 |
+| trapper | 18% | 12% | 0.66 | 47% | 1.3 | tight-aggressive | 0.0 |
+| tilter | 40% | 31% | 0.77 | 29% | 2.2 | loose-aggressive | 0.0 |
+| tag | 17% | 12% | 0.66 | 46% | 1.7 | tight-aggressive | 0.0 |
+
+`fish` and `lag` land on the labels they were built for. `trapper` reads as tag, which it is
+outside a few hands. `tilter` reads loose-aggressive here because this table has the maniac in
+it: it was on tilt for half its decisions. `calculator` takes 8 ms a decision, almost all of it
+sampling after the flop (300 samples; a river against one hand is counted exactly).
+
+### Measured: against tag on the same deals
+
+The predictions were written down before any of these hands were played. Each match is the
+paired comparison of `measure_vs_tag.py`: 2,000 hands from seed 2026, once with the seat in seat
+0 and once with tag there on the same deals, the difference in all-in adjusted bb/100 with a 95%
+interval. A difference counts only when its interval is clear of zero. All six runs together took
+under 6 minutes on 12 cores, at a load average of about 4.
+
+| table | fish | lag | calculator | trapper | tilter |
+|---|---:|---:|---:|---:|---:|
+| vs tag | -14 ±46 | **+36 ±29** | -65 ±77 | +1 ±5 | -16 ±25 |
+| vs rock | +7 ±21 | +7 ±22 | +35 ±44 | -0 ±18 | -13 ±21 |
+| vs maniac | **+311 ±133** | **-293 ±113** | **+1050 ±190** | -5 ±75 | -42 ±124 |
+| vs station | **-137 ±36** | **+288 ±66** | +27 ±32 | **-48 ±14** | +3 ±18 |
+| five-handed | **+996 ±306** | **-216 ±189** | **+585 ±230** | -22 ±121 | -209 ±217 |
+
+The difference each seat makes against tag in its seat; in bold, the intervals clear of zero. The
+seats' own results, next to tag's (tag in seat 0 makes -19 ±31, +6 ±20, +238 ±98, +191 ±43 and
++609 ±183 on these tables):
+
+| table | fish | lag | calculator | trapper | tilter |
+|---|---:|---:|---:|---:|---:|
+| vs tag | -33 ±48 | +17 ±28 | -84 ±79 | -18 ±33 | -35 ±40 |
+| vs rock | +13 ±17 | +13 ±30 | +41 ±44 | +6 ±26 | -7 ±31 |
+| vs maniac | +549 ±126 | -55 ±86 | +1287 ±192 | +232 ±99 | +195 ±130 |
+| vs station | +54 ±13 | +479 ±89 | +218 ±37 | +143 ±36 | +194 ±47 |
+| five-handed | +1604 ±322 | +393 ±168 | +1194 ±225 | +586 ±176 | +400 ±243 |
+
+`trapper` was in its trap line for 1 to 5% of decisions, `tilter` on tilt for 2% of decisions
+(against the station) to 26% (against the maniac) heads-up, and 50% five-handed.
+
+| prediction | held? |
+|---|---|
+| fish is not better than tag on any table | **No.** Against the maniac (+311 ±133) and five-handed (+996 ±306) it is. A likely reason, not a measured one: it calls the maniac's bets with any pair or draw, where tag folds the weaker ones. Against the station it is worse (-137 ±36); there it limps where tag raises, and bets top pair only 60% of the time where tag always does. |
+| lag beats tag against rock | **Not shown.** +7 ±22. |
+| lag loses to tag against the station | **No, the reverse.** +288 ±66. It plays 41% of hands to tag's 17%, with bigger bets, and the station pays them all; that is the likely reason, not a measured one. Against the maniac lag is worse (-293 ±113), perhaps because it folds to the maniac's raises without top pair. |
+| calculator beats tag against the station and the maniac | **Against the maniac, yes** (+1050 ±190). Against the station not shown (+27 ±32). |
+| calculator loses to tag against rock | **Not shown.** +35 ±44, if anything the other way. |
+| trapper beats tag against the maniac | **Not shown.** -5 ±75. |
+| trapper loses to tag against the station | **Yes.** -48 ±14. |
+| tilter is no better than tag on any table | **Yes.** No interval is clear of zero; five-handed it is -209 ±217. |
+
+Not predicted: lag beat tag heads-up against tag (+36 ±29), and lost to it five-handed (-216 ±189).
+
+### exploiter against them
+
+```sh
+uv run python scripts/measure_vs_tag.py exploiter --vs fish,lag,calculator,trapper,tilter
+```
+
+| table | exploiter | tag in its seat | difference | how it decided | rules that fired |
+|---|---:|---:|---:|---|---|
+| vs fish | +50 ±54 | +50 ±54 | +0 ±0 | tag 100% | none |
+| vs lag | -10 ±36 | -11 ±34 | +1 ±17 | tag 99%, adjusted 1% | `defend_wide` 15 |
+| vs calculator | +58 ±101 | +80 ±79 | -22 ±62 | tag 72%, adjusted 28% | `no_bluff` 202, `thin_value` 1,312 |
+| vs trapper | -21 ±32 | -21 ±32 | +0 ±0 | tag 100% | none |
+| vs tilter | +4 ±35 | +4 ±35 | +0 ±0 | tag 100% | none |
+
+The prediction was that `bluff_folder` fires against fish and exploiter beats tag there. **It
+did not.** Fish folds to 50% of bets heads-up (116 bets in the last 300 hands), short of the 60%
+that makes a folder, and it plays 52% of hands but folds too often to be a caller. So no rule
+fits it, and exploiter played tag's hands: a difference of exactly zero. `bluff_folder` is still
+untried here; it fired 5 times against Slumbot ([slumbot.md](slumbot.md)). Against calculator,
+which the reads call a caller, `thin_value` and `no_bluff` changed 28% of decisions and won
+nothing measurable (-22 ±62).
+
+What it does not show: one seed, and scripted opponents with fixed styles. The predictions were
+guesses written down first, and no bot was tuned to them. No bot was changed after any bb/100 was seen. One was
+changed after a profile run: at first a loss while on tilt restarted `tilter`'s 15 hands, and on
+the five-handed table it was then on tilt in 88% of hands, a maniac in all but name. So a tilt now
+runs its 15 hands and ends.
+
+```sh
+uv run python scripts/profile_seats.py fish lag calculator trapper tilter tag   # how they play
+uv run python scripts/measure_vs_tag.py fish --five-handed                       # one per seat
+uv run python scripts/measure_vs_tag.py exploiter --vs fish,lag,calculator,trapper,tilter
 ```
 
 ## Your own seats
