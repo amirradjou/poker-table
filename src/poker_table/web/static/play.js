@@ -22,7 +22,8 @@
   const PYODIDE_UNPACKED = 12_378_418;
   const DOWNLOAD = PYODIDE_SENT + WHEEL.bytes;
   const BEAT = 3000;  // ms to look at a hand's result before the next one is dealt
-  const MAX_BOTS = 5, DEFAULT_BOTS = 3;
+  // The bots to pick from, in the order they sit down (demo_play.BOTS, written by the export).
+  const { names: BOTS, default: DEFAULT_BOTS } = window.POKER_TABLE_PLAY_BOTS;
   const megabytes = (bytes) => `${(bytes / 1e6).toFixed(1)} MB`;
 
   // ---- the Play button and the bar under the header ----
@@ -42,7 +43,10 @@
     <div class="play-setup" id="play-setup">
       <strong>Sit down with the bots</strong>
       <span class="play-bots" role="group" aria-label="How many bots">Bots
-        ${Array.from({ length: MAX_BOTS }, (_, i) => `<button type="button" data-bots="${i + 1}" aria-pressed="${i + 1 === DEFAULT_BOTS}">${i + 1}</button>`).join("")}
+        ${BOTS.map((_, i) => `<button type="button" data-bots="${i + 1}" aria-pressed="${i + 1 === DEFAULT_BOTS}" title="The first ${i + 1}">${i + 1}</button>`).join("")}
+      </span>
+      <span class="play-pick" role="group" aria-label="Which bots">
+        ${BOTS.map((name, i) => `<button type="button" data-bot="${name}" aria-pressed="${i < DEFAULT_BOTS}">${name}</button>`).join("")}
       </span>
       <button type="button" class="primary" id="play-deal">Deal me in</button>
       <button type="button" id="play-later">Not now</button>
@@ -59,11 +63,24 @@
   document.body.insertBefore(bar, document.querySelector("main"));
   const $p = (id) => document.getElementById(id);
 
-  let bots = DEFAULT_BOTS;
+  // Who sits down: a number picks the first that many, and each name turns one bot on or off.
+  // They sit in the order of BOTS whatever the order of the clicks, so the first N are bots=N.
+  let bots = new Set(BOTS.slice(0, DEFAULT_BOTS));
+  function showPicked() {
+    const picked = BOTS.filter((name) => bots.has(name));
+    const prefix = picked.every((name, i) => name === BOTS[i]) ? picked.length : 0;
+    for (const b of bar.querySelectorAll("[data-bots]")) b.setAttribute("aria-pressed", +b.dataset.bots === prefix);
+    for (const b of bar.querySelectorAll("[data-bot]")) b.setAttribute("aria-pressed", bots.has(b.dataset.bot));
+  }
   for (const b of bar.querySelectorAll("[data-bots]")) {
+    b.onclick = () => { bots = new Set(BOTS.slice(0, +b.dataset.bots)); showPicked(); };
+  }
+  for (const b of bar.querySelectorAll("[data-bot]")) {
     b.onclick = () => {
-      bots = +b.dataset.bots;
-      for (const other of bar.querySelectorAll("[data-bots]")) other.setAttribute("aria-pressed", other === b);
+      const name = b.dataset.bot;
+      if (!bots.has(name)) bots.add(name);
+      else if (bots.size > 1) bots.delete(name);  // somebody has to sit across from you
+      showPicked();
     };
   }
   button.onclick = () => {
@@ -139,7 +156,7 @@
       // A new deal each visit; ?seed=N in the address deals that seed's hands instead.
       const wanted = Number.parseInt(new URLSearchParams(location.search).get("seed"), 10);
       const seed = wanted >= 0 ? wanted : crypto.getRandomValues(new Uint32Array(1))[0] % 99999 + 1;
-      const about = await call({ op: "open", table: { bots, seed } });
+      const about = await call({ op: "open", table: { bots: BOTS.filter((name) => bots.has(name)), seed } });
       hook.on = true;
       $p("play-setup").classList.add("hidden");
       button.classList.add("hidden");
