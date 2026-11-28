@@ -58,7 +58,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import measure_blueprint as measuring  # noqa: E402
 import train_blueprint as training  # noqa: E402
 
-from poker_table.agents.abstraction import FLOP, RIVER, TURN, number, quantize  # noqa: E402
+from poker_table.agents.abstraction import (  # noqa: E402
+    FLOP,
+    RIVER,
+    TURN,
+    Strategy,
+    number,
+    quantize,
+    read_strategy,
+)
 from poker_table.agents.blueprint import shipped  # noqa: E402
 from poker_table.solvers.cfr import (  # noqa: E402
     CHANCE,
@@ -72,7 +80,13 @@ from poker_table.solvers.cfr import (  # noqa: E402
     expected_value,
     regret_matching,
 )
-from poker_table.solvers.recall import coarsen, equity_groups, lift, with_recall  # noqa: E402
+from poker_table.solvers.recall import (  # noqa: E402
+    coarsen,
+    equity_groups,
+    lift,
+    remember_groups,
+    with_recall,
+)
 
 LIMIT_SECONDS = 30 * 60
 
@@ -87,12 +101,21 @@ def load() -> str:
     return out.strip().split("load average: ")[-1]
 
 
-def shipped_game() -> Game:
+def shipped_game(groups: int = 0) -> Game:
+    """The game the shipped file was trained in; ``groups`` keeps that many preflop groups
+    after the flop, the game ``train_blueprint.py --groups`` trains (format 2)."""
     strategy = shipped()
     _, game = training.build(measuring.chances(strategy.cards), strategy.betting)
     if [n.index for n in number(strategy.root)] != [n.index for n in game.decisions]:
         raise SystemExit("the tree is not the shipped strategy's")
+    if groups:
+        game = remember_groups(game, equity_groups(game, groups))
     return game
+
+
+def table_of(solver: CFRPlus) -> bytes:
+    """The solver's average, rounded and laid out as a strategy file's table."""
+    return b"".join(quantize(row) for rows in solver.average() for row in rows.tolist())
 
 
 def flat(arrays) -> np.ndarray:
@@ -127,15 +150,33 @@ def rounded(strategy) -> list[np.ndarray]:
 # ----- checkpoints ---------------------------------------------------------------------------
 
 
-def checkpoints(out: Path, iterations: int, at: list[int], minutes: float = 30) -> None:
+def checkpoints(
+    out: Path,
+    iterations: int,
+    at: list[int],
+    minutes: float = 30,
+    groups: int = 0,
+    like: Strategy | None = None,
+) -> None:
+    """CFR+ on the shipped game (``groups``: the format-2 game), saved at each of ``at``.
+
+    ``like`` is a strategy file trained in this game: when the run reaches that file's number of
+    iterations, its rounded average must be that file's table, or the run stops there."""
     started = time.monotonic()
     log(f"start, load {load()}")
-    game = shipped_game()
+    game = shipped_game(groups)
     solver = CFRPlus(game)
+    if like is not None and len(set(like.groups)) != groups:
+        raise SystemExit(f"--like has {len(set(like.groups))} preflop groups, not {groups}")
 
     def tick(n: int) -> None:
         if time.monotonic() - started > minutes * 60:
             raise SystemExit(f"stopped at iteration {n}: past {minutes:g} minutes")
+        if like is not None and n == like.header["iterations"]:
+            same = table_of(solver) == like.table
+            log(f"  iteration {n}: the rounded average is the --like file's table: {same}")
+            if not same:
+                raise SystemExit("this is not the game the --like file was trained in")
         if n in at:
             np.savez(
                 out / f"cfr-{n}.npz", weights=flat(solver.weights), regrets=flat(solver.regrets)
@@ -146,9 +187,8 @@ def checkpoints(out: Path, iterations: int, at: list[int], minutes: float = 30) 
     solver.run(iterations, tick)
     minutes = (time.monotonic() - started) / 60
     print(f"{iterations} iterations in {minutes:.1f} min, load {load()}")
-    if iterations == shipped().header["iterations"]:
-        table = b"".join(quantize(row) for rows in solver.average() for row in rows.tolist())
-        same = table == shipped().table
+    if not groups and iterations == shipped().header["iterations"]:
+        same = table_of(solver) == shipped().table
         print(f"the {iterations}-iteration average, rounded, is the shipped strategy: {same}")
         if not same:
             raise SystemExit("the saved chance model is not the game the shipped file came from")
@@ -174,9 +214,9 @@ def variant(folder: Path, name: str, like) -> list[np.ndarray]:
     return rounded(strategy) if rounding == "rounded" else strategy
 
 
-def measure(folder: Path, names: list[str]) -> None:
+def measure(folder: Path, names: list[str], groups: int = 0) -> None:
     log(f"start, load {load()}")
-    game = shipped_game()
+    game = shipped_game(groups)
     like = game.uniform()
     for name in names:
         started = time.monotonic()
@@ -423,9 +463,12 @@ def main() -> int:
     p.add_argument(
         "--minutes", type=float, default=30, help="stop past this; longer needs the owner's yes"
     )
+    p.add_argument("--groups", type=int, default=0, help="the format-2 game with G groups")
+    p.add_argument("--like", type=Path, help="a file trained in this game, checked on the way")
     p = sub.add_parser("measure", help="an exact best response against saved strategies")
     p.add_argument("folder", type=Path)
     p.add_argument("variants", nargs="+")
+    p.add_argument("--groups", type=int, default=0, help="the format-2 game with G groups")
     p = sub.add_parser("exploiter", help="an opponent with the same buckets, trained by CFR+")
     p.add_argument("folder", type=Path)
     p.add_argument("variants", nargs="+")
@@ -440,9 +483,10 @@ def main() -> int:
     args = parser.parse_args()
     if args.command == "checkpoints":
         at = [int(n) for n in args.at.split(",")]
-        checkpoints(args.out, args.iterations, at, args.minutes)
+        like = read_strategy(args.like.read_bytes()) if args.like else None
+        checkpoints(args.out, args.iterations, at, args.minutes, args.groups, like)
     elif args.command == "measure":
-        measure(args.folder, args.variants)
+        measure(args.folder, args.variants, args.groups)
     elif args.command == "exploiter":
         exploiter(args.folder, args.variants, [int(n) for n in args.at.split(",")])
     elif args.command == "recall":
