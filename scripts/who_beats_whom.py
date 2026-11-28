@@ -33,8 +33,8 @@ from poker_table.margins import seat_margins
 
 SEED = 2026
 HANDS = 2000
-# nash:pushfold is left out: at 100 big blinds it hands every spot to tag (docs/solver-seats.md),
-# so its row would be tag's again.
+# nash:pushfold is left out: at 100 big blinds it hands every spot to tag (its row in
+# docs/leaderboard-heads-up.md is tag's), so its row here would be tag's again.
 KINDS = ("tag", "rock", "exploiter", "maniac", "station", "random", "cfr:blueprint")
 
 
