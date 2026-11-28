@@ -33,6 +33,11 @@ const KINDS = {
   station: { glyph: "●", color: "#879b3f", label: "calling station" },
   random: { glyph: "⚄", color: "#9166c2", label: "random bot" },
   exploiter: { glyph: "♣", color: "#a8487a", label: "exploiter", about: "a tag that adapts to what it has seen of each opponent" },
+  fish: { glyph: "≈", color: "#56b4c9", label: "fish", about: "loose-passive: calls a lot, folds air to a bet, bets only top pair or better" },
+  lag: { glyph: "♦", color: "#d9603b", label: "lag", about: "loose-aggressive: opens and 3-bets wide, c-bets and barrels, folds to a raise" },
+  calculator: { glyph: "∑", color: "#6b6fd1", label: "calculator", about: "plays its equity against random hands, and never bluffs" },
+  trapper: { glyph: "◎", color: "#4f8f4f", label: "trapper", about: "a tag that slow-plays a strong flop and check-raises" },
+  tilter: { glyph: "♨", color: "#8a3324", label: "tilter", about: "a tag that plays like a maniac for a while after a big loss at showdown" },
   human: { glyph: "☺", color: "#caa24c", label: "human" },
   laya: { glyph: "◈", color: "#2f7fa3", label: "laya model", model: true },
   // Research seats link the paper their method follows.
