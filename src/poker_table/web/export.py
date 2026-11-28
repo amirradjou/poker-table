@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from poker_table.web.app import STATIC
-from poker_table.web.demo_play import BOTS, DEFAULT_BOTS
+from poker_table.web.demo_play import BOTS, DEFAULT_BOTS, MOST_BOTS
 from poker_table.web.payloads import (
     HandStore,
     bankroll_payload,
@@ -89,7 +89,7 @@ def export_site(
         page = page.replace("</head>", '<link rel="stylesheet" href="static/play.css">\n</head>')
         where = json.dumps({"url": f"play/{wheel.name}", "bytes": wheel.stat().st_size})
         # The bots the visitor can pick from, before Python has loaded to say so itself.
-        bots = json.dumps({"names": list(BOTS), "default": DEFAULT_BOTS})
+        bots = json.dumps({"names": list(BOTS), "default": DEFAULT_BOTS, "most": MOST_BOTS})
         page = page.replace(
             '<script src="static/app.js"></script>',
             '<script src="static/app.js"></script>\n'

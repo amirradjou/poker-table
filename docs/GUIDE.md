@@ -83,8 +83,9 @@ picks a secret one, because anyone who knows the seed knows every card.
 ### Play in the demo
 
 [The demo](https://amirradjou.github.io/poker-table/) opens on replays. Press **Play the bots**,
-pick who sits down (a number takes the first that many of tag, maniac, station, rock, random and
-exploiter; each name turns one bot on or off; tag, maniac and station if you don't), and press
+pick who sits down (a number takes the first that many of tag, maniac, station, rock, random,
+exploiter, fish, lag, calculator, trapper and tilter; each name turns one bot on or off, up to eight
+of them; tag, maniac and station if you don't), and press
 **Deal me in**: you get a live table in the page, with
 your cards, the buttons, your odds on your turn and a line from the coach after each hand. Finished
 hands go to the Hands list, and the Leaderboard and Coach tabs read them. The first time, the button

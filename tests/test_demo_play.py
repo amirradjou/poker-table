@@ -16,7 +16,14 @@ from poker_table.agents.base import Decision
 from poker_table.agents.human import HumanAgent
 from poker_table.cli import main
 from poker_table.history import HandHistory, parse_action, read_jsonl
-from poker_table.web.demo_play import BOTS, DemoTable, command, open_table, seats_for
+from poker_table.web.demo_play import (
+    BOTS,
+    MOST_BOTS,
+    DemoTable,
+    command,
+    open_table,
+    seats_for,
+)
 from poker_table.web.export import export_site
 
 SRC = Path(__file__).parents[1] / "src"
@@ -74,7 +81,7 @@ def dealt(history: HandHistory) -> dict[str, Any]:
 
 
 def test_the_demo_deals_and_plays_what_the_cli_does(tmp_path: Path, monkeypatch) -> None:
-    seats = seats_for(len(BOTS))
+    seats = seats_for(MOST_BOTS)
     cli = cli_hands(tmp_path, monkeypatch, seats, seed=21, hands=12)
     _, demo = demo_hands(tmp_path, seats, seed=21, hands=12)
     assert [dealt(h) for h in demo] == [dealt(h) for h in cli]
@@ -92,8 +99,17 @@ def test_an_exploiter_adapts_at_the_demo_table_as_it_does_in_the_cli(tmp_path, m
     assert methods == {"tag", "adjusted"}
 
 
+def test_the_newer_styles_play_at_the_demo_table_as_in_the_cli(tmp_path, monkeypatch) -> None:
+    # tilter and the others that read the table are shown each hand the demo deals, as the CLI does.
+    seats = ["you:human", *BOTS[6:]]
+    cli = cli_hands(tmp_path, monkeypatch, seats, seed=13, hands=30)
+    _, demo = demo_hands(tmp_path, seats, seed=13, hands=30)
+    assert [dealt(h) for h in demo] == [dealt(h) for h in cli]
+    assert {d.meta.get("method") for h in demo for d in h.decisions if d.seat == 3} == {"equity"}
+
+
 def test_a_table_of_bots_plays_out_as_the_cli_deals_it(tmp_path: Path, monkeypatch) -> None:
-    seats = list(BOTS)
+    seats = list(BOTS[: MOST_BOTS + 1])  # nine bots, as many seats as a visitor's table
     cli = cli_hands(tmp_path, monkeypatch, seats, seed=5, hands=10)
     table = DemoTable(seats, seed=5, hands=10, path=tmp_path / "bots.jsonl")
     table.run_out()
@@ -165,9 +181,9 @@ def test_the_page_routes_answer_as_the_server_does(tmp_path: Path) -> None:
 
 def test_seats_and_the_command_that_deals_the_same_hands() -> None:
     assert seats_for(1) == ["you:human", "tag"]
-    assert seats_for(6) == ["you:human", *BOTS]  # 5 and 6 before the exploiter joined
+    assert seats_for(MOST_BOTS) == ["you:human", *BOTS[:MOST_BOTS]]
     with pytest.raises(ValueError):
-        seats_for(7)
+        seats_for(MOST_BOTS + 1)
     assert (
         command(seats_for(3), 42)
         == "poker-table play --seed 42 --seats you:human,tag,maniac,station"
@@ -180,13 +196,15 @@ def test_new_bots_only_join_at_the_end() -> None:
     # Seats are seeded by position: the first N bots must be the ones they always were.
     assert BOTS[:5] == ("tag", "maniac", "station", "rock", "random")
     assert BOTS[5] == "exploiter"
+    assert BOTS[6:] == ("fish", "lag", "calculator", "trapper", "tilter")
 
 
 def test_a_visitor_picks_which_bots_sit_down(tmp_path: Path) -> None:
     # Picked in any order, they sit in the order of BOTS: picking the first N is bots=N.
     assert seats_for(["station", "tag", "maniac"]) == seats_for(3)
     assert seats_for(["exploiter", "rock"]) == ["you:human", "rock", "exploiter"]
-    for bad in ([], ["tag", "tag"], ["claude"], ["llm:claude-haiku-4-5"]):
+    assert seats_for(BOTS[-MOST_BOTS:])[1:] == list(BOTS[-MOST_BOTS:])  # any eight of them
+    for bad in ([], ["tag", "tag"], ["claude"], ["llm:claude-haiku-4-5"], list(BOTS)):
         with pytest.raises(ValueError):
             seats_for(bad)
     path = tmp_path / "t.jsonl"
@@ -211,7 +229,8 @@ def test_an_export_with_a_wheel_has_a_table_to_play(tmp_path: Path) -> None:
     page = (site / "index.html").read_text()
     where = '{"url": "play/poker_table-0.2.0-py3-none-any.whl", "bytes": 100}'
     assert f"window.POKER_TABLE_PLAY_WHEEL = {where};" in page
-    bots = json.dumps({"names": list(BOTS), "default": 3})  # the picker's, before Python loads
+    # the picker's, before Python loads
+    bots = json.dumps({"names": list(BOTS), "default": 3, "most": 8})
     assert f"window.POKER_TABLE_PLAY_BOTS = {bots};" in page
     assert page.index("static/app.js") < page.index("static/play.js")  # it uses app.js's viewer
     assert "static/play.css" in page

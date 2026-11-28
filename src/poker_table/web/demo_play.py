@@ -48,8 +48,21 @@ from poker_table.web.payloads import (
 
 # The order the bots sit down in. Seats are seeded by position, so a new bot only ever goes on
 # the end: the first N must stay the same for every N, or old seeds would deal other hands.
-BOTS = ("tag", "maniac", "station", "rock", "random", "exploiter")
+BOTS = (
+    "tag",
+    "maniac",
+    "station",
+    "rock",
+    "random",
+    "exploiter",
+    "fish",
+    "lag",
+    "calculator",
+    "trapper",
+    "tilter",
+)
 DEFAULT_BOTS = 3
+MOST_BOTS = 8  # you and at most eight bots: nine seats in all
 HANDS = 100  # what `poker-table play` deals when not told
 YOU = "you"
 PACE = 0.8  # seconds a bot "thinks" before it acts, as `serve --live` paces a table
@@ -68,8 +81,8 @@ def seats_for(bots: int | Sequence[str] = DEFAULT_BOTS) -> list[str]:
     or the ones named. Named bots sit in ``BOTS`` order, whatever order they were picked in, so
     picking the first three seats the table ``bots=3`` does."""
     if isinstance(bots, int):
-        if not 1 <= bots <= len(BOTS):
-            raise ValueError(f"the demo seats 1 to {len(BOTS)} bots, not {bots}")
+        if not 1 <= bots <= MOST_BOTS:
+            raise ValueError(f"the demo seats 1 to {MOST_BOTS} bots, not {bots}")
         return [f"{YOU}:human", *BOTS[:bots]]
     names = list(bots)
     unknown = [name for name in names if name not in BOTS]
@@ -77,6 +90,8 @@ def seats_for(bots: int | Sequence[str] = DEFAULT_BOTS) -> list[str]:
         raise ValueError(f"the demo has no bot {unknown[0]!r}; it has {', '.join(BOTS)}")
     if not names or len(set(names)) != len(names):
         raise ValueError("pick each bot at most once, and at least one")
+    if len(names) > MOST_BOTS:
+        raise ValueError(f"the demo seats at most {MOST_BOTS} bots, not {len(names)}")
     return [f"{YOU}:human", *(bot for bot in BOTS if bot in names)]
 
 
