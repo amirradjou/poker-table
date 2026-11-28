@@ -235,11 +235,11 @@ under 6 minutes on 12 cores, at a load average of about 4.
 
 | table | fish | lag | calculator | trapper | tilter |
 |---|---:|---:|---:|---:|---:|
-| vs tag | -14 ±46 | +36 ±29 | -65 ±77 | +1 ±5 | -16 ±25 |
+| vs tag | -14 ±46 | **+36 ±29** | -65 ±77 | +1 ±5 | -16 ±25 |
 | vs rock | +7 ±21 | +7 ±22 | +35 ±44 | -0 ±18 | -13 ±21 |
 | vs maniac | **+311 ±133** | **-293 ±113** | **+1050 ±190** | -5 ±75 | -42 ±124 |
 | vs station | **-137 ±36** | **+288 ±66** | +27 ±32 | **-48 ±14** | +3 ±18 |
-| five-handed | **+996 ±306** | -216 ±189 | **+585 ±230** | -22 ±121 | -209 ±217 |
+| five-handed | **+996 ±306** | **-216 ±189** | **+585 ±230** | -22 ±121 | -209 ±217 |
 
 The difference each seat makes against tag in its seat; in bold, the intervals clear of zero. The
 seats' own results, next to tag's (tag in seat 0 makes -19 ±31, +6 ±20, +238 ±98, +191 ±43 and
@@ -258,14 +258,16 @@ seats' own results, next to tag's (tag in seat 0 makes -19 ±31, +6 ±20, +238 �
 
 | prediction | held? |
 |---|---|
-| fish is not better than tag on any table | **No.** Against the maniac (+311 ±133) and five-handed (+996 ±306) it is. Most likely because it calls the maniac's bets with any pair or draw, where tag folds the weaker ones; these runs do not separate the causes. Against the station it is worse (-137 ±36): it never bets a weak pair for value. |
+| fish is not better than tag on any table | **No.** Against the maniac (+311 ±133) and five-handed (+996 ±306) it is. A likely reason, not a measured one: it calls the maniac's bets with any pair or draw, where tag folds the weaker ones. Against the station it is worse (-137 ±36); there it limps where tag raises, and bets top pair only 60% of the time where tag always does. |
 | lag beats tag against rock | **Not shown.** +7 ±22. |
-| lag loses to tag against the station | **No, the reverse.** +288 ±66. Its bluffs lose to the station, but it bets top pair and better every time where tag sometimes checks, and the station pays them; that is the likely reason, not a measured one. Against the maniac lag is worse (-293 ±113): it folds to the maniac's raises without a real hand. |
+| lag loses to tag against the station | **No, the reverse.** +288 ±66. It plays 41% of hands to tag's 17%, with bigger bets, and the station pays them all; that is the likely reason, not a measured one. Against the maniac lag is worse (-293 ±113), perhaps because it folds to the maniac's raises without top pair. |
 | calculator beats tag against the station and the maniac | **Against the maniac, yes** (+1050 ±190). Against the station not shown (+27 ±32). |
 | calculator loses to tag against rock | **Not shown.** +35 ±44, if anything the other way. |
 | trapper beats tag against the maniac | **Not shown.** -5 ±75. |
 | trapper loses to tag against the station | **Yes.** -48 ±14. |
 | tilter is no better than tag on any table | **Yes.** No interval is clear of zero; five-handed it is -209 ±217. |
+
+Not predicted: lag beat tag heads-up against tag (+36 ±29), and lost to it five-handed (-216 ±189).
 
 ### exploiter against them
 
@@ -290,7 +292,10 @@ which the reads call a caller, `thin_value` and `no_bluff` changed 28% of decisi
 nothing measurable (-22 ±62).
 
 What it does not show: one seed, scripted opponents with fixed styles, and the predictions were
-the owner's guesses, not tuned for. None of the five was changed after its numbers came in.
+the owner's guesses, not tuned for. No bot was changed after any bb/100 was seen. One was
+changed after a profile run: at first a loss while on tilt restarted `tilter`'s 15 hands, and on
+the five-handed table it was then on tilt in 88% of hands, a maniac in all but name. So a tilt now
+runs its 15 hands and ends.
 
 ```sh
 uv run python scripts/profile_seats.py fish lag calculator trapper tilter tag   # how they play
