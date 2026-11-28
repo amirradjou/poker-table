@@ -1,9 +1,10 @@
 """Train the cfr:blueprint seat's strategy and write src/poker_table/agents/data/blueprint.bin.
 
-    uv run python scripts/train_blueprint.py             # about 20 minutes on one core
+    uv run python scripts/train_blueprint.py             # the shipped file, under 30 minutes
     uv run python scripts/train_blueprint.py --check DIR     # a tiny run, for the tests
     uv run python scripts/train_blueprint.py --iterations 500 --reuse --out /tmp/bp500.bin
-    uv run python scripts/train_blueprint.py --groups 3 --reuse --out v2.bin --half v2-1000.bin
+    uv run python scripts/train_blueprint.py --reuse --out v2.bin --half v2-1000.bin
+    uv run python scripts/train_blueprint.py --groups 0 --reuse --out v1.bin    # version 1
 
 One fixed game: heads-up, 200-chip stacks, blinds 1/2, no ante (the table's defaults).
 
@@ -19,10 +20,11 @@ The chance model is also saved to ``--cache``, when no file is there yet, so
 scripts/measure_blueprint.py can compute the best response in exactly this abstract game without
 recounting it. An existing file is never written over.
 
-``--groups G`` trains the version whose states after the flop also keep one of G groups of the
-169 classes (``solvers/recall.py``, ``remember_groups``): the same game and the same chance
-model, with a little more memory. It writes format 2 of the strategy file. A format that is not
-the shipped one needs an explicit ``--out``, so an experiment never writes over the shipped file.
+The shipped file is version 2: after the flop its states also keep one of 3 groups of the 169
+classes (``solvers/recall.py``, ``remember_groups``), in the same game and the same chance model,
+with a little more memory. It is format 2 of the strategy file. ``--groups 0`` trains version 1,
+whose buckets forget (format 1, shipped up to v0.3.0). Groups that are not the shipped file's
+need an explicit ``--out``, so an experiment never writes over the shipped file.
 """
 
 from __future__ import annotations
@@ -69,7 +71,7 @@ QUANTILES = {
     RIVER: (0.15, 0.3, 0.45, 0.58, 0.7, 0.8, 0.87, 0.93, 0.97),
 }
 LIMIT_SECONDS = 30 * 60
-SHIPPED_GROUPS = 0  # the shipped file's preflop groups: 0 is format 1, buckets that forget
+SHIPPED_GROUPS = 3  # preflop groups the shipped file keeps after the flop (format 2); 0: format 1
 
 
 def log(text: str) -> None:
@@ -209,7 +211,7 @@ def main() -> int:
         "--groups",
         type=int,
         default=SHIPPED_GROUPS,
-        help="preflop groups kept after the flop (0: buckets that forget, format 1)",
+        help="preflop groups kept after the flop (default: the shipped 3; 0: format 1)",
     )
     parser.add_argument("--half", type=Path, help="also write the average at half the iterations")
     args = parser.parse_args()

@@ -189,4 +189,4 @@ paper for now); and frameworks (OpenSpiel, PokerRL, RLCard).
    the 200 bb format (`--stack 400` at blinds of 1/2).
 
 Trained strategy files too big for git go in release assets, as the plan says. The blueprint is
-128 KB, so it ships in the package.
+374 KB (version 2; version 1 was 128 KB), so it ships in the package.

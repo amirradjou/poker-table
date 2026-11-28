@@ -208,6 +208,15 @@ solved again during play. This seat is the first half only, on a far coarser gam
 it does no search while it plays. It links the CFR+ paper,
 [Tammelin 2014](https://arxiv.org/abs/1407.5042).
 
+**Which file it plays.** Since v0.4.0, version 2: after the flop it also remembers which of 3
+preflop groups its hand is in ([below](#version-2)). It is 373,683 bytes in
+`agents/data/blueprint.bin`, sha256 `a458be82ac2af4a2...`. Version 1, whose buckets forget
+everything from earlier streets, shipped up to v0.3.0. The training, the exploitability and the
+search for why that number rises, below, were measured on version 1. Its file comes back with
+`git show v0.3.0:src/poker_table/agents/data/blueprint.bin > v1.bin`. Version 2 was chosen after
+its numbers were seen, and one condition fixed before them is still not met; the end of the
+version 2 section says which.
+
 **The small game** (`agents/abstraction.py`):
 
 - **Stakes.** Heads-up, both players 200 chips, blinds 1/2, no ante: the table's defaults.
@@ -221,7 +230,9 @@ it does no search while it plays. It links the CFR+ paper,
   ties as a half), times whether the hand has a flush draw or an open-ended straight draw that
   uses a hole card. On the river, ten levels of strength. The cut points sit at fixed quantiles
   of strength over 400 seeded boards (flop 0.300, 0.552, 0.763, 0.916; river from 0.146 to
-  0.975). A street's bucket forgets the earlier ones, so the players have imperfect recall.
+  0.975). In version 1 a street's bucket forgets the earlier ones, so the players have
+  imperfect recall. Version 2 keeps one thing from before the flop, a group of the 169 classes,
+  and forgets the rest, so its recall is still imperfect.
 - **Chance.** How the 169 classes land in flop buckets is counted exactly, over every flop. How a
   pair of buckets moves to the turn and the river, and who wins a showdown between two buckets,
   is counted over every pair of hands on 4,000 seeded boards. An all-in before the flop uses the
@@ -239,21 +250,21 @@ and one of its known equilibria (the queen always checks first, the king bets th
 often as the jack). On Leduc hold'em, which has a second street and a public card, the
 exploitability falls from 0.61 after 10 iterations to 0.00004 after 3,000.
 
-**Training** (`scripts/train_blueprint.py`). 2,000 iterations, a fixed number, so the clock
-never decides what is written. On this laptop (12 cores, no GPU, shared with other jobs) one
-process took 18.3 minutes: 5.0 counting the chance model, 13.3 for CFR+, with a load average of
-2.0 when it started and 1.6 when it ended. A second run took 19.0 minutes (load 0.9 to 2.3).
-The run gives up without writing if it passes 30 minutes. The same seed gives the same file from
-any process: the second run, under another `PYTHONHASHSEED`, wrote the same bytes (sha256
-`a4f2a007b702a86c...`), and a test trains a small blueprint twice to check it. The strategy,
-every probability rounded to 1/255, is 128 KB in `agents/data/blueprint.bin` and ships in the
-wheel.
+**Training version 1** (`scripts/train_blueprint.py --groups 0`). 2,000 iterations, a fixed number,
+so the clock never decides what is written. On this laptop (12 cores, no GPU, shared with other
+jobs) one process took 18.3 minutes: 5.0 counting the chance model, 13.3 for CFR+, with a load
+average of 2.0 when it started and 1.6 when it ended. A second run took 19.0 minutes (load 0.9 to
+2.3). The run gives up without writing if it passes 30 minutes. The same seed gives the same file
+from any process: the second run, under another `PYTHONHASHSEED`, wrote the same bytes (sha256
+`a4f2a007b702a86c...`), and a test trains a small blueprint twice to check it. The strategy, every
+probability rounded to 1/255, was 128 KB in `agents/data/blueprint.bin` and shipped in the wheel up
+to v0.3.0.
 
-**Exploitability inside its small game** (`scripts/measure_blueprint.py`). An exact best
-response wins 441 mbb/hand against the shipped strategy, averaged over the two seats (508 as the
-small blind, 373 as the big blind). That opponent knows the strategy, sees its own buckets and,
-unlike the blueprint, remembers every bucket it has held. A uniform random strategy loses
-13,508 mbb/hand to the same opponent. Each measurement takes about 2.5 minutes (the load
+**Version 1's exploitability inside its small game** (`scripts/measure_blueprint.py --strategy
+v1.bin`). An exact best response wins 441 mbb/hand against version 1, averaged over the two seats
+(508 as the small blind, 373 as the big blind). That opponent knows the strategy, sees its own
+buckets and, unlike the blueprint, remembers every bucket it has held. A uniform random strategy
+loses 13,508 mbb/hand to the same opponent. Each measurement takes about 2.5 minutes (the load
 average was between 1 and 4 while they ran).
 
 More training did not lower that number. CFR+ was run again from the saved chance model, with
@@ -267,7 +278,7 @@ when it started and 2.9 when it ended). Each saved strategy was then measured th
 | 250 | 380 | 380 | 851 |
 | 500 | | 391 | |
 | 1,000 | | 426 | 545 |
-| 2,000 (shipped) | 441 | 440 | 458 |
+| 2,000 (version 1) | 441 | 440 | 458 |
 
 The average of iterations 1,001 to 2,000 alone (a delayed average) is 450.
 
@@ -277,7 +288,7 @@ docstring says which run tests each one, and what result would rule it out.
 - **Rounding: ruled out.** Rounding to 1/255 moves the number by less than 1 mbb/hand: 380.1
   unrounded and 379.7 rounded at 250 iterations, 440.1 and 440.8 at 2,000.
 - **A different game: ruled out.** Trained again from the saved chance model, the
-  2,000-iteration average rounds to the shipped strategy's table byte for byte, so the best
+  2,000-iteration average rounds to version 1's table byte for byte, so the best
   response plays the game that was trained. Made to play a fixed random strategy, the best response's walk
   values it at -0.060099167687 bb for the small blind, the same to 12 decimal places as
   `expected_value` and the trainer's own walk (`match`: 3.1 minutes, load 3.2 to 3.5). So all
@@ -294,9 +305,9 @@ docstring says which run tests each one, and what result would rule it out.
   2,000, so by then CFR+ plays strategies that a best response beats by about 450 mbb/hand,
   whichever of them is measured. The early average, a blend of early iterates, happens to be
   harder to exploit than that, and the average climbs as the early iterates lose weight. No
-  averaging tried beats the shipped one at 2,000.
-- **Imperfect recall: likely why that level is not zero; not shown on the shipped game.** The
-  same CFR+ and best response were run on two small games built from the shipped one, each
+  averaging tried beats version 1 at 2,000.
+- **Imperfect recall: likely why that level is not zero; not shown on version 1's game.** The
+  same CFR+ and best response were run on two small games built from version 1's game, each
   played twice on the same tree and chance model: once with buckets that forget, once with
   buckets that remember (`recall`). The groups merge the 169 classes by equity and the later
   streets' buckets by strength. A best response wins, in mbb/hand:
@@ -316,7 +327,7 @@ docstring says which run tests each one, and what result would rule it out.
 
 An opponent held to the blueprint's own buckets (it forgets too), trained by CFR+ against the
 fixed strategy (`exploiter`), wins at least 104 mbb/hand against the 250-iteration strategy and
-at least 41 against the shipped one: 40 after 400 of its own iterations and 41 after 1,200. The
+at least 41 against version 1: 40 after 400 of its own iterations and 41 after 1,200. The
 best response that remembers wins 380 and 441. The exploiter's numbers are lower bounds, since
 a better forgetting opponent may exist (3.2 minutes for each 400-iteration run, load 2.7 to
 3.9; 8.6 minutes for the 1,200, load 4.5 to 4.2).
@@ -330,7 +341,7 @@ What this leaves: the number rises because by 2,000 iterations CFR+ on this abst
 strategies that an opponent who remembers beats by about 450 mbb/hand, and the average starts
 below that level. It is not rounding, a mismatched game or a bug these checks would catch,
 and no other averaging does better. Why the level is not zero is likely imperfect recall, but on
-the shipped game that is not measured. The shipped strategy is the 2,000-iteration one as
+version 1's game that is not measured. Version 1 shipped as the 2,000-iteration strategy, as
 planned, not the least exploitable one: picking by this number would be tuning on the
 measurement.
 
@@ -354,22 +365,22 @@ time, load 1.1 to 9.2):
 The average of iterations 2,001 to 4,000 alone is 446.7. The average gains 2.7 mbb/hand over
 the extra 2,000 iterations, so it levels off, and the last iterate stops falling at about 457.
 CFR+ on this abstraction has settled between about 440 and 457: doubling the training did not
-bring the number down. The 4,000-iteration strategy is no less exploitable than the shipped one
-(443.8 rounded, against 441), so the blueprint stays as it is. A lower number is more likely to
+bring the number down. The 4,000-iteration strategy is no less exploitable than version 1
+(443.8 rounded, against 441), so version 1 stayed as it was. A lower number was more likely to
 come from a different abstraction, such as buckets that remember the earlier streets, than from
-more iterations.
+more iterations. Version 2 is that.
 
-**A version that keeps a preflop group: less exploitable, not shipped.** Version 2 keeps a
-little memory. After the flop its state is (preflop group, bucket), so it has 30 states a street
-instead of 10. The 169 classes are split into 3 groups by equity against a random hand. Each
-group is about a third of the deals: 62, 57 and 50 classes. Everything else is the shipped game:
-the same tree, buckets, payoffs and saved chance model. Chance never looks at the group. It is
-carried along as a label (`solvers/recall.py`, `remember_groups`), so only what the player
-remembers changes. The strategy file has a format 2 that lists the groups. The seat reads
+<a id="version-2"></a>**Version 2, which keeps a preflop group: less exploitable, shipped since
+v0.4.0.** Version 2 keeps a little memory. After the flop its state is (preflop group, bucket), so
+it has 30 states a street instead of 10. The 169 classes are split into 3 groups by equity against a
+random hand. Each group is about a third of the deals: 62, 57 and 50 classes. Everything else is
+version 1's game: the same tree, buckets, payoffs and saved chance model. Chance never looks at the
+group. It is carried along as a label (`solvers/recall.py`, `remember_groups`), so only what the
+player remembers changes. The strategy file has a format 2 that lists the groups. The seat reads
 formats 1 and 2 and refuses any other.
 
 Nothing was recounted, on purpose. Chances counted by (group, bucket) would make a different
-game, and its numbers would not compare with 441. In this game they do. The shipped strategy,
+game, and its numbers would not compare with 441. In this game they do. Version 1,
 lifted so that each (group, bucket) plays what its bucket plays, measures 440.8 mbb/hand (508.4
 as the small blind, 373.3 as the big blind). That is its number in its own game, to the last
 bit (`measure_blueprint.py --groups 3 --no-uniform`: 4.8 minutes, load 2.4 to 5.6; without
@@ -397,28 +408,28 @@ Five conditions to ship it were fixed before any v2 number was seen. They are in
 - **Heads-up track** (`compare_blueprints.py play v2.bin --out DIR`, then `compare_blueprints.py
   pair DIR`: 21 seconds, load 3.3). It is played into a scratch folder and paired with the
   published `hu-cfr-blueprint-*` hands: same seeds, same hole cards, all-in adjusted chips. A
-  replay of the shipped file paired to exactly zero in all 1,600 hands, so the bots and the decks
-  are as published. `pair` also prints each run on its own: v2 makes +164 ±94 bb/100 (tag +71,
-  rock +76, maniac +306, station +205), and the published hands give the shipped strategy's
-  +122 ±89 from the leaderboard.
-- **The file.** 373,683 bytes. The wheel packages `agents/data/blueprint.bin` (checked with the
-  shipped file), numpy is still only a dev dependency, and the tests play a format-1 and a
-  format-2 file with numpy blocked and refuse an unknown format.
+  replay of version 1's file, then published, paired to exactly zero in all 1,600 hands, so the
+  bots and the decks were as published. `pair` also prints each run on its own: v2 makes +164
+  ±94 bb/100 (tag +71, rock +76, maniac +306, station +205), and version 1's hands gave +122 ±89
+  from the leaderboard.
+- **The file.** 373,683 bytes. The wheel packages `agents/data/blueprint.bin` (checked with version
+  1's file, and again with version 2's for v0.4.0), numpy is still only a dev dependency, and the
+  tests play a format-1 and a format-2 file with numpy blocked and refuse an unknown format.
 
 So keeping a preflop group takes about 96 mbb/hand off what a best response wins (441 to 345),
-and the track shows no harm. But like the shipped strategy, its average gets more exploitable
+and the track shows no harm. But like version 1, its average gets more exploitable
 as it trains: 338.2 at 1,000 iterations, 345.3 at 2,000. The fixed conditions asked for no rise,
-so the shipped file stays as it is. Changing a condition after seeing the numbers would be
+so #50 left version 1 in place. Changing a condition after seeing the numbers would be
 tuning on the measurement. Not measured: a game whose chances are counted by (group, bucket).
 
 **Run on to 4,000 iterations, v2 levels off too.** The reading was written down before the run,
-with the shipped strategy's tolerance above: the average "levels off" if it ends within 10
+with version 1's tolerance above: the average "levels off" if it ends within 10
 mbb/hand of its value at 2,000. The run checked itself on the way: at 2,000 iterations its
 rounded average was v2's file, table for table (`checkpoints --groups 3 --like v2.bin`: 38.1
 minutes, load 0.8 when it started and 2.9 when it ended). A best response wins, in mbb/hand (each
 measurement 4 to 5 minutes, one at a time, load 1.6 to 5.0):
 
-| iterations | v2 average | the shipped strategy's average, from above |
+| iterations | v2 average | version 1's average, from above |
 |---:|---:|---:|
 | 2,000 | 344.8 | 440.1 |
 | 3,000 | 350.1 | 441.7 |
@@ -426,15 +437,28 @@ measurement 4 to 5 minutes, one at a time, load 1.6 to 5.0):
 
 It ends 6.8 above its value at 2,000, so it levels off. Its last iterate at 4,000 wins 374.8
 (479 as the small blind, 271 as the big blind), and the average of iterations 2,001 to 4,000 wins
-358.6. As with the shipped strategy, the average climbs toward iterates that sit above it, and
+358.6. As with version 1, the average climbs toward iterates that sit above it, and
 the climb slows (5.3, then 1.5). v2 stays 91 to 95 mbb/hand less exploitable at each checkpoint.
 
-None of this changes the shipped file. A 4,000-iteration file took 38 minutes, past the 30-minute
-rule. The 2,000-iteration file still fails the "not rising" condition fixed in #50. The shipped
-strategy itself would fail that condition: from 1,000 to 2,000 its average rose from 426 to 440,
-twice v2's rise of 338.2 to 345.3. It passes only the "levels off" reading. Whether v2 should
-be held to that reading instead is an open decision. Making it after seeing these numbers is what
-the fixed conditions exist to prevent, so this run does not make it.
+**The decision (2026-11-28).** The owner chose to ship v2 after seeing these numbers, under the
+"levels off" reading. The "not rising" condition fixed in #50 is still not met (338.2 at 1,000
+iterations, 345.3 at 2,000), and the table of conditions above keeps that "no". Version 1 would
+fail it too: from 1,000 to 2,000 its average rose from 426 to 440, twice v2's rise. The fixed
+conditions exist to stop a choice made after the numbers are in. This is one, recorded as that,
+not as a pass. The shipped file is the 2,000-iteration one from #50, the bytes both runs wrote,
+not the 4,000-iteration average: that took 38 minutes, past the 30-minute rule, and is no less
+exploitable.
+
+What it changes: a best response in the small game wins 345.3 mbb/hand against the seat instead
+of 441. The bare `measure_blueprint.py` now prints 345.3 (446.1 as the small blind, 244.6 as the
+big blind), and a uniform strategy loses 13,507.8 in this game, as in version 1's (9 minutes for
+both, load 2.5 to 2.1). What it does not show: that the seat plays better at the table. On the
+heads-up track, version 2 minus version 1, hand for hand, is +42.7 ±78.6 bb/100, an interval
+that covers zero.
+
+The default command, `train_blueprint.py` with no options, now trains version 2 and counts the
+chance model again. It wrote the same bytes in 22.4 minutes (load 1.5 when it started and 2.4 when
+it ended), under the 30-minute rule.
 
 **Where it plays, and what it does off its tree.**
 
@@ -454,29 +478,32 @@ the fixed conditions exist to prevent, so this run does not make it.
 - When that reading closes the betting while the table still asks the seat to act (a small bet
   read as a check), it calls. When the tree is all in and the table is not, it checks or calls
   to the end.
-- A raise past three a street hands the rest of the hand to tag. Against maniac that was 16 of
-  1,434 decisions; against the other bots none.
+- A raise past three a street hands the rest of the hand to tag. Against maniac that was 11 of
+  1,421 decisions, against tag and rock one each, and against station none.
 
 **Measured on the [heads-up track](leaderboard-heads-up.md)**: 400 hands against each bot, from
 seat 0 on the track's decks, at 100 bb.
 
 | entrant | all-in adj. bb/100 | ±95% | vs tag | vs rock | vs maniac | vs station | its own method |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| cfr:blueprint | +122 | 89 | +60 ±108 | +61 ±37 | +211 ±289 | +155 ±177 | 99.6% |
+| cfr:blueprint, version 2 | +164 | 94 | +71 ±109 | +76 ±82 | +306 ±310 | +205 ±162 | 99.7% |
+| version 1, up to v0.3.0 | +122 | 89 | +60 ±108 | +61 ±37 | +211 ±289 | +155 ±177 | 99.6% |
 | tag (reference) | +47 | 56 | -42 ±43 | -11 ±36 | +81 ±199 | +160 ±87 | - |
 
-Over all 1,600 hands it is clear of break-even, and its estimate is the highest on the board,
-though its interval overlaps tag's. Against tag alone it is too close to call: +60 with an
-interval of ±108 also covers losing. It beats rock clearly. Against maniac and station the intervals are too wide to say more than
-"probably wins". Against maniac about half its decisions came after translating a bet size its
-tree does not have (727 of 1,434), and 16 were tag's, after a raise past the cap. The rest of
-the board, with the other bots as entrants, is on the [heads-up leaderboard](leaderboard-heads-up.md).
+Over all 1,600 hands it is clear of break-even, though its interval overlaps tag's. Its estimate
+is second on the board, after the exploiter's +167. Against station alone it is clear. Against
+tag (+71 ±109), rock (+76 ±82) and maniac (+306 ±310) the intervals also cover losing. Version 1
+was clear against rock and not against station, but the track cannot tell the two apart: paired
+hand for hand, version 2 minus version 1 is +42.7 ±78.6. Against maniac about half its decisions
+came after translating a bet size its tree does not have (752 of 1,421), and 11 were tag's,
+after a raise past the cap. The rest of the board, with the other bots as entrants, is on the
+[heads-up leaderboard](leaderboard-heads-up.md).
 
 **What it is not.** Not Libratus, not Pluribus, and not close to their strength: no search
-during play, ten buckets a street, three bet sizes, imperfect recall, a chance model that
-forgets, and 2,000 iterations on one laptop core. Its exploitability
-is measured in its own small game; how much a best response would win in real hold'em is not
-known, and is surely more.
+during play, ten buckets a street (thirty with version 2's preflop group), three bet sizes,
+imperfect recall, a chance model that forgets, and 2,000 iterations on one laptop core. Its
+exploitability is measured in its own small game; how much a best response would win in real
+hold'em is not known, and is surely more.
 
 ## Rerun everything
 
@@ -484,11 +511,13 @@ known, and is surely more.
 uv run python scripts/solve_pushfold.py              # equities (13 min), then the chart
 uv run python scripts/solve_pushfold.py --compare    # the published-chart comparison
 uv run python scripts/measure_pushfold.py            # the short-stack table
-uv run python scripts/train_blueprint.py             # the blueprint
+uv run python scripts/train_blueprint.py             # the shipped blueprint, version 2
 uv run python scripts/measure_blueprint.py           # its exploitability in the abstract game
-uv run python scripts/train_blueprint.py --iterations 250 --reuse --out bp250.bin   # the trend (after
-uv run python scripts/measure_blueprint.py --strategy bp250.bin --no-uniform        # a full run): one row
-uv run python scripts/diagnose_blueprint.py checkpoints --out bp   # why it rises (after a full run)
+git show v0.3.0:src/poker_table/agents/data/blueprint.bin > v1.bin   # version 1, for the runs below
+uv run python scripts/measure_blueprint.py --strategy v1.bin         # 441
+uv run python scripts/train_blueprint.py --groups 0 --iterations 250 --reuse --out bp250.bin   # the trend
+uv run python scripts/measure_blueprint.py --strategy bp250.bin --no-uniform        # (after a full run): one row
+uv run python scripts/diagnose_blueprint.py checkpoints --like v1.bin --out bp   # why it rises (after a full run)
 uv run python scripts/diagnose_blueprint.py measure bp avg:250:rounded avg:250 avg:2000:rounded avg:2000 avg:60
 uv run python scripts/diagnose_blueprint.py measure bp current:250 current:2000 window:1000-2000 avg:1000 avg:500 current:1000
 uv run python scripts/diagnose_blueprint.py exploiter bp avg:250:rounded avg:2000:rounded
@@ -499,15 +528,15 @@ uv run python scripts/diagnose_blueprint.py recall --groups 6,2,1,2
 uv run python scripts/diagnose_blueprint.py recall --groups 3,2,2,3 --arms own-reach --no-check
 uv run python scripts/diagnose_blueprint.py checkpoints --out bp4000 --iterations 4000 --at 2000,2500,3000,3500,4000 --minutes 45
 uv run python scripts/diagnose_blueprint.py measure bp4000 avg:2500 avg:3000 avg:3500 avg:4000 avg:4000:rounded current:3000 current:4000 window:2000-4000
-uv run python scripts/measure_blueprint.py --groups 3 --no-uniform   # the shipped strategy in v2's game
-uv run python scripts/train_blueprint.py --groups 3 --reuse --out v2.bin --half v2-1000.bin   # v2
+uv run python scripts/measure_blueprint.py --strategy v1.bin --groups 3 --no-uniform   # version 1 in v2's game
+uv run python scripts/train_blueprint.py --reuse --out v2.bin --half v2-1000.bin   # v2: the shipped bytes
 uv run python scripts/measure_blueprint.py --strategy v2.bin --no-uniform
 uv run python scripts/measure_blueprint.py --strategy v2-1000.bin --no-uniform
 uv run python scripts/compare_blueprints.py play src/poker_table/agents/data/blueprint.bin --out replay
 uv run python scripts/compare_blueprints.py pair replay              # must be zero in every hand
-uv run python scripts/compare_blueprints.py play v2.bin --out v2-track
-uv run python scripts/compare_blueprints.py pair v2-track
-uv run python scripts/diagnose_blueprint.py checkpoints --groups 3 --like v2.bin --out bpv2 --iterations 4000 --at 1000,2000,3000,4000 --minutes 60
+uv run python scripts/compare_blueprints.py play v1.bin --out v1-track
+uv run python scripts/compare_blueprints.py pair v1-track            # version 1 minus version 2: -42.7 ±78.6
+uv run python scripts/diagnose_blueprint.py checkpoints --groups 3 --like src/poker_table/agents/data/blueprint.bin --out bpv2 --iterations 4000 --at 1000,2000,3000,4000 --minutes 60
 uv run python scripts/diagnose_blueprint.py measure --groups 3 bpv2 avg:2000 avg:3000 avg:4000 avg:4000:rounded current:4000 window:2000-4000
 uv run python scripts/run_heads_up_track.py          # the heads-up track, then the leaderboards
 uv run pytest -q tests/test_solvers.py               # Kuhn and Leduc
