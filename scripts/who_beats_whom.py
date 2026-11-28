@@ -35,7 +35,20 @@ SEED = 2026
 HANDS = 2000
 # nash:pushfold is left out: at 100 big blinds it hands every spot to tag (its row in
 # docs/leaderboard-heads-up.md is tag's), so its row here would be tag's again.
-KINDS = ("tag", "rock", "exploiter", "maniac", "station", "random", "cfr:blueprint")
+KINDS = (
+    "tag",
+    "rock",
+    "exploiter",
+    "maniac",
+    "station",
+    "random",
+    "fish",
+    "lag",
+    "calculator",
+    "trapper",
+    "tilter",
+    "cfr:blueprint",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,8 +152,9 @@ each match fills two cells, one the other's mirror. "Beats" and "loses to" count
 {grid(kinds, cells)}
 
 Rows are ordered by clear wins less clear losses, then by their average cell. The order says
-nothing where two rows' cells overlap. A bot that wins against one style and loses to another
-is the point of the grid: no row beats every style by the most.
+nothing where two rows' cells overlap. It is one seed and one match a pair, so a cell near the
+edge of its interval could fall the other way on another seed. `nash:pushfold` is left out: at
+100 big blinds it hands every spot to tag, so its row would be tag's again.
 
 Rerun it ({took:.0f} minutes here):
 

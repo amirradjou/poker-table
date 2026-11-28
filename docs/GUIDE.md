@@ -182,6 +182,9 @@ poker-table benchmark llm:nerd@ollama/qwen2.5:3b  # the fixed test behind the le
 poker-table verify results/bench-tag              # deal and play a results folder again
 ```
 
+How every bot does against every other, heads-up, with an interval on each cell:
+[docs/who-beats-whom.md](https://github.com/amirradjou/poker-table/blob/main/docs/who-beats-whom.md).
+
 A results folder has the hands, the settings and a report with error bars on every number:
 [docs/experiments.md](https://github.com/amirradjou/poker-table/blob/main/docs/experiments.md).
 With `tournaments = 12` in place of `hands` (the starter shows how), the same commands play
