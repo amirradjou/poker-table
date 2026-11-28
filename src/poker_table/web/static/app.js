@@ -330,11 +330,12 @@ function renderOdds() {
   el.innerHTML = html;
 }
 
+// ``at``: "start", "end", or a step number (a link's), kept inside the hand.
 async function openHand(id, { autoplay = false, at = "start", inReel = false } = {}) {
   if (inReel) clearAuto(); else stopAuto();
   hand = await api(`/api/hands/${id}`);
   hand.streaming = false;
-  step = at === "end" ? hand.steps.length : 0;
+  step = at === "end" ? hand.steps.length : typeof at === "number" ? Math.max(0, Math.min(hand.steps.length, at)) : 0;
   $("action-bar").classList.add("hidden");
   $("summary").classList.remove("hidden");
   for (const b of $("hand-list").querySelectorAll("button[data-id]")) b.setAttribute("aria-current", b.dataset.id === id);
@@ -348,7 +349,8 @@ async function openHand(id, { autoplay = false, at = "start", inReel = false } =
   buildSummary();
   render();
   loadOdds(id);
-  history.replaceState(null, "", `#${id}`);
+  writeLink();
+  if (step === 0) cue("deal");
   if (autoplay) startAuto();
 }
 
@@ -516,6 +518,8 @@ function render() {
     else if (bottom > log.scrollTop + log.clientHeight) log.scrollTop = bottom - log.clientHeight;
   } else log.scrollTop = 0;
   $("log").classList.toggle("no-think", !showThink);
+  $("copy-link").classList.toggle("hidden", !linkable());
+  $("save-picture").classList.toggle("hidden", !hand || hand.streaming || !!hand.drill);
   renderOdds();
 }
 
@@ -922,7 +926,7 @@ function beginLiveHand(h, mine) {
   liveActing = null;
   for (const k of Object.keys(lastDecision)) delete lastDecision[k];
   if (turn && turn.hand_id !== h.hand_id) turn = null;
-  if (follow) showLive();
+  if (follow) { showLive(); cue("deal"); }
 }
 function takeLiveStep(ev) {
   if (!liveHand || ev.hand_id !== liveHand.hand_id) return;
@@ -945,6 +949,7 @@ function takeLiveStep(ev) {
     if (s.table_talk) bubble(s.seat, s.table_talk);
   }
   if (watchingLive() && hand.hand_id === liveHand.hand_id) {
+    cueFor(liveHand.steps, liveHand.steps.length);
     step = liveHand.steps.length;
     $("scrub").max = step;
     $("log-list").appendChild(logItem(s));
@@ -1378,7 +1383,7 @@ function renderCoach(r) {
     const chips = Object.entries(leak.by_position).filter(([, [n]]) => n).map(([pos, [n, d]]) => `<span>${pos} ${n}/${d}</span>`).join("");
     const streets = Object.entries(leak.by_street).filter(([, [n]]) => n).map(([st, [n, d]]) => `<span class="street-chip">${st} ${n}/${d}</span>`).join("");
     const examples = leak.examples.slice(0, 6).map(e =>
-      `<li><a href="#${e.hand_id}" data-hand="${e.hand_id}" data-step="${e.step}">#${e.hand_id}</a><span class="where">${e.street} ${e.position}</span>${esc(e.detail)}</li>`).join("");
+      `<li><a href="${esc(linkHash(e.hand_id, e.step))}" data-hand="${e.hand_id}" data-step="${e.step}">#${e.hand_id}</a><span class="where">${e.street} ${e.position}</span>${esc(e.detail)}</li>`).join("");
     const note = coachNotes && coachNotes.notes.find(n => n.tag === leak.tag);
     const noteHtml = note ? `<div class="note">${esc(note.note)}<div class="do">Do this: ${esc(note.one_thing)}</div></div>` : "";
     const ids = leak.examples.map(e => e.hand_id).join(",");
@@ -1400,8 +1405,7 @@ function renderCoach(r) {
     a.onclick = async (e) => {
       e.preventDefault();
       setTab("hands");
-      await openHand(a.dataset.hand);
-      go(+a.dataset.step);
+      await openHand(a.dataset.hand, { at: +a.dataset.step });
     };
   }
   const ask = $("ask-claude");
@@ -1420,8 +1424,10 @@ function go(n) {
   n = Math.max(0, Math.min(hand.steps.length, n));
   const s = n === step + 1 ? hand.steps[n - 1] : null;  // stepping onto a line: let it speak
   if (s && s.kind === "action" && s.table_talk) bubble(s.seat, s.table_talk);
+  if (s) cueFor(hand.steps, n);
   step = n;
   render();
+  writeLinkSoon();
 }
 for (const id of ["first", "prev", "next", "last", "scrub"]) $(id).addEventListener("pointerdown", stopAuto);
 
@@ -1452,6 +1458,319 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "End") { e.preventDefault(); stopAuto(); go(Infinity); }
 });
 
+// ---- a link to a hand at a step: #hand=<id>&step=<n> ----
+// The older form, #<id>, still opens. A link leaves out ?seat=, which is a person's own key to
+// their seat at a table with friends, and is not offered for the hands a visitor plays in the
+// demo: those live only in their browser, and their numbers are the published hands' too.
+function linkHash(id, at) { return `#hand=${encodeURIComponent(id)}&step=${at}`; }
+function linkable() { return !!hand && !hand.streaming && !hand.drill && !playing(); }
+function handLink() {
+  const params = new URLSearchParams(location.search);
+  params.delete("seat");
+  const query = params.toString();
+  return `${location.origin}${location.pathname}${query ? `?${query}` : ""}${linkHash(hand.hand_id, step)}`;
+}
+function writeLink() {
+  if (linkable()) history.replaceState(null, "", linkHash(hand.hand_id, step));
+}
+// Stepping fast (a scrub, the autoplay) would rewrite the address many times a second, which
+// browsers throttle: the address follows a moment after the step instead.
+let linkTimer = null;
+function writeLinkSoon() {
+  clearTimeout(linkTimer);
+  linkTimer = setTimeout(writeLink, 200);
+}
+function readLink() {
+  const text = location.hash.slice(1);
+  if (!text.includes("=")) return { id: decodeURIComponent(text), at: 0 };
+  const params = new URLSearchParams(text);
+  const at = Number.parseInt(params.get("step"), 10);
+  return { id: params.get("hand") || "", at: at >= 0 ? at : 0 };
+}
+// A hand the file does not have opens the first one listed instead: asked for by id first,
+// so that a stale link costs no failed request.
+async function openLink(listed) {
+  const { id, at } = readLink();
+  const found = id ? (await api(`/api/hands?ids=${encodeURIComponent(id)}`)).hands : [];
+  if (found.some(h => h.hand_id === id)) return openHand(id, { at });
+  const first = listed && listed.length ? listed : (await api("/api/hands?offset=0&limit=1")).hands;
+  if (first.length) return openHand(first[0].hand_id);
+}
+window.addEventListener("hashchange", () => {
+  const { id, at } = readLink();
+  if (playing() || (hand && hand.hand_id === id && step === at)) return;
+  setTab("hands");
+  openLink(null).catch(() => {});
+});
+$("copy-link").onclick = async () => {
+  const button = $("copy-link"), link = handLink();
+  button.dataset.link = link;  // where it can be read back without the clipboard
+  writeLink();
+  let copied = false;
+  try {
+    await navigator.clipboard.writeText(link);
+    copied = true;
+  } catch {
+    // No clipboard here (a plain-http page, or permission refused): the address bar has it.
+  }
+  button.textContent = copied ? "Link copied" : "Link in the address bar";
+  clearTimeout(button.reset);
+  button.reset = setTimeout(() => { button.textContent = "Copy link"; }, 2000);
+};
+
+// ---- a picture of a hand: its result, drawn on a canvas and saved as a PNG ----
+// What the picture shows, apart from how it is drawn. Hole cards come only from the hand's
+// showdown: the file may know everyone's cards, but a picture shows only what was shown.
+function pictureModel(h) {
+  const shown = {}, folded = new Set(), won = {};
+  for (const e of h.steps) {
+    if (e.kind === "showdown") shown[e.seat] = e.cards;
+    if (e.kind === "action" && e.action === "fold") folded.add(e.seat);
+    if (e.kind === "win") won[e.seat] = (won[e.seat] || 0) + e.amount;
+  }
+  return {
+    id: h.hand_id,
+    title: `Hand #${h.hand_id}`,
+    sub: handSub(h),
+    board: h.board || [],
+    pot: (h.pots || []).reduce((sum, p) => sum + p.amount, 0),
+    button: h.button,
+    seats: h.players.map(p => ({
+      seat: p.seat,
+      name: p.name,
+      kind: kindInfo(p.kind),
+      position: p.position,
+      cards: shown[p.seat] || [null, null],
+      folded: folded.has(p.seat),
+      won: won[p.seat] || 0,
+      net: p.net,
+    })),
+    wins: h.steps.filter(e => e.kind === "win").map(e => ({ name: e.name, amount: e.amount, text: e.text })),
+  };
+}
+
+// The viewer's own colours, read from its stylesheet, so the picture matches the page.
+function themeColours() {
+  const css = getComputedStyle(document.documentElement);
+  const v = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
+  return {
+    room: v("--room", "#1c1713"), panel: v("--room-2", "#231d18"), line: v("--room-4", "#3a3129"),
+    ink: v("--ivory", "#eee5d3"), soft: v("--ivory-soft", "#a89d8b"), faint: v("--ivory-faint", "#958c80"),
+    brass: v("--brass", "#caa24c"), up: v("--up", "#86c79f"), down: v("--down", "#e5857a"),
+    baize: v("--baize", "#13663f"), baizeDeep: v("--baize-deep", "#0b442b"), leather: v("--leather", "#2b1812"),
+    card: v("--card", "#fbf8f1"), cardLine: v("--card-line", "#d6cdbb"),
+    red: v("--suit-red", "#c62a2f"), black: v("--suit-black", "#16171b"),
+  };
+}
+
+function roundRect(g, x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r);
+  g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r);
+  g.arcTo(x, y, x + w, y, r);
+  g.closePath();
+}
+function drawCard(g, c, x, y, w, colours) {
+  const h = w * 1.4;
+  roundRect(g, x, y, w, h, w * 0.12);
+  if (c === null) {  // face down: the viewer's red back, in plain stripes
+    g.fillStyle = "#7a2227"; g.fill();
+    g.save(); g.clip();
+    g.strokeStyle = "rgba(255, 230, 220, .18)"; g.lineWidth = 1;
+    for (let k = -h; k < w + h; k += 6) { g.beginPath(); g.moveTo(x + k, y); g.lineTo(x + k + h, y + h); g.stroke(); }
+    g.restore();
+    roundRect(g, x + 3, y + 3, w - 6, h - 6, w * 0.08);
+    g.strokeStyle = "#f4efe4"; g.lineWidth = 2; g.stroke();
+    return;
+  }
+  g.fillStyle = colours.card; g.fill();
+  g.strokeStyle = colours.cardLine; g.lineWidth = 1; g.stroke();
+  const rank = c[0] === "T" ? "10" : c[0], suit = c[1];
+  g.fillStyle = suit === "h" || suit === "d" ? colours.red : colours.black;
+  g.textAlign = "left"; g.textBaseline = "top";
+  g.font = `700 ${Math.round(w * 0.42)}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+  g.fillText(rank, x + w * 0.1, y + h * 0.06);
+  g.font = `${Math.round(w * 0.3)}px system-ui, sans-serif`;
+  g.fillText(SUITS[suit], x + w * 0.12, y + h * 0.42);
+  g.textAlign = "right"; g.textBaseline = "bottom";
+  g.font = `${Math.round(w * 0.6)}px system-ui, sans-serif`;
+  g.fillText(SUITS[suit], x + w * 0.93, y + h * 0.98);
+}
+
+const PICTURE = { w: 1200, h: 800, scale: 2 };
+function drawPicture(model) {
+  const { w: W, h: H, scale } = PICTURE, colours = themeColours();
+  const canvas = document.createElement("canvas");
+  canvas.width = W * scale; canvas.height = H * scale;
+  const g = canvas.getContext("2d");
+  g.scale(scale, scale);
+  const condensed = (weight, size) => `${weight} ${size}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+  g.fillStyle = colours.room; g.fillRect(0, 0, W, H);
+
+  // the title: which hand, at what stakes
+  g.textBaseline = "alphabetic"; g.textAlign = "left";
+  g.fillStyle = colours.ink; g.font = condensed(700, 40); g.fillText(model.title, 40, 62);
+  g.fillStyle = colours.soft; g.font = condensed(500, 22); g.fillText(model.sub, 40, 94);
+  g.textAlign = "right"; g.fillStyle = colours.brass; g.font = condensed(700, 26); g.fillText("♠ poker-table", W - 40, 62);
+
+  // the table
+  const cx = W / 2, cy = 380, rx = 430, ry = 215;
+  g.beginPath(); g.ellipse(cx, cy, rx + 26, ry + 26, 0, 0, 2 * Math.PI); g.fillStyle = colours.leather; g.fill();
+  const felt = g.createRadialGradient(cx, cy - 40, 40, cx, cy, rx);
+  felt.addColorStop(0, colours.baize); felt.addColorStop(1, colours.baizeDeep);
+  g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI); g.fillStyle = felt; g.fill();
+
+  // the board and the pot in the middle
+  const cw = 58, gap = 10;
+  const boardW = 5 * cw + 4 * gap;
+  model.board.forEach((c, i) => drawCard(g, c, cx - boardW / 2 + i * (cw + gap), cy - 30, cw, colours));
+  if (!model.board.length) {
+    g.textAlign = "center"; g.fillStyle = "rgba(255, 255, 255, .6)"; g.font = condensed(500, 22);
+    g.fillText("no flop", cx, cy + 20);
+  }
+  g.textAlign = "center"; g.fillStyle = colours.ink; g.font = condensed(600, 26);
+  g.fillText(`Pot ${model.pot}`, cx, cy - 46);
+
+  // the seats around the table, as the viewer places them: seat 0 at the bottom, clockwise
+  const n = model.seats.length;
+  model.seats.forEach((s, i) => {
+    const angle = Math.PI / 2 + (2 * Math.PI * i) / n;
+    const x = cx + (rx + 40) * Math.cos(angle), y = cy + (ry + 40) * Math.sin(angle);
+    const pw = 172, ph = 62, px = x - pw / 2, py = y - ph / 2;
+    g.globalAlpha = s.folded ? 0.55 : 1;
+    // hole cards on the table side of the plate
+    const hw = 38, holeY = y < cy ? py + ph + 4 : py - hw * 1.4 - 4;
+    s.cards.forEach((c, k) => drawCard(g, c, x - hw - 2 + k * (hw + 4), holeY, hw, colours));
+    roundRect(g, px, py, pw, ph, 10);
+    g.fillStyle = colours.panel; g.fill();
+    g.lineWidth = s.won ? 3 : 1; g.strokeStyle = s.won ? colours.brass : colours.line; g.stroke();
+    g.fillStyle = s.kind.color; g.fillRect(px, py + 8, 4, ph - 16);  // the seat's kind, as an edge
+    g.textAlign = "left"; g.fillStyle = colours.ink; g.font = condensed(600, 22);
+    g.fillText(fitText(g, s.name, 100), px + 14, py + 26);
+    g.fillStyle = colours.soft; g.font = condensed(500, 16);
+    g.fillText(fitText(g, `${s.position}${s.kind.label ? ` · ${s.kind.label}` : ""}`, pw - 24), px + 14, py + 50);
+    g.textAlign = "right"; g.font = condensed(700, 22);
+    g.fillStyle = s.net > 0 ? colours.up : s.net < 0 ? colours.down : colours.soft;
+    g.fillText(`${s.net > 0 ? "+" : ""}${s.net}`, px + pw - 12, py + 26);
+    if (i === model.button) {
+      g.beginPath(); g.arc(px + pw + 14, py + 14, 11, 0, 2 * Math.PI); g.fillStyle = colours.card; g.fill();
+      g.textAlign = "center"; g.fillStyle = colours.black; g.font = condensed(700, 14); g.fillText("D", px + pw + 14, py + 19);
+    }
+    g.globalAlpha = 1;
+  });
+
+  // who won what, under the table
+  g.textAlign = "left"; g.font = condensed(600, 22);
+  let line = 692;
+  for (const win of model.wins.slice(0, 3)) {
+    g.fillStyle = colours.brass; g.fillText(`${win.name} wins ${win.amount}`, 40, line);
+    const lead = g.measureText(`${win.name} wins ${win.amount}`).width;
+    g.fillStyle = colours.soft; g.font = condensed(500, 20);
+    g.fillText(fitText(g, `  ${win.text}`, W - 120 - lead), 40 + lead, line);
+    g.font = condensed(600, 22);
+    line += 30;
+  }
+  g.textAlign = "right"; g.fillStyle = colours.faint; g.font = condensed(500, 16);
+  g.fillText("Cards nobody showed are face down.", W - 40, H - 22);
+  return canvas;
+}
+function fitText(g, text, width) {
+  if (g.measureText(text).width <= width) return text;
+  let cut = text;
+  while (cut.length > 1 && g.measureText(`${cut}…`).width > width) cut = cut.slice(0, -1);
+  return `${cut}…`;
+}
+$("save-picture").onclick = async () => {
+  if (!hand || hand.streaming || hand.drill) return;
+  await document.fonts.ready;  // the names are drawn in the page's own fonts
+  const canvas = drawPicture(pictureModel(hand));
+  canvas.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url; a.download = `poker-table-hand-${fileId(hand.hand_id)}.png`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  }, "image/png");
+};
+
+// ---- sound: short cues made on the spot with WebAudio, off until the visitor turns them on ----
+// Nothing is made before then: no AudioContext exists until the switch is on and the page has
+// had a click or a key (a browser lets no page start sound before that).
+const SOUND_KEY = "poker-table.sound";
+let soundOn = false, audio = null, touched = false;
+try { soundOn = localStorage.getItem(SOUND_KEY) === "on"; } catch { soundOn = false; }
+$("toggle-sound").setAttribute("aria-pressed", soundOn);
+for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => { touched = true; }, { capture: true, once: true });
+$("toggle-sound").onclick = (e) => {
+  soundOn = !soundOn;
+  e.currentTarget.setAttribute("aria-pressed", soundOn);
+  try { localStorage.setItem(SOUND_KEY, soundOn ? "on" : "off"); } catch { /* remembered for this visit only */ }
+  if (soundOn) cue("check");  // so that turning it on says it is on
+};
+function audioContext() {
+  if (!audio) {
+    const Context = window.AudioContext || window.webkitAudioContext;
+    if (!Context) return null;
+    audio = new Context();
+  }
+  if (audio.state === "suspended") audio.resume().catch(() => {});
+  return audio;
+}
+// One short tone: a frequency (or a slide from one to another), a length, a loudness.
+function tone(ctx, at, { type = "sine", from, to = from, length, gain }) {
+  const osc = ctx.createOscillator(), amp = ctx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(from, at);
+  osc.frequency.exponentialRampToValueAtTime(to, at + length);
+  amp.gain.setValueAtTime(gain, at);
+  amp.gain.exponentialRampToValueAtTime(0.0001, at + length);
+  osc.connect(amp).connect(ctx.destination);
+  osc.start(at); osc.stop(at + length + 0.02);
+}
+// A burst of filtered noise: a card sliding over the felt.
+function swish(ctx, at, { length, from, to, gain }) {
+  const buffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * length), ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+  const src = ctx.createBufferSource(), filter = ctx.createBiquadFilter(), amp = ctx.createGain();
+  src.buffer = buffer;
+  filter.type = "bandpass"; filter.Q.value = 1.2;
+  filter.frequency.setValueAtTime(from, at);
+  filter.frequency.exponentialRampToValueAtTime(to, at + length);
+  amp.gain.setValueAtTime(gain, at);
+  src.connect(filter).connect(amp).connect(ctx.destination);
+  src.start(at);
+}
+const CUES = {
+  deal: (ctx, t) => { swish(ctx, t, { length: 0.09, from: 2500, to: 5000, gain: 0.5 }); swish(ctx, t + 0.11, { length: 0.09, from: 2500, to: 5000, gain: 0.5 }); },
+  chips: (ctx, t) => { for (const [d, f] of [[0, 2600], [0.05, 3100], [0.1, 2800]]) tone(ctx, t + d, { type: "triangle", from: f, length: 0.05, gain: 0.12 }); },
+  chip: (ctx, t) => tone(ctx, t, { type: "triangle", from: 2900, length: 0.05, gain: 0.12 }),
+  check: (ctx, t) => { tone(ctx, t, { from: 190, to: 90, length: 0.09, gain: 0.45 }); tone(ctx, t + 0.12, { from: 190, to: 90, length: 0.09, gain: 0.35 }); },
+  fold: (ctx, t) => swish(ctx, t, { length: 0.22, from: 1800, to: 500, gain: 0.35 }),
+  pot: (ctx, t) => { [523, 659, 784, 1047].forEach((f, k) => tone(ctx, t + k * 0.08, { type: "triangle", from: f, length: 0.25, gain: 0.12 })); },
+};
+function cue(name) {
+  if (!soundOn || !touched) return;
+  try {
+    const ctx = audioContext();
+    if (ctx) CUES[name](ctx, ctx.currentTime + 0.01);
+  } catch { /* sound is a nicety: it never stops the table */ }
+}
+// The cue for the n-th step of a hand, when the table has just moved onto it. A call is one
+// chip; several wins in a row (side pots) are one sound.
+function cueFor(steps, n) {
+  const e = steps[n - 1];
+  if (!e) return;
+  if (e.kind === "street") cue("deal");
+  else if (e.kind === "win" && !(steps[n - 2] && steps[n - 2].kind === "win")) cue("pot");
+  else if (e.kind === "action") {
+    const what = e.action.split(" ")[0];
+    cue(what === "fold" ? "fold" : what === "check" ? "check" : what === "call" ? "chip" : "chips");
+  }
+}
+
 if (STATIC) $("tab-drill").classList.add("hidden");  // drills record answers; a file cannot
 
 (async () => {
@@ -1462,8 +1781,7 @@ if (STATIC) $("tab-drill").classList.add("hidden");  // drills record answers; a
     return;
   }
   const first = await loadList(true);
-  const wanted = location.hash.slice(1);
-  if (wanted) openHand(wanted).catch(() => {});
+  if (location.hash.length > 1) openLink(first).catch(() => {});
   else if (STATIC && first.length) {
     // A published demo opens on a hand worth watching: the biggest pot that was shown down.
     const shown = first.filter(h => h.showdown).sort((a, b) => b.pot - a.pot);

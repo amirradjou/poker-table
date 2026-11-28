@@ -345,6 +345,9 @@ section.hand { padding: 0; }
 .switch:hover { background: var(--room-3); color: var(--ivory-soft); }
 .switch[aria-pressed="true"] { color: var(--ivory); }
 .switch[aria-pressed="true"]::before { background: var(--brass); box-shadow: 0 0 8px rgba(202, 162, 76, .7); }
+.share { display: flex; gap: 4px; }
+.share button { padding: 4px 11px; border-radius: 999px; font-size: 14px; background: none; color: var(--ivory-soft); white-space: nowrap; }
+.share button:hover { color: var(--ivory); }
 .controls .pace-wrap { display: inline-flex; align-items: center; gap: 8px; color: var(--ivory-soft); font-size: 14px; }
 .controls .pace-wrap input { width: 90px; }
 

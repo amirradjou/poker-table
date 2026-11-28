@@ -102,6 +102,11 @@
         <div class="switches">
           <button class="switch" id="toggle-cards" aria-pressed="true" title="Everyone's hole cards, and the win chances that need them">All cards</button>
           <button class="switch" id="toggle-odds" aria-pressed="true" title="Win chances, outs and pot odds at each decision">Odds</button>
+          <button class="switch" id="toggle-sound" aria-pressed="false" title="Short sounds for the deal, bets, checks, folds and the pot">Sound</button>
+        </div>
+        <div class="share" id="share">
+          <button type="button" id="copy-link" title="Copy a link to this hand at this step">Copy link</button>
+          <button type="button" id="save-picture" title="Download a picture of this hand's result">Save picture</button>
         </div>
         <label class="pace-wrap hidden" id="pace-wrap" title="Seconds between bot decisions">Pace
           <input type="range" id="pace" min="0.2" max="3" step="0.1" value="0.8"><span id="pace-value">0.8 s</span></label>
